@@ -51,10 +51,14 @@ https://github.com/elabuelo92/distribuidora-lopez-erp
 - El repositorio no incluye datos productivos, claves privadas, backups, APKs ni archivos temporales.
 - No borrar la copia local hasta completar pruebas reales y confirmar backups.
 
-## Proximo paso
+## APK para pruebas
 
-Recompilar o reconfigurar las APK para que consuman:
+APK generada:
+
+`C:\DistribuidoraLopez\SERVIDOR_UNICO_8790\android-apk\out\DL-Preventa-V88-VULTR-HTTPS.apk`
+
+URL embebida:
 
 https://distribuidora-lopez.216-128-169-34.sslip.io
 
-Las APK antiguas pueden seguir intentando conectar contra IPs o hosts anteriores.
+Las APK antiguas pueden seguir intentando conectar contra IPs o hosts anteriores. Para pruebas limpias en telefonos, instalar esta APK v88 o borrar datos de la app anterior antes de abrirla.
