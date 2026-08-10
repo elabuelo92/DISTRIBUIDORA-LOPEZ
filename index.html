@@ -1,0 +1,3603 @@
+﻿<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Distribuidora Lopez - Demo</title>
+    <meta name="theme-color" content="#11252b">
+    <meta name="description" content="Demo movil de preventa para Distribuidora Lopez">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="DL Preventa">
+    <link rel="manifest" href="manifest.json?v=8790-88-r20260808">
+    <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
+    <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
+    <link rel="stylesheet" href="styles.css?v=8790-88-r20260808">
+  </head>
+  <body>
+    <section class="login-screen" id="loginScreen" hidden>
+      <form class="login-card" id="loginForm">
+        <div class="brand login-brand">
+          <img class="brand-logo brand-logo-login" src="icons/logo-distribuidora-lopez-512.png" alt="Distribuidora Lopez">
+          <div>
+            <strong>Distribuidora Lopez</strong>
+            <span>Acceso al sistema</span>
+          </div>
+        </div>
+        <label>
+          Usuario
+          <input name="username" autocomplete="username" required placeholder="Ej: admin1">
+        </label>
+        <label>
+          Clave
+          <span class="password-field">
+            <input id="loginPassword" name="password" autocomplete="current-password" required type="password" placeholder="Clave de acceso">
+            <button class="icon-btn password-toggle" id="toggleLoginPasswordBtn" type="button" aria-label="Mostrar clave" title="Mostrar clave">&#128065;</button>
+          </span>
+        </label>
+        <p class="login-message" id="loginMessage"></p>
+        <button class="primary-btn" id="loginSubmitBtn" type="submit">Ingresar</button>
+        <div class="login-tools" aria-label="Ayuda de ingreso">
+          <button class="link-btn" id="viewLegalBeforeLoginBtn" type="button">Terminos legales</button>
+          <button class="link-btn" id="passwordRecoveryBtn" type="button">Olvide mi clave</button>
+          <button class="link-btn" id="loginSupportBtn" type="button">Soporte WhatsApp</button>
+        </div>
+        <div class="login-developer-signature">
+          <img class="developer-logo-mini" src="icons/grupo-rocha-solutions.png" alt="Grupo Rocha Solutions">
+          <div>
+            <span>Sistema desarrollado por Grupo Rocha Solutions</span>
+            <button class="link-btn" type="button" data-support-whatsapp>Soporte Tecnico</button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <dialog id="passwordRecoveryDialog">
+      <form method="dialog" id="passwordRecoveryForm" class="modal-card recovery-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">ACCESO</p>
+            <h2>Recupero de clave</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <p class="form-help">Ingresar el usuario. El pedido queda registrado para que administracion o soporte tecnico restablezca la clave.</p>
+        <label>
+          Usuario
+          <input name="username" autocomplete="username" required placeholder="Ej: carlos">
+        </label>
+        <p class="login-message" id="passwordRecoveryMessage"></p>
+        <div class="form-actions">
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" id="passwordRecoverySubmitBtn" type="submit">Solicitar recupero</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="legalAcceptanceDialog">
+      <form id="legalAcceptanceForm" class="modal-card legal-acceptance-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">USO DEL SISTEMA</p>
+            <h2 id="legalAcceptanceTitle">Terminos legales</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <div class="legal-meta" id="legalAcceptanceMeta"></div>
+        <div class="legal-scroll" id="legalAcceptanceBody"></div>
+        <label class="legal-accept-check">
+          <input id="legalAcceptCheckbox" type="checkbox" required>
+          <span>Acepto los Terminos y Condiciones, Licencia de Uso, Politica de Privacidad, Tratamiento de Datos Personales y Uso del GPS.</span>
+        </label>
+        <div class="form-actions">
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" id="legalAcceptSubmitBtn" type="submit" disabled>Aceptar e ingresar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="app-shell" id="appShell" hidden>
+      <aside class="sidebar" aria-label="Navegacion principal">
+        <div class="brand">
+          <img class="brand-logo" src="icons/logo-distribuidora-lopez-192.png" alt="Distribuidora Lopez">
+          <div>
+            <strong>Distribuidora Lopez</strong>
+            <span>Gestion integrada</span>
+          </div>
+        </div>
+
+        <nav class="nav-list">
+          <button class="nav-item active" data-view="dashboard"><span class="icon" aria-hidden="true">[ ]</span>Tablero</button>
+          <button class="nav-item" data-view="preventa"><span class="icon" aria-hidden="true">CEL</span>Preventa</button>
+          <button class="nav-item" data-view="pedidos"><span class="icon" aria-hidden="true">PED</span>Pedidos</button>
+          <button class="nav-item" data-view="armado"><span class="icon" aria-hidden="true">ARM</span>Armado / Deposito</button>
+          <button class="nav-item" data-view="reparto"><span class="icon" aria-hidden="true">RUT</span>Reparto</button>
+          <button class="nav-item" data-view="clientes"><span class="icon" aria-hidden="true">@</span>Clientes</button>
+          <button class="nav-item" data-view="cuentas"><span class="icon" aria-hidden="true">$</span>Cuentas</button>
+          <button class="nav-item" data-view="stock"><span class="icon" aria-hidden="true">STK</span>Stock e Inventario</button>
+          <button class="nav-item admin-only" data-view="control-stock"><span class="icon" aria-hidden="true">INV</span>Control fisico</button>
+          <button class="nav-item admin-only" data-view="precios"><span class="icon" aria-hidden="true">LST</span>Precios</button>
+          <button class="nav-item admin-only" data-view="comisiones"><span class="icon" aria-hidden="true">COM</span>Comisiones</button>
+          <button class="nav-item" data-view="proveedores"><span class="icon" aria-hidden="true">PRV</span>Proveedores</button>
+          <button class="nav-item" data-view="estadisticas"><span class="icon" aria-hidden="true">EST</span>Estadisticas</button>
+          <button class="nav-item admin-only" data-view="diagnostico"><span class="icon" aria-hidden="true">DIA</span>Diagnostico</button>
+          <button class="nav-item" data-view="legal"><span class="icon" aria-hidden="true">LEG</span>Legal</button>
+          <button class="nav-item" data-view="ayuda"><span class="icon" aria-hidden="true">?</span>Ayuda</button>
+          <button class="nav-item" data-view="acerca"><span class="icon" aria-hidden="true">i</span>Acerca</button>
+          <button class="nav-item" data-view="admin"><span class="icon" aria-hidden="true">ADM</span>Admin</button>
+        </nav>
+
+        <div class="sidebar-note">
+          <span>Demo viernes</span>
+          <strong>Del Excel a un sistema unico</strong>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div class="topbar-title">
+            <img class="topbar-logo" src="icons/logo-distribuidora-lopez-192.png" alt="Distribuidora Lopez">
+            <div>
+              <p class="eyebrow">Sistema para distribuidora mayorista</p>
+              <h1 id="viewTitle">Tablero general</h1>
+            </div>
+          </div>
+          <div class="topbar-actions">
+            <div class="session-pill">
+              <strong id="sessionUserName">Usuario</strong>
+              <span id="sessionUserRole">Rol</span>
+            </div>
+            <button class="ghost-btn app-back-btn" id="appBackBtn" type="button">Volver</button>
+            <button class="notification-btn" type="button" data-open-notifications aria-expanded="false">
+              Avisos
+              <strong class="notification-badge" data-notification-badge hidden>0</strong>
+            </button>
+            <button class="ghost-btn" id="openContextHelpBtn" type="button">Ayuda</button>
+            <button class="whatsapp-btn" type="button" data-support-whatsapp aria-label="Soporte WhatsApp">WhatsApp</button>
+            <button class="ghost-btn" id="logoutBtn" type="button">Cerrar sesion</button>
+            <button class="primary-btn admin-only" id="newOrderBtn" type="button">Nuevo pedido</button>
+          </div>
+        </header>
+
+        <div class="mobile-session-bar">
+          <div class="mobile-session-user">
+            <span id="mobileSessionRole">Sesion</span>
+            <strong id="mobileSessionName">Usuario</strong>
+          </div>
+          <button class="ghost-btn compact app-back-btn" id="mobileBackBtn" type="button">Volver</button>
+          <button class="notification-btn compact" type="button" data-open-notifications aria-expanded="false">
+            Avisos
+            <strong class="notification-badge" data-notification-badge hidden>0</strong>
+          </button>
+          <button class="ghost-btn compact" id="mobileContextHelpBtn" type="button">Ayuda</button>
+          <button class="whatsapp-btn" type="button" data-support-whatsapp aria-label="Soporte WhatsApp">WhatsApp</button>
+          <button class="ghost-btn" id="mobileLogoutBtn" type="button">Salir</button>
+        </div>
+
+        <section class="view active" id="dashboard">
+          <div class="developer-home-badge">
+            <img src="icons/grupo-rocha-solutions.png" alt="Grupo Rocha Solutions">
+            <span>Powered by Grupo Rocha Solutions</span>
+          </div>
+          <div class="metrics-grid" id="metricsGrid"></div>
+          <div class="dashboard-insights" id="dashboardInsights"></div>
+          <div class="dashboard-grid">
+            <section class="panel wide">
+              <div class="panel-header">
+                <div>
+                  <h2>Dashboard Operativo</h2>
+                  <p>Pedidos, caja, deuda, transferencias y demoras en tiempo real</p>
+                </div>
+              </div>
+              <div class="flow-grid" id="flowGrid"></div>
+            </section>
+            <section class="panel wide live-presence-panel admin-only">
+              <div class="panel-header">
+                <div>
+                  <h2>Mapa general en vivo</h2>
+                  <p>Vendedores y repartidores conectados con GPS real del dispositivo</p>
+                </div>
+                <div class="presence-live-summary" id="dashboardPresenceSummary"></div>
+              </div>
+              <div class="presence-map-filters" id="dashboardPresenceFilters"></div>
+              <div class="dashboard-live-map-layout">
+                <div class="route-map dashboard-live-map" id="dashboardLivePresenceMap" role="region" aria-label="Mapa general de vendedores y repartidores"></div>
+                <div class="route-list dashboard-live-list" id="dashboardLivePresenceList"></div>
+              </div>
+            </section>
+            <section class="panel wide gps-daily-routes-panel admin-only" id="gpsDailyRoutesPanel">
+              <div class="panel-header">
+                <div>
+                  <h2>Recorridos de jornada</h2>
+                  <p>Control diario de vendedores y repartidores entre las 7:00 y las 22:00</p>
+                </div>
+                <div class="table-actions">
+                  <button class="secondary-btn" id="refreshGpsDailyRoutesBtn" type="button">Actualizar recorrido</button>
+                  <button class="secondary-btn" id="exportGpsDailyRoutesCsvBtn" type="button">Exportar CSV</button>
+                  <button class="ghost-btn" id="printGpsDailyRoutesBtn" type="button">Imprimir hoja</button>
+                </div>
+              </div>
+              <div class="data-filter-bar gps-route-filter-bar">
+                <label>
+                  Fecha
+                  <input id="gpsRouteReportDate" type="date">
+                </label>
+                <label>
+                  Rol
+                  <select id="gpsRouteRoleFilter">
+                    <option value="">Vendedores y repartidores</option>
+                    <option value="seller">Solo vendedores</option>
+                    <option value="driver">Solo repartidores</option>
+                  </select>
+                </label>
+                <label>
+                  Desde
+                  <input id="gpsRouteStartHour" type="number" min="0" max="23" step="1">
+                </label>
+                <label>
+                  Hasta
+                  <input id="gpsRouteEndHour" type="number" min="1" max="24" step="1">
+                </label>
+              </div>
+              <div class="session-summary" id="gpsDailyRoutesSummary"></div>
+              <div class="gps-route-list" id="gpsDailyRoutesList"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Alertas operativas</h2>
+                  <p>Primeras 4 alertas por maxima urgencia</p>
+                </div>
+              </div>
+              <div class="alert-list" id="alertsList"></div>
+            </section>
+            <section class="panel wide">
+              <details class="dashboard-details">
+                <summary>
+                  <span>
+                    <strong>Actividad reciente</strong>
+                    <small>Pedidos, cobros, compras y transferencias</small>
+                  </span>
+                  <b>Ver detalle</b>
+                </summary>
+                <div class="activity-list compact" id="activityList"></div>
+              </details>
+            </section>
+            <section class="panel">
+              <details class="dashboard-details">
+                <summary>
+                  <span>
+                    <strong>Comisiones</strong>
+                    <small>Liquidacion por vendedor</small>
+                  </span>
+                  <b>Ver vendedores</b>
+                </summary>
+                <div class="commission-list compact" id="commissionList"></div>
+              </details>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="preventa">
+          <div class="preventa-layout">
+            <section class="phone-frame seller-app" aria-label="Vista celular preventista">
+              <div class="phone-top">
+                <span>DL Preventa</span>
+                <strong id="sellerRouteLabel">Ruta Centro</strong>
+              </div>
+              <select id="sellerSelect" hidden aria-hidden="true"></select>
+              <select id="sellerWorkdaySelect" hidden aria-hidden="true">
+                <option value="Ruta asignada">Ruta asignada</option>
+                <option value="Fuera de Ruta">Fuera de Ruta</option>
+              </select>
+              <nav class="mobile-preventa-tabs" aria-label="Menu Preventa movil">
+                <button class="active" type="button" data-mobile-preventa-tab="order" aria-selected="true">Pedido</button>
+                <button type="button" data-mobile-preventa-tab="client" aria-selected="false">Cliente nuevo</button>
+                <button type="button" data-mobile-preventa-tab="sales" aria-selected="false">Mis ventas</button>
+                <button type="button" data-mobile-preventa-tab="status" aria-selected="false">Estado</button>
+              </nav>
+              <div class="mobile-progress-dashboard" id="mobileProgressDashboard" data-mobile-preventa-panel="status" hidden></div>
+              <section class="mobile-block mobile-client-block">
+                <div class="mobile-block-head" data-mobile-preventa-panel="order">
+                  <div>
+                    <small>Cliente</small>
+                    <strong id="mobileSessionSellerLabel">Vendedor por sesion</strong>
+                  </div>
+                  <label class="outside-route-switch">
+                    <input id="outsideRouteToggle" type="checkbox">
+                    <span>Fuera de Ruta</span>
+                  </label>
+                </div>
+              <div class="phone-actions" data-mobile-preventa-panel="order">
+                <div class="phone-field mobile-picker-field">
+                  <span>Cliente cargado</span>
+                  <select id="mobileClientSelect" class="hidden-native-select" tabindex="-1" aria-hidden="true"></select>
+                  <button class="mobile-picker-button" id="mobileClientPickerBtn" type="button" aria-expanded="false" aria-controls="mobileClientPickerPanel">
+                    <strong id="mobileClientPickerLabel">Seleccionar cliente</strong>
+                    <small id="mobileClientPickerMeta">Buscar por nombre, ruta o vendedor</small>
+                  </button>
+                  <div class="mobile-picker-panel" id="mobileClientPickerPanel" hidden>
+                    <input id="mobileClientSearch" class="mobile-picker-search" type="search" placeholder="Buscar cliente..." autocomplete="off">
+                    <div class="mobile-picker-list" id="mobileClientOptions"></div>
+                  </div>
+                </div>
+                <button class="secondary-btn" id="toggleMobileClientFormBtn" type="button" aria-expanded="false">Cliente nuevo</button>
+              </div>
+              <div class="mobile-client-form" id="mobileClientForm" data-mobile-preventa-panel="client" hidden>
+                <label class="phone-field">
+                  Nombre comercial
+                  <input id="mobileNewClientName" type="text" placeholder="Ej: Almacen Don Luis">
+                </label>
+                <label class="phone-field">
+                  Razon social
+                  <input id="mobileNewClientBusinessName" type="text" placeholder="Opcional si coincide con nombre comercial">
+                </label>
+                <div class="phone-actions compact">
+                  <label class="phone-field">
+                    CUIT / CUIL
+                    <input id="mobileNewClientTaxId" type="text" inputmode="numeric" placeholder="Ej: 20301234567">
+                  </label>
+                  <label class="inline-check mobile-consumer-check">
+                    <input id="mobileNewClientConsumerFinal" type="checkbox">
+                    Consumidor Final
+                  </label>
+                </div>
+                <label class="phone-field">
+                  Domicilio
+                  <input id="mobileNewClientAddress" type="text" placeholder="Calle, numero o referencia">
+                </label>
+                <div class="phone-actions compact">
+                  <label class="phone-field">
+                    Localidad
+                    <input id="mobileNewClientCity" type="text" placeholder="Cordoba">
+                  </label>
+                  <label class="phone-field">
+                    Telefono
+                    <input id="mobileNewClientPhone" type="tel" inputmode="tel" placeholder="351...">
+                  </label>
+                </div>
+                <label class="phone-field">
+                  Zona comercial
+                  <select id="mobileNewClientZone">
+                    <option value="">Seleccionar zona</option>
+                    <option value="Zona Norte">Zona Norte</option>
+                    <option value="Zona Centro">Zona Centro</option>
+                    <option value="Zona Sur">Zona Sur</option>
+                    <option value="Zona 1">Zona 1</option>
+                    <option value="Zona 2">Zona 2</option>
+                    <option value="Zona 3">Zona 3</option>
+                    <option value="Fuera de Ruta">Fuera de Ruta</option>
+                  </select>
+                </label>
+                <div class="phone-actions compact">
+                  <label class="phone-field">
+                    Dia de visita
+                    <select id="mobileNewClientVisitDay">
+                      <option value="">Seleccionar dia</option>
+                      <option value="Lunes">Lunes</option>
+                      <option value="Martes">Martes</option>
+                      <option value="Miercoles">Miercoles</option>
+                      <option value="Jueves">Jueves</option>
+                      <option value="Viernes">Viernes</option>
+                      <option value="Sabado">Sabado</option>
+                      <option value="Fuera de Ruta">Fuera de Ruta</option>
+                    </select>
+                  </label>
+                  <label class="phone-field">
+                    Ruta
+                    <input id="mobileNewClientRoute" type="text" placeholder="Ej: Martes / San Vicente">
+                  </label>
+                </div>
+                <div class="phone-actions compact">
+                  <label class="phone-field">
+                    Pago
+                    <select id="mobileNewClientPayment">
+                      <option value="Contado">Contado</option>
+                      <option value="Cuenta corriente">Cuenta corriente</option>
+                      <option value="Transferencia">Transferencia</option>
+                      <option value="Mercado Pago">Mercado Pago</option>
+                    </select>
+                  </label>
+                  <label class="phone-field">
+                    Limite
+                    <input id="mobileNewClientLimit" type="number" min="0" step="1000" value="0">
+                  </label>
+                </div>
+                <label class="phone-field">
+                  Clave del preventista
+                  <input id="mobileNewClientSellerPassword" type="password" autocomplete="current-password" placeholder="Reingresar clave para guardar">
+                </label>
+                <div class="phone-card mobile-client-location-card">
+                  <small>Ubicacion obligatoria</small>
+                  <strong id="mobileNewClientGpsTitle">GPS pendiente</strong>
+                  <p id="mobileNewClientGpsStatus">Registrar la ubicacion actual del cliente antes de guardar.</p>
+                  <button class="secondary-btn" id="registerMobileClientLocationBtn" type="button">Registrar ubicacion actual</button>
+                </div>
+                <button class="primary-btn" id="saveMobileClientBtn" type="button">Guardar cliente</button>
+              </div>
+              <div class="phone-card" data-mobile-preventa-panel="order">
+                <small>Cuenta corriente</small>
+                <strong id="mobileClientName">Autoservicio La Esquina</strong>
+                <p id="mobileClientInfo">Saldo: $ 148.000 - Limite: $ 220.000</p>
+                <div class="client-history-actions">
+                  <button class="secondary-btn compact" id="mobileClientHistoryBtn" type="button">Historial</button>
+                  <button class="ghost-btn compact" id="mobileClientWhatsAppBtn" type="button">WhatsApp</button>
+                </div>
+              </div>
+              <div class="phone-card mobile-client-history" id="mobileClientHistoryCard" data-mobile-preventa-panel="order" hidden></div>
+              </section>
+              <section class="mobile-block mobile-products-block" data-mobile-preventa-panel="order">
+                <div class="mobile-block-head">
+                  <div>
+                    <small>Carga de articulos</small>
+                    <strong>Pedido actual</strong>
+                  </div>
+                </div>
+              <div class="phone-card product-picker">
+                <small>Articulos</small>
+                <strong>Agregar al pedido</strong>
+                <div class="phone-field mobile-picker-field">
+                  <span>Producto</span>
+                  <select id="mobileProductSelect" class="hidden-native-select" tabindex="-1" aria-hidden="true"></select>
+                  <button class="mobile-picker-button" id="mobileProductPickerBtn" type="button" aria-expanded="false" aria-controls="mobileProductPickerPanel">
+                    <strong id="mobileProductPickerLabel">Seleccionar articulo</strong>
+                    <small id="mobileProductPickerMeta">Buscar por descripcion, codigo o rubro</small>
+                  </button>
+                  <div class="mobile-picker-panel" id="mobileProductPickerPanel" hidden>
+                    <input id="mobileProductSearch" class="mobile-picker-search" type="search" placeholder="Buscar articulo..." autocomplete="off">
+                    <div class="mobile-picker-list" id="mobileProductOptions"></div>
+                  </div>
+                </div>
+                <div class="product-add-row">
+                  <label class="phone-field">
+                    Cantidad
+                    <input id="mobileProductQty" type="number" min="1" step="1" value="1" inputmode="numeric">
+                  </label>
+                  <button class="secondary-btn" id="addMobileProductBtn" type="button">Agregar</button>
+                </div>
+                <p class="product-info" id="mobileProductInfo"></p>
+              </div>
+              <div class="phone-products" id="phoneProducts"></div>
+              <div class="phone-summary" id="mobileSummary"></div>
+              <div class="phone-card mobile-order-commercial-card">
+                <small>Condiciones del pedido</small>
+                <label class="phone-field">
+                  Observaciones del pedido
+                  <textarea id="mobileOrderObservations" rows="3" placeholder="Notas para Administracion, Armado, Despacho y Reparto"></textarea>
+                </label>
+                <div class="commercial-request-grid">
+                  <label class="phone-field">
+                    Solicitud comercial
+                    <select id="mobileCommercialChangeType">
+                      <option value="">Sin modificacion</option>
+                      <option value="product_discount">Descuento por producto</option>
+                      <option value="general_discount">Descuento general</option>
+                      <option value="price_change">Modificar precio</option>
+                    </select>
+                  </label>
+                  <label class="phone-field">
+                    Producto
+                    <select id="mobileCommercialProduct"></select>
+                  </label>
+                  <label class="phone-field">
+                    Valor solicitado
+                    <input id="mobileCommercialValue" type="number" min="0" step="0.01" placeholder="% o precio">
+                  </label>
+                </div>
+                <label class="phone-field" id="mobileCommercialMotiveField" hidden>
+                  Motivo obligatorio
+                  <textarea id="mobileCommercialMotive" rows="2" placeholder="Explicar por que se solicita el cambio"></textarea>
+                </label>
+                <p class="sync-status" id="mobileCommercialStatus" data-tone="warn"></p>
+              </div>
+              <button class="primary-btn" id="sendMobileOrderBtn" type="button">Enviar pedido a distribuidora</button>
+              </section>
+              <section class="mobile-block mobile-sales-block" data-mobile-preventa-panel="sales" hidden>
+                <div class="mobile-block-head">
+                  <div>
+                    <small>Jornada laboral</small>
+                    <strong>Mis Ventas</strong>
+                  </div>
+                </div>
+                <div class="phone-card mobile-sales-filter-card">
+                  <label class="phone-field">
+                    Buscar venta
+                    <input id="mobileSalesSearch" type="search" autocomplete="off" placeholder="Numero, cliente, fecha, estado o importe">
+                  </label>
+                  <div class="phone-actions compact">
+                    <button class="secondary-btn" id="exportMobileSalesPdfBtn" type="button">PDF</button>
+                    <button class="secondary-btn" id="exportMobileSalesExcelBtn" type="button">Excel</button>
+                  </div>
+                </div>
+                <div class="mobile-sales-list" id="mobileSalesList"></div>
+                <div class="phone-card mobile-sales-detail" id="mobileSalesDetail"></div>
+                <div class="phone-summary mobile-sales-summary" id="mobileSalesSummary"></div>
+              </section>
+              <section class="mobile-block mobile-secondary-menu" data-mobile-preventa-panel="status" hidden>
+                <div class="mobile-block-head">
+                  <div>
+                    <small>Menu secundario</small>
+                    <strong>GPS, hoja y visitas</strong>
+                  </div>
+                </div>
+                <div class="phone-card gps-card">
+                  <small>Ubicacion compartida</small>
+                  <div class="gps-heading">
+                    <strong>GPS del vendedor</strong>
+                    <span class="gps-badge" id="gpsStatusBadge" data-tone="warn"><i></i>Iniciando</span>
+                  </div>
+                  <p id="locationStatus">GPS obligatorio iniciando al abrir sesion.</p>
+                  <p class="sync-status" id="syncStatus" data-tone="warn">Conectando con distribuidora...</p>
+                  <div class="battery-guide">
+                    <strong>Seguimiento en segundo plano</strong>
+                    <p>Para que el punto siga vivo con la pantalla apagada, excluir la app de ahorro de bateria.</p>
+                    <button class="secondary-btn compact" id="openBatterySettingsBtn" type="button">Configurar bateria</button>
+                  </div>
+                </div>
+                <div class="phone-card daily-route-card">
+                  <small>Hoja de ruta diaria</small>
+                  <div class="route-card-head">
+                    <strong>Objetivos de hoy</strong>
+                    <span id="dailyRewardBadge">Viaticos activos</span>
+                  </div>
+                  <div class="objective-list" id="dailyRouteSteps"></div>
+                  <div class="route-actions">
+                    <button class="secondary-btn" id="openMapsBtn" type="button">Abrir Maps</button>
+                    <button class="ghost-btn" id="viewRouteFileBtn" type="button">Ver hoja</button>
+                  </div>
+                </div>
+                <div class="phone-card no-purchase-card">
+                  <small>Visita sin compra</small>
+                  <strong>Registrar motivo</strong>
+                  <p>Usar cuando el cliente fue visitado pero no compro.</p>
+                  <button class="secondary-btn" id="openNoPurchaseBtn" type="button" aria-expanded="false">Sin compra</button>
+                  <div class="no-purchase-panel" id="noPurchasePanel" hidden>
+                    <label class="phone-field">
+                      Motivo
+                      <select id="noPurchaseReasonSelect">
+                        <option value="">Seleccionar motivo</option>
+                        <option value="Cliente cerrado">Cliente cerrado</option>
+                        <option value="Tenia mercaderia">Tenia mercaderia</option>
+                        <option value="No tenia dinero">No tenia dinero</option>
+                        <option value="Compra a otro proveedor">Compra a otro proveedor</option>
+                        <option value="Precios altos">Precios altos</option>
+                        <option value="Espera cobrar">Espera cobrar</option>
+                        <option value="Dueno ausente">Dueno ausente</option>
+                        <option value="No quiso comprar">No quiso comprar</option>
+                        <option value="Vacaciones">Vacaciones</option>
+                        <option value="Remodelacion">Remodelacion</option>
+                        <option value="Cambio de rubro">Cambio de rubro</option>
+                        <option value="Cliente perdido">Cliente perdido</option>
+                        <option value="Otros">Otros</option>
+                      </select>
+                    </label>
+                    <label class="phone-field" id="noPurchaseObservationField" hidden>
+                      Observaciones
+                      <textarea id="noPurchaseObservation" rows="3" placeholder="Detalle obligatorio para Otros"></textarea>
+                    </label>
+                    <p class="sync-status" id="noPurchaseMessage" data-tone="warn"></p>
+                    <button class="primary-btn" id="submitNoPurchaseBtn" type="button">Guardar sin compra</button>
+                  </div>
+                </div>
+              </section>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Simulacion del vendedor</h2>
+                  <p>Ventas y comision generadas desde el celular</p>
+                </div>
+              </div>
+              <div class="seller-stats-grid" id="sellerStatsPanel"></div>
+              <div class="presence-map-filters admin-only" id="presenceMapFilters"></div>
+              <div class="route-map admin-only" id="routeMap"></div>
+              <div class="route-list admin-only" id="routeList"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="pedidos">
+          <div class="orders-layout">
+            <section class="table-panel">
+              <div class="table-header">
+                <div>
+                  <h2>Pedidos recibidos</h2>
+                  <p>Entrada automatica desde celulares y preparacion en deposito</p>
+                </div>
+                <button class="secondary-btn" id="printOrdersBtn" type="button">Imprimir facturas armado</button>
+              </div>
+              <div class="data-filter-bar">
+                <label class="data-search-box">
+                  <span>Buscar pedido</span>
+                  <input id="ordersSearch" type="search" autocomplete="off" placeholder="Pedido, cliente, direccion, zona, vendedor o estado">
+                </label>
+                <select id="ordersQuickFilter" aria-label="Filtrar pedidos por proceso operativo">
+                  <option value="all">Todos los procesos</option>
+                  <option value="pending">Pendientes</option>
+                  <option value="preparation">En preparacion</option>
+                  <option value="assembly">Armados</option>
+                  <option value="labeled">Etiquetados</option>
+                  <option value="ready_dispatch">Listos para despacho</option>
+                  <option value="in_route">En reparto</option>
+                  <option value="delivered">Entregados</option>
+                  <option value="not_delivered">No entregados</option>
+                </select>
+                <select id="ordersStatusFilter" aria-label="Filtrar pedidos por estado">
+                  <option value="all">Todos los estados</option>
+                  <option value="Pendiente">Pendiente</option>
+                  <option value="En PreparaciÃ³n">En PreparaciÃ³n</option>
+                  <option value="En Armado">En Armado</option>
+                  <option value="Etiquetado">Etiquetado</option>
+                  <option value="Listo para Despacho">Listo para Despacho</option>
+                  <option value="Despachado">Despachado</option>
+                  <option value="En Reparto">En Reparto</option>
+                  <option value="Parcialmente Entregado">Parcialmente entregado</option>
+                  <option value="Entregado">Entregado</option>
+                  <option value="Cobrado">Cobrado</option>
+                  <option value="Cerrado">Cerrado</option>
+                  <option value="Cancelado">Cancelado</option>
+                </select>
+                <select id="ordersSellerFilter" aria-label="Filtrar pedidos por vendedor">
+                  <option value="all">Todos los vendedores</option>
+                </select>
+                <select id="ordersUrgencyFilter" aria-label="Filtrar pedidos por urgencia">
+                  <option value="all">Todas las urgencias</option>
+                  <option value="urgent">Urgentes</option>
+                  <option value="delayed">Con demora</option>
+                  <option value="normal">Normal</option>
+                </select>
+                <select id="ordersSort" aria-label="Ordenar pedidos">
+                  <option value="created_desc">Mas nuevos primero</option>
+                  <option value="priority">Prioridad</option>
+                  <option value="zone">Zona</option>
+                  <option value="route">Ruta</option>
+                  <option value="hours">Horario de entrega</option>
+                  <option value="client">Cliente</option>
+                  <option value="status">Estado</option>
+                </select>
+                <button class="ghost-btn" id="clearOrdersFilters" type="button">Limpiar</button>
+              </div>
+              <div class="bulk-actions-panel" id="ordersBulkPanel">
+                <div class="bulk-actions-head">
+                  <strong id="ordersSelectedCount">Pedidos seleccionados: 0</strong>
+                  <span id="ordersBulkStatus">Seleccionar pedidos para operar en lote.</span>
+                </div>
+                <div class="bulk-actions-row">
+                  <button class="mini-btn" type="button" id="ordersSelectVisibleBtn">Seleccionar visibles</button>
+                  <button class="mini-btn" type="button" id="ordersSelectFilteredBtn">Seleccionar filtrados</button>
+                  <button class="mini-btn" type="button" id="ordersInvertSelectionBtn">Invertir visibles</button>
+                  <button class="mini-btn" type="button" id="ordersClearSelectionBtn">Quitar seleccion</button>
+                </div>
+                <div class="bulk-actions-row" id="ordersBulkActions">
+                  <button class="secondary-btn" type="button" data-orders-bulk-action="print">Imprimir para Armado</button>
+                  <button class="secondary-btn" type="button" data-orders-bulk-action="labels">Generar etiquetas</button>
+                  <button class="secondary-btn" type="button" data-orders-bulk-action="state-armado">Marcar como Armado</button>
+                  <button class="secondary-btn" type="button" data-orders-bulk-action="state-etiquetado">Marcar como Etiquetado</button>
+                  <button class="secondary-btn" type="button" data-orders-bulk-action="state-listo">Listo para Despacho</button>
+                  <button class="secondary-btn" type="button" data-orders-bulk-action="assign-route">Asignar Ruta</button>
+                  <button class="secondary-btn" type="button" data-orders-bulk-action="export">Exportar listado</button>
+                  <button class="secondary-btn" type="button" data-orders-bulk-action="export-assembly">Exportar armado</button>
+                  <select id="ordersBulkStateSelect" aria-label="Cambiar estado masivo">
+                    <option value="">Cambiar estado...</option>
+                    <option value="En PreparaciÃ³n">En Preparacion</option>
+                    <option value="En Armado">Armado</option>
+                    <option value="Etiquetado">Etiquetado</option>
+                    <option value="Listo para Despacho">Listo para despacho</option>
+                    <option value="Despachado">Despachado</option>
+                  </select>
+                  <button class="secondary-btn" type="button" data-orders-bulk-action="state-custom">Aplicar estado</button>
+                </div>
+              </div>
+              <details class="assembly-print-settings admin-only">
+                <summary>
+                  <strong>Configuracion de impresion de Armado</strong>
+                  <span>Precios, QR, observaciones, logo, control y resaltados</span>
+                </summary>
+                <form id="assemblyPrintSettingsForm" class="assembly-print-form">
+                  <label class="inline-check"><input name="showPrices" type="checkbox"> Mostrar precios</label>
+                  <label class="inline-check"><input name="showAmounts" type="checkbox"> Mostrar importes</label>
+                  <label class="inline-check"><input name="showInternalCode" type="checkbox"> Mostrar codigo interno</label>
+                  <label class="inline-check"><input name="showObservations" type="checkbox"> Mostrar observaciones</label>
+                  <label class="inline-check"><input name="showQr" type="checkbox"> Mostrar QR / codigo de recuperacion</label>
+                  <label class="inline-check"><input name="showClientLogo" type="checkbox"> Mostrar logo cliente</label>
+                  <label>
+                    Tamano de letra
+                    <input name="fontSize" type="number" min="10" max="16" step="1">
+                  </label>
+                  <label>
+                    Promo
+                    <input name="promoColor" type="color">
+                  </label>
+                  <label>
+                    Fragil
+                    <input name="fragileColor" type="color">
+                  </label>
+                  <label>
+                    Refrigerado
+                    <input name="coldColor" type="color">
+                  </label>
+                  <label>
+                    Especial
+                    <input name="specialColor" type="color">
+                  </label>
+                  <button class="primary-btn" type="submit">Guardar configuracion</button>
+                </form>
+              </details>
+              <div class="responsive-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th class="select-col"><input id="ordersSelectPageCheckbox" type="checkbox" aria-label="Seleccionar pagina visible"></th>
+                      <th>Pedido</th>
+                      <th>Cliente</th>
+                      <th>Vendedor</th>
+                      <th>Productos</th>
+                      <th>Importe</th>
+                      <th>Proceso</th>
+                      <th>Urgencia</th>
+                      <th>Accion</th>
+                    </tr>
+                  </thead>
+                  <tbody id="ordersTable"></tbody>
+                </table>
+              </div>
+              <div class="list-pager" id="ordersPager"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Trazabilidad operativa</h2>
+                  <p>Urgencias, demoras, despacho y entrega</p>
+                </div>
+              </div>
+              <div class="print-list" id="printQueue"></div>
+              <div class="order-trace-list" id="orderTraceList"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="armado">
+          <div id="assemblyDepotWorkspace" class="assembly-depot-workspace"></div>
+        </section>
+
+        <section class="view" id="reparto">
+          <section class="panel admin-only delivery-planner-panel">
+            <div class="panel-header">
+              <div>
+                <h2>Planificador de rutas</h2>
+                <p>Administracion planifica pedidos listos para despacho y publica cuando salen a reparto</p>
+              </div>
+            </div>
+            <form id="deliveryPlannerForm" class="delivery-planner-form">
+              <div class="form-grid">
+                <label>
+                  Dia de ruta
+                  <input id="deliveryPlannerDay" name="day" type="date">
+                </label>
+                <label>
+                  Zona / ruta
+                  <input id="deliveryPlannerZone" name="zone" autocomplete="off" placeholder="Centro">
+                </label>
+                <label>
+                  Usuario repartidor
+                  <input id="deliveryPlannerDriver" name="driverUser" autocomplete="off" value="reparto1">
+                </label>
+                <label>
+                  Nombre visible
+                  <input id="deliveryPlannerDriverLabel" name="driverLabel" autocomplete="off" value="Reparto 1">
+                </label>
+                <label>
+                  Orden de armado
+                  <select id="deliveryPlannerSort" name="sort">
+                    <option value="route">Ruta</option>
+                    <option value="zone">Zona</option>
+                    <option value="priority">Prioridad</option>
+                    <option value="hours">Horario de entrega</option>
+                    <option value="client">Cliente</option>
+                    <option value="status">Estado</option>
+                  </select>
+                </label>
+              </div>
+              <div class="delivery-planner-actions">
+                <label class="inline-check">
+                  <input id="deliveryPlannerGroupRoute" type="checkbox" checked>
+                  Agrupar por ruta
+                </label>
+                <button class="secondary-btn" id="clearDeliveryPlannerBtn" type="button">Limpiar seleccion</button>
+                <button class="primary-btn" type="submit">Crear hoja planificada</button>
+              </div>
+            </form>
+            <div class="delivery-planner-summary" id="deliveryPlannerSummary"></div>
+            <div class="delivery-planner-list" id="deliveryPlannerList"></div>
+          </section>
+          <section class="panel delivery-active-panel">
+            <div class="panel-header">
+              <div>
+                <h2 id="deliveryLiveRouteTitle">Hoja de ruta activa</h2>
+                <p id="deliveryLiveRouteMeta">Seleccionar una ruta para comenzar</p>
+              </div>
+              <div class="delivery-live-actions" id="deliveryLiveRouteActions"></div>
+            </div>
+            <div class="delivery-active-grid">
+              <div class="delivery-active-summary" id="deliveryActiveRouteSummary"></div>
+              <div class="delivery-route-map-shell">
+                <div id="deliveryRouteMap" class="delivery-route-map" role="region" aria-label="Mapa interactivo de la hoja de ruta"></div>
+                <div id="deliveryRouteMapLegend" class="delivery-route-map-legend"></div>
+              </div>
+            </div>
+          </section>
+          <div class="delivery-kpis" id="deliveryKpis"></div>
+          <div class="delivery-layout">
+            <section class="panel delivery-stops-panel">
+              <div class="panel-header">
+                <div>
+                  <h2 id="deliveryActiveRouteTitle">Paradas</h2>
+                  <p id="deliveryActiveRouteMeta">Seleccionar una hoja de ruta</p>
+                </div>
+              </div>
+              <div class="delivery-stop-list" id="deliveryStopList"></div>
+            </section>
+            <section class="panel delivery-routes-panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Hojas de ruta disponibles</h2>
+                  <p>Rutas publicadas o planificadas para este equipo</p>
+                </div>
+              </div>
+              <div class="delivery-route-list" id="deliveryRouteList"></div>
+            </section>
+            <section class="panel admin-only delivery-settings-panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Configuracion de cobranza</h2>
+                  <p>Datos visibles al registrar transferencias</p>
+                </div>
+              </div>
+              <form id="deliverySettingsForm">
+                <label>
+                  Alias bancario
+                  <input id="deliveryBankAlias" name="bankAlias" required autocomplete="off">
+                </label>
+                <label>
+                  Titular
+                  <input id="deliveryBankAccountName" name="bankAccountName" required autocomplete="off">
+                </label>
+                <label>
+                  CBU/CVU
+                  <input id="deliveryBankCbu" name="bankCbu" autocomplete="off">
+                </label>
+                <div class="form-grid">
+                  <label>
+                    Latitud deposito
+                    <input id="deliveryDepotLat" name="depotLat" type="number" step="0.000001">
+                  </label>
+                  <label>
+                    Longitud deposito
+                    <input id="deliveryDepotLng" name="depotLng" type="number" step="0.000001">
+                  </label>
+                </div>
+                <button class="primary-btn" type="submit">Guardar configuracion</button>
+              </form>
+            </section>
+            <section class="panel admin-only delivery-audit-panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Auditoria de reparto</h2>
+                  <p>Dispositivo, GPS, entrega y cobranza</p>
+                </div>
+              </div>
+              <div class="activity-list" id="deliveryAuditList"></div>
+            </section>
+            <section class="panel admin-only delivery-closures-panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Cierres diarios</h2>
+                  <p>Rendicion de rutas, diferencias y pendientes</p>
+                </div>
+              </div>
+              <div class="activity-list" id="deliveryClosureList"></div>
+            </section>
+          </div>
+          <div class="delivery-device-bar">
+            <div>
+              <span>Dispositivo operativo</span>
+              <strong id="deliveryDeviceId">Sin identificar</strong>
+            </div>
+            <label>
+              Nombre del equipo
+              <input id="deliveryDeviceLabel" maxlength="60" autocomplete="off">
+            </label>
+            <span class="gps-badge" id="deliveryGpsBadge" data-tone="warn"><i></i>GPS pendiente</span>
+          </div>
+        </section>
+
+        <section class="view" id="clientes">
+          <div class="table-panel">
+            <div class="table-header">
+              <div>
+                <h2>Clientes</h2>
+                <p>Padron normalizado: fiscal, comercial, ruta y cuenta corriente</p>
+              </div>
+              <div class="table-actions">
+                <button class="secondary-btn" id="newClientBtn" type="button">Nuevo cliente</button>
+              </div>
+            </div>
+            <div class="data-filter-bar">
+              <label class="data-search-box">
+                <span>Buscar cliente</span>
+                <input id="clientsSearch" type="search" autocomplete="off" placeholder="Nombre, CUIT, telefono, ruta o direccion">
+              </label>
+                <select id="clientFilter" aria-label="Filtrar clientes">
+                  <option value="all">Todos los estados</option>
+                  <option value="Activo">Activo</option>
+                  <option value="Con deuda">Con deuda</option>
+                  <option value="Bloqueado">Bloqueado</option>
+                  <option value="Pendiente de aprobacion">Pendiente de aprobacion</option>
+                </select>
+              <select id="clientSellerFilter" aria-label="Filtrar clientes por vendedor">
+                <option value="all">Todos los vendedores</option>
+              </select>
+              <select id="clientZoneFilter" aria-label="Filtrar clientes por zona">
+                <option value="all">Todas las zonas</option>
+              </select>
+              <select id="clientAccountFilter" aria-label="Filtrar clientes por cuenta corriente">
+                <option value="all">Todas las cuentas</option>
+                <option value="debt">Con saldo</option>
+                <option value="overlimit">Sobre limite</option>
+                <option value="clear">Sin deuda</option>
+              </select>
+              <button class="ghost-btn" id="clearClientFilters" type="button">Limpiar</button>
+            </div>
+            <div class="responsive-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Cliente</th>
+                    <th>Fiscal / contacto</th>
+                    <th>Domicilio</th>
+                    <th>Ruta</th>
+                    <th>Estado</th>
+                    <th>Cuenta</th>
+                    <th>Visita</th>
+                    <th>Accion</th>
+                  </tr>
+                </thead>
+                <tbody id="clientsTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="cuentas">
+          <div class="accounts-workspace">
+            <section class="panel accounts-reconciliation-panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Conciliacion</h2>
+                  <p>Banco, alias, CBU, importe y estado de validacion</p>
+                </div>
+              </div>
+              <div class="transfer-summary-grid" id="bankTransferSummary"></div>
+              <div class="data-filter-bar compact-filter-bar">
+                <select id="bankStatusFilter" aria-label="Filtrar transferencias por estado">
+                  <option value="all">Todos</option>
+                  <option value="red">Pendiente sin comprobante</option>
+                  <option value="yellow">Comprobante recibido</option>
+                  <option value="green">Validadas</option>
+                  <option value="critical">Observadas</option>
+                </select>
+                <input id="bankClientFilter" type="search" autocomplete="off" placeholder="Cliente, pedido o repartidor">
+                <input id="bankDateFilter" type="date" aria-label="Filtrar por fecha">
+                <input id="bankBankFilter" type="search" autocomplete="off" placeholder="Banco">
+                <input id="bankAmountFilter" type="number" min="0" step="0.01" placeholder="Importe">
+                <select id="bankPendingClientsFilter" aria-label="Filtrar clientes con saldo pendiente">
+                  <option value="all">Todos los clientes</option>
+                  <option value="pending">Clientes con saldo pendiente</option>
+                </select>
+                <button class="ghost-btn" id="clearBankFilters" type="button">Limpiar</button>
+              </div>
+              <div class="bulk-actions-panel bank-bulk-panel" id="bankBulkPanel">
+                <div class="bulk-actions-head">
+                  <strong>Comprobantes seleccionados: <span id="bankSelectedCount">0</span></strong>
+                  <span id="bankBulkStatus">Seleccionar comprobantes para operar en lote.</span>
+                </div>
+                <div class="bulk-actions-row">
+                  <button class="secondary-btn" type="button" data-bank-select="filtered">Seleccionar visibles</button>
+                  <button class="secondary-btn" type="button" data-bank-select="none">Deseleccionar</button>
+                  <button class="secondary-btn" type="button" data-bank-select="invert">Invertir</button>
+                  <button class="secondary-btn" type="button" data-bank-bulk-action="download">Descargar comprobantes</button>
+                  <button class="secondary-btn" type="button" data-bank-bulk-action="observe">Observacion administrativa</button>
+                  <button class="secondary-btn danger-btn" type="button" data-bank-bulk-action="reject">Rechazar seleccionados</button>
+                  <button class="primary-btn" type="button" data-bank-bulk-action="validate">Validar seleccionados</button>
+                </div>
+              </div>
+              <div class="alert-list" id="bankList"></div>
+            </section>
+            <section class="table-panel accounts-main-panel">
+              <div class="table-header">
+                <div>
+                  <h2>Cuentas corrientes</h2>
+                  <p>Cobros, pagos, transferencias y saldos centralizados</p>
+                </div>
+                <button class="secondary-btn" id="registerPaymentBtn" type="button">Registrar cobro demo</button>
+              </div>
+              <div class="data-filter-bar accounts-filter-bar">
+                <label class="data-search-box">
+                  <span>Buscar movimiento</span>
+                  <input id="accountsSearch" type="search" autocomplete="off" placeholder="Cuenta, tipo, medio o fecha">
+                </label>
+                <select id="accountsTypeFilter" aria-label="Filtrar cuentas por tipo">
+                  <option value="all">Todos los tipos</option>
+                </select>
+                <select id="accountsMethodFilter" aria-label="Filtrar cuentas por medio">
+                  <option value="all">Todos los medios</option>
+                </select>
+                <select id="accountsStatusFilter" aria-label="Filtrar cuentas por estado">
+                  <option value="all">Todos los estados</option>
+                </select>
+                <button class="ghost-btn" id="clearAccountsFilters" type="button">Limpiar</button>
+              </div>
+              <div class="account-kpi-grid" id="accountsSummaryCards"></div>
+              <div class="responsive-table account-summary-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Cliente</th>
+                      <th>Saldo actual</th>
+                      <th>Limite credito</th>
+                      <th>Deuda vencida</th>
+                      <th>Deuda total</th>
+                      <th>Ultimo pago</th>
+                      <th>Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody id="clientAccountsTable"></tbody>
+                </table>
+              </div>
+              <h3 class="subsection-title">Movimientos</h3>
+              <div class="responsive-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Tipo</th>
+                      <th>Cuenta</th>
+                      <th>Medio</th>
+                      <th>Debe</th>
+                      <th>Haber</th>
+                      <th>Saldo</th>
+                    </tr>
+                  </thead>
+                  <tbody id="accountsTable"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="stock">
+          <div class="stock-workspace">
+            <section class="panel stock-overview-panel admin-only">
+              <div class="panel-header">
+                <div>
+                  <h2>Stock e Inventario</h2>
+                  <p>Disponible para venta, stock fisico, reservas, cortes y auditoria</p>
+                </div>
+              </div>
+              <div class="stock-kpis" id="stockKpis"></div>
+              <div class="stock-charts-grid">
+                <article class="stock-chart-card">
+                  <div>
+                    <h3>Estado del inventario</h3>
+                    <p>Disponible, bajo minimo y sin stock</p>
+                  </div>
+                  <div class="stock-donut" id="stockStatusDonut" aria-label="Grafico estado de stock"></div>
+                  <div class="stock-legend" id="stockStatusLegend"></div>
+                </article>
+                <article class="stock-chart-card">
+                  <div>
+                    <h3>Reposicion prioritaria</h3>
+                    <p>Productos con mayor diferencia contra minimo</p>
+                  </div>
+                  <div class="stock-bars" id="stockPriorityChart"></div>
+                </article>
+                <article class="stock-chart-card">
+                  <div>
+                    <h3>Valor por rubro</h3>
+                    <p>Capital valorizado a costo</p>
+                  </div>
+                  <div class="stock-bars" id="stockValueChart"></div>
+                </article>
+              </div>
+            </section>
+            <div class="orders-layout">
+            <section class="table-panel">
+              <div class="table-header">
+              <div>
+                <h2>Stock e Inventario</h2>
+                <p>Producto, codigo, disponible, comprometido y fisico esperado</p>
+              </div>
+              <div class="table-actions">
+                <button class="primary-btn admin-only" id="initialStockBtn" type="button">Cargar inventario inicial</button>
+                <button class="secondary-btn admin-only" id="exportStockCsvBtn" type="button">Exportar CSV</button>
+                <button class="secondary-btn admin-only" id="exportStockPdfBtn" type="button">Exportar PDF</button>
+                <button class="secondary-btn admin-only" id="printStockBtn" type="button">Imprimir</button>
+                <button class="secondary-btn admin-only" type="button" data-open-view="control-stock">Control fisico</button>
+                <button class="secondary-btn" id="newProductBtn" type="button">Nuevo producto</button>
+                <button class="secondary-btn" id="manualStockBtn" type="button">Ingreso stock</button>
+                <button class="ghost-btn" id="loadPurchaseBtn" type="button">Compra demo</button>
+              </div>
+              </div>
+              <div class="stock-tools admin-only">
+                <label class="stock-search-box">
+                  <span>Buscar producto</span>
+                  <input id="stockProductSearch" list="stockProductOptions" autocomplete="off" placeholder="Codigo, producto, rubro, marca o EAN">
+                  <datalist id="stockProductOptions"></datalist>
+                </label>
+                <select id="stockStatusFilter" aria-label="Filtrar estado stock">
+                  <option value="all">Todos los estados</option>
+                  <option value="critical">Reponer</option>
+                  <option value="empty">Sin stock</option>
+                  <option value="ok">OK</option>
+                </select>
+                <select id="stockRubricFilter" aria-label="Filtrar stock por rubro">
+                  <option value="all">Todos los rubros</option>
+                </select>
+                <select id="stockBrandFilter" aria-label="Filtrar stock por marca">
+                  <option value="all">Todas las marcas</option>
+                </select>
+                <button class="ghost-btn" id="clearStockSearchBtn" type="button">Limpiar</button>
+              </div>
+              <div class="responsive-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Producto</th>
+                      <th>Codigo</th>
+                      <th>Rubro</th>
+                      <th>Stock disponible</th>
+                      <th>Stock comprometido</th>
+                      <th>Stock fisico</th>
+                      <th>En preparacion</th>
+                      <th>Armado</th>
+                      <th>Pte. despacho</th>
+                      <th>Ultima actualizacion</th>
+                      <th class="admin-only">Accion</th>
+                    </tr>
+                  </thead>
+                  <tbody id="stockTable"></tbody>
+                </table>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Abastecimiento</h2>
+                  <p>Faltantes comprometidos y compras necesarias</p>
+                </div>
+                <button class="secondary-btn admin-only" id="openSupplyPlannerBtn" type="button">Compras pendientes</button>
+              </div>
+              <div class="activity-list shortage-list" id="shortageList"></div>
+              <div class="panel-header compact-header">
+                <div>
+                  <h3>Movimientos</h3>
+                  <p>Kardex simplificado</p>
+                </div>
+              </div>
+              <div class="activity-list" id="stockMovements"></div>
+            </section>
+            </div>
+            <section class="panel wide admin-only">
+              <div class="panel-header">
+                <div>
+                  <h2>Libro de movimientos de stock</h2>
+                  <p>Historial auditado por producto, pedido, remito, usuario y motivo</p>
+                </div>
+                <span class="tag info" id="stockLedgerCount">0 movimientos</span>
+              </div>
+              <div class="data-filter-bar">
+                <label class="data-search-box">
+                  <span>Buscar movimiento</span>
+                  <input id="stockLedgerSearch" type="search" autocomplete="off" placeholder="Producto, codigo, pedido, remito, cliente o proveedor">
+                </label>
+                <select id="stockLedgerTypeFilter" aria-label="Filtrar tipo de movimiento">
+                  <option value="all">Todos los tipos</option>
+                </select>
+                <select id="stockLedgerUserFilter" aria-label="Filtrar usuario">
+                  <option value="all">Todos los usuarios</option>
+                </select>
+                <input id="stockLedgerDateFilter" type="date" aria-label="Filtrar fecha">
+                <button class="ghost-btn" id="clearStockLedgerFiltersBtn" type="button">Limpiar</button>
+              </div>
+              <div class="responsive-table">
+                <table class="dense-table">
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Tipo</th>
+                      <th>Producto</th>
+                      <th>Cantidad</th>
+                      <th>Stock anterior</th>
+                      <th>Stock posterior</th>
+                      <th>Asociado</th>
+                      <th>Cliente / Proveedor</th>
+                      <th>Usuario</th>
+                      <th>Motivo</th>
+                    </tr>
+                  </thead>
+                  <tbody id="stockLedgerTable"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="precios">
+          <div class="price-lists-workspace">
+            <section class="panel wide price-list-overview">
+              <div class="panel-header">
+                <div>
+                  <h2>Listas de precios</h2>
+                  <p>Consulta, vigencia, simulacion previa y auditoria administrativa</p>
+                </div>
+                <span id="priceListProductsCount" class="tag info">0 productos visibles</span>
+              </div>
+              <div class="price-list-kpis" id="priceListCards"></div>
+            </section>
+            <section class="panel wide product-portfolio-panel admin-only">
+              <div class="panel-header">
+                <div>
+                  <h2>Cartera integral</h2>
+                  <p>Productos, costos, listas por vendedor y mantenimiento seguro de produccion</p>
+                </div>
+                <span class="tag warn">Backup obligatorio</span>
+              </div>
+              <div class="portfolio-admin-grid" id="productPortfolioPanel"></div>
+              <div class="data-filter-bar compact-filter-bar">
+                <label class="data-search-box">
+                  <span>Usuario vendedor</span>
+                  <input id="portfolioAssignUser" value="kevin" autocomplete="off">
+                </label>
+                <select id="portfolioAssignList" aria-label="Lista predeterminada vendedor">
+                  <option value="1">Lista Nº 1</option>
+                  <option value="2">Lista Nº 2</option>
+                  <option value="3">Lista Nº 3</option>
+                  <option value="4" selected>Lista Nº 4</option>
+                  <option value="5">Lista Nº 5</option>
+                </select>
+                <input id="portfolioAssignMotive" autocomplete="off" placeholder="Motivo administrativo">
+                <button class="secondary-btn" id="assignSellerPriceListBtn" type="button">Asignar lista</button>
+              </div>
+              <div class="data-filter-bar compact-filter-bar">
+                <button class="secondary-btn danger-btn" data-maintenance-cleanup="orders" type="button">Limpiar pedidos</button>
+                <button class="secondary-btn danger-btn" data-maintenance-cleanup="clients" type="button">Limpiar clientes</button>
+                <span class="empty-note">Las limpiezas crean backup y requieren escribir CONFIRMAR.</span>
+              </div>
+            </section>
+            <section class="table-panel price-list-main">
+              <div class="table-header">
+                <div>
+                  <h2>Productos y precios vigentes</h2>
+                  <p>Los pedidos confirmados conservan el precio historico del momento de venta</p>
+                </div>
+              </div>
+              <div class="data-filter-bar price-list-filters">
+                <label class="data-search-box">
+                  <span>Producto / codigo</span>
+                  <input id="priceListSearch" type="search" autocomplete="off" placeholder="Buscar producto, codigo, rubro, marca o proveedor">
+                </label>
+                <select id="priceListFilterList" aria-label="Filtrar por lista">
+                  <option value="all">Todas las listas</option>
+                </select>
+                <select id="priceListRubricFilter" aria-label="Filtrar por rubro">
+                  <option value="all">Todos los rubros</option>
+                </select>
+                <select id="priceListBrandFilter" aria-label="Filtrar por marca">
+                  <option value="all">Todas las marcas</option>
+                </select>
+                <select id="priceListSupplierFilter" aria-label="Filtrar por proveedor">
+                  <option value="all">Todos los proveedores</option>
+                </select>
+                <select id="priceListStatusFilter" aria-label="Filtrar por estado">
+                  <option value="all">Todos los estados</option>
+                  <option value="SI">Activos</option>
+                  <option value="NO">Inactivos</option>
+                </select>
+                <input id="priceListEffectiveFilter" type="date" aria-label="Filtrar por fecha de vigencia">
+                <button class="ghost-btn" id="clearPriceListFiltersBtn" type="button">Limpiar</button>
+              </div>
+              <div class="responsive-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Producto</th>
+                      <th>Rubro / Marca</th>
+                      <th>Precio</th>
+                      <th>Lista</th>
+                      <th>Estado</th>
+                      <th class="admin-only">Accion</th>
+                    </tr>
+                  </thead>
+                  <tbody id="priceListProductsTable"></tbody>
+                </table>
+              </div>
+            </section>
+            <section class="panel price-list-editor admin-only">
+              <div class="panel-header">
+                <div>
+                  <h2>Cambio controlado</h2>
+                  <p>Simular antes de aplicar aumentos o nuevas vigencias</p>
+                </div>
+              </div>
+              <form id="priceListForm" class="price-list-form">
+                <label>
+                  Nombre de lista
+                  <input name="listName" required value="Lista vigente" autocomplete="off">
+                </label>
+                <div class="form-grid">
+                  <label>
+                    Operacion
+                    <select name="operation" id="priceListOperation">
+                      <option value="individual">Producto individual</option>
+                      <option value="rubro">Masivo por rubro</option>
+                      <option value="marca">Masivo por marca</option>
+                      <option value="proveedor">Masivo por proveedor</option>
+                      <option value="general">Aumento general</option>
+                    </select>
+                  </label>
+                  <label>
+                    Estado
+                    <select name="status">
+                      <option value="Activa">Activa</option>
+                      <option value="Programada">Programada</option>
+                      <option value="Borrador">Borrador</option>
+                      <option value="Inactiva">Inactiva</option>
+                    </select>
+                  </label>
+                </div>
+                <label data-price-operation-field="individual">
+                  Producto
+                  <input name="productKey" list="priceListProductOptions" placeholder="Codigo, EAN o producto">
+                  <datalist id="priceListProductOptions"></datalist>
+                </label>
+                <label data-price-operation-field="rubro" hidden>
+                  Rubro
+                  <select name="rubro" id="priceListTargetRubric"></select>
+                </label>
+                <label data-price-operation-field="marca" hidden>
+                  Marca
+                  <select name="marca" id="priceListTargetBrand"></select>
+                </label>
+                <label data-price-operation-field="proveedor" hidden>
+                  Proveedor
+                  <select name="proveedor" id="priceListTargetSupplier"></select>
+                </label>
+                <div class="form-grid">
+                  <label>
+                    Precio fijo
+                    <input name="fixedPrice" type="number" min="0" step="0.01" placeholder="Solo individual">
+                  </label>
+                  <label>
+                    Aumento %
+                    <input name="increasePct" type="number" step="0.01" value="0">
+                  </label>
+                </div>
+                <div class="form-grid">
+                  <label>
+                    Margen %
+                    <input name="marginPct" type="number" step="0.01" value="0">
+                  </label>
+                  <label>
+                    Redondeo
+                    <select name="rounding">
+                      <option value="1">$ 1</option>
+                      <option value="10">$ 10</option>
+                      <option value="50">$ 50</option>
+                      <option value="100">$ 100</option>
+                      <option value="500">$ 500</option>
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  Vigencia
+                  <input name="effectiveAt" type="datetime-local">
+                </label>
+                <label>
+                  Motivo administrativo
+                  <textarea name="motive" rows="3" placeholder="Ej: actualizacion proveedor, margen por rubro, lista mensual" required></textarea>
+                </label>
+                <div class="form-actions">
+                  <button class="secondary-btn" id="simulatePriceListBtn" type="button">Simular</button>
+                  <button class="primary-btn" id="applyPriceListBtn" type="button">Aplicar / Programar</button>
+                </div>
+              </form>
+            </section>
+            <section class="panel price-list-directory">
+              <div class="panel-header">
+                <div>
+                  <h2>Listas registradas</h2>
+                  <p>Estado, vigencia y usuario que modifico</p>
+                </div>
+              </div>
+              <div class="activity-list" id="priceListDirectory"></div>
+            </section>
+            <section class="panel wide price-list-simulation">
+              <div class="panel-header">
+                <div>
+                  <h2>Simulacion previa</h2>
+                  <p>Confirmar solo cuando precio nuevo y cantidad afectada sean correctos</p>
+                </div>
+              </div>
+              <div id="priceListSimulation"></div>
+            </section>
+            <section class="panel price-list-audit">
+              <div class="panel-header">
+                <div>
+                  <h2>Ultimos cambios</h2>
+                  <p>Auditoria de precios sin sobrescribir historial</p>
+                </div>
+              </div>
+              <div class="activity-list" id="priceListAuditList"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="comisiones">
+          <div class="commission-workspace">
+            <section class="panel wide">
+              <div class="panel-header">
+                <div>
+                  <h2>Comisiones configurables</h2>
+                  <p>Por rol, usuario, rubro, producto y vigencia</p>
+                </div>
+                <span class="tag info">No retroactivo</span>
+              </div>
+              <div class="price-list-kpis" id="commissionCards"></div>
+            </section>
+            <section class="table-panel wide">
+              <div class="table-header">
+                <div>
+                  <h2>Reglas activas</h2>
+                  <p>Prioridad: usuario/producto, usuario/rubro, rol/producto, rol/rubro, general</p>
+                </div>
+                <div class="table-actions">
+                  <button class="secondary-btn" id="exportCommissionsCsvBtn" type="button">Exportar reporte</button>
+                </div>
+              </div>
+              <div class="data-filter-bar">
+                <label class="data-search-box">
+                  <span>Buscar regla</span>
+                  <input id="commissionRulesSearch" type="search" autocomplete="off" placeholder="Usuario, rubro, producto o rol">
+                </label>
+                <select id="commissionRoleFilter" aria-label="Filtrar por rol">
+                  <option value="all">Todos los roles</option>
+                  <option value="seller">Vendedores</option>
+                  <option value="driver">Repartidores</option>
+                </select>
+                <select id="commissionStatusFilter" aria-label="Filtrar por estado">
+                  <option value="all">Todos los estados</option>
+                  <option value="Activa">Activas</option>
+                  <option value="Inactiva">Inactivas</option>
+                </select>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Rol</th>
+                      <th>Usuario</th>
+                      <th>Rubro / Producto</th>
+                      <th>Porcentaje</th>
+                      <th>Vigencia</th>
+                      <th>Estado</th>
+                      <th>Accion</th>
+                    </tr>
+                  </thead>
+                  <tbody id="commissionRulesTable"></tbody>
+                </table>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Nueva regla</h2>
+                  <p>Requiere motivo para auditoria</p>
+                </div>
+              </div>
+              <form id="commissionRuleForm" class="price-list-form">
+                <input type="hidden" name="id">
+                <label>
+                  Rol
+                  <select name="role" required>
+                    <option value="seller">Vendedor</option>
+                    <option value="driver">Repartidor</option>
+                  </select>
+                </label>
+                <label>
+                  Usuario especifico opcional
+                  <input name="userName" list="commissionUserOptions" placeholder="Dejar vacio para regla general">
+                  <datalist id="commissionUserOptions"></datalist>
+                </label>
+                <label>
+                  Rubro
+                  <input name="rubro" list="commissionRubricOptions" placeholder="Ej: Cigarrillos o *">
+                  <datalist id="commissionRubricOptions"></datalist>
+                </label>
+                <label>
+                  Producto especifico opcional
+                  <input name="productName" list="commissionProductOptions" placeholder="Nombre o codigo del producto">
+                  <datalist id="commissionProductOptions"></datalist>
+                </label>
+                <div class="form-grid two-cols">
+                  <label>
+                    Porcentaje
+                    <input name="percent" type="number" min="0" step="0.01" required>
+                  </label>
+                  <label>
+                    Prioridad
+                    <input name="priority" type="number" min="0" step="1" value="10">
+                  </label>
+                </div>
+                <div class="form-grid two-cols">
+                  <label>
+                    Inicio
+                    <input name="startsAt" type="date">
+                  </label>
+                  <label>
+                    Fin
+                    <input name="endsAt" type="date">
+                  </label>
+                </div>
+                <label>
+                  Estado
+                  <select name="status">
+                    <option value="Activa">Activa</option>
+                    <option value="Inactiva">Inactiva</option>
+                  </select>
+                </label>
+                <label>
+                  Motivo
+                  <textarea name="motive" rows="3" placeholder="Ej: regla inicial, cambio comercial autorizado" required></textarea>
+                </label>
+                <div class="form-actions">
+                  <button class="primary-btn" id="saveCommissionRuleBtn" type="button">Guardar regla</button>
+                  <button class="secondary-btn" id="resetCommissionFormBtn" type="button">Limpiar</button>
+                </div>
+              </form>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Resumen por usuario</h2>
+                  <p>Ventas, entregas, devoluciones y total final</p>
+                </div>
+              </div>
+              <div class="activity-list" id="commissionSummaryList"></div>
+            </section>
+            <section class="panel wide">
+              <div class="panel-header">
+                <div>
+                  <h2>Auditoria de comisiones</h2>
+                  <p>Historial no eliminable de porcentajes y motivos</p>
+                </div>
+              </div>
+              <div class="activity-list compact" id="commissionAuditList"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="control-stock">
+          <div class="table-panel physical-stock-panel">
+            <div class="table-header">
+              <div>
+                <h2>Control fisico de inventario</h2>
+                <p>Inventario real de deposito: disponible + mercaderia reservada no despachada</p>
+              </div>
+              <div class="table-actions">
+                <button class="primary-btn" id="startPhysicalStockCountBtn" type="button">Iniciar corte de stock</button>
+                <select id="physicalStockReportType" aria-label="Tipo de reporte de inventario">
+                  <option value="current">Vista actual</option>
+                  <option value="rubric">Inventario por rubro</option>
+                  <option value="complete">Inventario completo</option>
+                  <option value="differences">Diferencias</option>
+                  <option value="top-differences">Mayor diferencia</option>
+                  <option value="adjustments">Ajustes realizados</option>
+                </select>
+                <button class="secondary-btn" id="exportPhysicalStockCsvBtn" type="button">Exportar Excel</button>
+                <button class="secondary-btn" id="exportPhysicalStockPdfBtn" type="button">Exportar PDF</button>
+              </div>
+            </div>
+            <div class="analytics-kpis physical-stock-kpis" id="physicalStockKpis"></div>
+            <div class="data-filter-bar physical-stock-filters">
+              <label class="data-search-box">
+                <span>Producto / codigo / nombre</span>
+                <input id="physicalStockSearch" type="search" autocomplete="off" placeholder="Buscar producto, codigo, rubro, marca o proveedor">
+              </label>
+              <select id="physicalStockRubricFilter" aria-label="Filtrar por rubro">
+                <option value="all">Todos los rubros</option>
+              </select>
+              <select id="physicalStockBrandFilter" aria-label="Filtrar por marca">
+                <option value="all">Todas las marcas</option>
+              </select>
+              <select id="physicalStockSupplierFilter" aria-label="Filtrar por proveedor">
+                <option value="all">Todos los proveedores</option>
+              </select>
+              <select id="physicalStockWarehouseFilter" aria-label="Filtrar por deposito">
+                <option value="all">Todos los depositos</option>
+              </select>
+              <input id="physicalStockDateFilter" type="date" aria-label="Filtrar por fecha de conteo">
+              <select id="physicalStockUserFilter" aria-label="Filtrar por usuario">
+                <option value="all">Todos los usuarios</option>
+              </select>
+              <select id="physicalStockModeFilter" aria-label="Filtrar inventario">
+                <option value="all">Todos</option>
+                <option value="counted">Con conteo</option>
+                <option value="differences">Con diferencia</option>
+                <option value="below-min">Bajo minimo disponible</option>
+              </select>
+              <button class="ghost-btn" id="clearPhysicalStockFiltersBtn" type="button">Limpiar</button>
+            </div>
+            <div class="physical-stock-note">
+              <strong>Regla operativa:</strong>
+              <span>El pedido descuenta stock disponible al confirmar preventa, pero el stock fisico solo sale del deposito desde Despachado.</span>
+            </div>
+            <div class="responsive-table">
+              <table class="dense-table">
+                <thead>
+                  <tr>
+                    <th>Codigo</th>
+                    <th>Producto</th>
+                    <th>Stock Disponible</th>
+                    <th>Comprometida</th>
+                    <th>Preparandose</th>
+                    <th>Armada</th>
+                    <th>Etiquetada</th>
+                    <th>Pte. Despacho</th>
+                    <th>Stock Fisico Esperado</th>
+                    <th>Diferencia Fisica</th>
+                    <th>Accion</th>
+                  </tr>
+                </thead>
+                <tbody id="physicalStockTable"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="orders-layout physical-stock-bottom">
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Trazabilidad del producto</h2>
+                  <p>Reservas asociadas a pedidos antes de despacho</p>
+                </div>
+              </div>
+              <div class="activity-list" id="physicalStockTraceList"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Historial de cortes y ajustes</h2>
+                  <p>Nunca se elimina el historial operativo</p>
+                </div>
+              </div>
+              <div class="activity-list" id="physicalStockHistoryList"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="proveedores">
+          <div class="table-panel">
+            <div class="table-header">
+              <div>
+                <h2>Proveedores</h2>
+                <p>Compras, deuda, vencimientos y reposicion</p>
+              </div>
+              <div class="table-actions">
+                <button class="secondary-btn admin-only" id="newSupplierPaymentBtn" type="button">Registrar pago</button>
+                <button class="primary-btn admin-receiver-only" id="newSupplierRemitBtn" type="button">Cargar remito</button>
+              </div>
+            </div>
+            <section class="panel receiver-only" id="supplierReceiverPanel" hidden>
+              <div class="panel-header">
+                <div>
+                  <h2>Recepcion de mercaderia</h2>
+                  <p>Seleccionar proveedor, cargar cantidades y adjuntar foto del remito. Los importes quedan para validacion administrativa.</p>
+                </div>
+                <button class="primary-btn" id="openSupplierReceiverRemitBtn" type="button">Ingresar remito</button>
+              </div>
+            </section>
+            <div class="analytics-kpis supplier-summary supplier-admin-view" id="suppliersSummary"></div>
+            <div class="data-filter-bar supplier-admin-view">
+              <label class="data-search-box">
+                <span>Buscar proveedor</span>
+                <input id="suppliersSearch" type="search" autocomplete="off" placeholder="Proveedor, contacto, rubro o estado">
+              </label>
+              <select id="suppliersStatusFilter" aria-label="Filtrar proveedores por estado">
+                <option value="all">Todos los estados</option>
+              </select>
+              <select id="suppliersSectorFilter" aria-label="Filtrar proveedores por rubro">
+                <option value="all">Todos los rubros</option>
+              </select>
+              <button class="ghost-btn" id="clearSuppliersFilters" type="button">Limpiar</button>
+            </div>
+            <div class="responsive-table supplier-admin-view">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Proveedor</th>
+                    <th>CUIT / Condicion</th>
+                    <th>Contacto</th>
+                    <th>Rubro</th>
+                    <th>Saldo</th>
+                    <th>Comprado / Pagado</th>
+                    <th>Proximo vencimiento</th>
+                    <th>Estado</th>
+                    <th>Accion</th>
+                  </tr>
+                </thead>
+                <tbody id="suppliersTable"></tbody>
+              </table>
+            </div>
+            <section class="panel supplier-admin-view">
+              <div class="panel-header">
+                <div>
+                  <h3>Cuenta corriente proveedor</h3>
+                  <p>Remitos validados, pagos conciliados y saldo pendiente</p>
+                </div>
+                <select id="supplierAccountSelect" aria-label="Seleccionar proveedor para cuenta corriente"></select>
+              </div>
+              <div class="analytics-kpis supplier-summary" id="supplierAccountSummary"></div>
+              <div class="responsive-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Tipo</th>
+                      <th>Medio</th>
+                      <th>Debe</th>
+                      <th>Haber</th>
+                      <th>Saldo</th>
+                    </tr>
+                  </thead>
+                  <tbody id="supplierAccountTable"></tbody>
+                </table>
+              </div>
+            </section>
+            <div class="panel-header compact-header supplier-admin-view">
+              <div>
+                <h3>Movimientos de proveedores</h3>
+                <p>Remitos, pagos y vencimientos registrados</p>
+              </div>
+            </div>
+            <div class="activity-list supplier-admin-view" id="supplierMovementsList"></div>
+          </div>
+        </section>
+
+        <section class="view" id="estadisticas">
+          <div class="analytics-grid">
+            <section class="panel wide">
+              <div class="panel-header">
+                <div>
+                  <h2>Consumo y tendencia de venta</h2>
+                  <p>Lectura operativa para decidir reposicion y foco comercial</p>
+                </div>
+              </div>
+              <div class="analytics-kpis" id="analyticsKpis"></div>
+              <div class="chart-card">
+                <h3>Ventas por vendedor</h3>
+                <div class="horizontal-chart" id="sellerSalesChart"></div>
+              </div>
+              <div class="chart-card">
+                <h3>Productos mas consumidos</h3>
+                <div class="horizontal-chart" id="productConsumptionChart"></div>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Ingresos vs egresos</h2>
+                  <p>Compra, cobranza, venta y salida de stock</p>
+                </div>
+              </div>
+              <div class="finance-chart" id="incomeExpenseChart"></div>
+              <div class="analytics-list" id="cashflowSignals"></div>
+            </section>
+            <section class="panel wide">
+              <div class="panel-header">
+                <div>
+                  <h2>Reposicion sugerida</h2>
+                  <p>Prioridad por stock disponible, minimo y consumo observado</p>
+                </div>
+              </div>
+              <div class="responsive-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Producto</th>
+                      <th>Stock</th>
+                      <th>Minimo</th>
+                      <th>Consumo</th>
+                      <th>Cobertura</th>
+                      <th>Prioridad</th>
+                    </tr>
+                  </thead>
+                  <tbody id="restockTable"></tbody>
+                </table>
+              </div>
+            </section>
+            <section class="panel wide">
+              <div class="panel-header">
+                <div>
+                  <h2>Faltantes</h2>
+                  <p>Pedidos con mercaderia pendiente por producto, cliente, vendedor, zona y estado</p>
+                </div>
+                <div class="table-actions">
+                  <button class="secondary-btn admin-only" id="exportShortagesCsvBtn" type="button">Exportar CSV</button>
+                  <button class="secondary-btn admin-only" id="exportShortagesPdfBtn" type="button">Exportar PDF</button>
+                </div>
+              </div>
+              <div class="data-filter-bar shortage-filter-bar">
+                <label>
+                  Desde
+                  <input id="shortageDateFrom" type="date">
+                </label>
+                <label>
+                  Hasta
+                  <input id="shortageDateTo" type="date">
+                </label>
+                <label>
+                  Hora desde
+                  <input id="shortageTimeFrom" type="time">
+                </label>
+                <label>
+                  Hora hasta
+                  <input id="shortageTimeTo" type="time">
+                </label>
+                <label class="data-search-box">
+                  <span>Producto</span>
+                  <input id="shortageProductSearch" type="search" autocomplete="off" placeholder="Producto o codigo">
+                </label>
+                <label class="data-search-box">
+                  <span>Cliente</span>
+                  <input id="shortageClientSearch" type="search" autocomplete="off" placeholder="Cliente">
+                </label>
+                <select id="shortageSellerFilter" aria-label="Filtrar faltantes por vendedor">
+                  <option value="all">Todos los vendedores</option>
+                </select>
+                <select id="shortageZoneFilter" aria-label="Filtrar faltantes por zona">
+                  <option value="all">Todas las zonas</option>
+                </select>
+                <select id="shortageStatusFilter" aria-label="Filtrar faltantes por estado">
+                  <option value="all">Todos los estados</option>
+                </select>
+                <button class="ghost-btn" id="clearShortageFiltersBtn" type="button">Limpiar</button>
+              </div>
+              <div class="delivery-planner-summary" id="shortageStatsSummary"></div>
+              <div class="responsive-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Producto</th>
+                      <th>Solicitado</th>
+                      <th>Entregado/reservado</th>
+                      <th>Diferencia</th>
+                      <th>Cliente</th>
+                      <th>Vendedor</th>
+                      <th>Fecha / Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody id="shortageStatsTable"></tbody>
+                </table>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Activos a cuidar</h2>
+                  <p>Clientes, stock critico y capital inmovilizado</p>
+                </div>
+              </div>
+              <div class="analytics-list" id="assetSignals"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="diagnostico">
+          <div class="orders-layout">
+            <section class="panel wide">
+              <div class="panel-header">
+                <div>
+                  <h2>Diagnostico tecnico</h2>
+                  <p>Conexion, API, sincronizacion, Tailnet y ultima falla registrada</p>
+                </div>
+                <div class="table-actions">
+                  <button class="secondary-btn" id="runDiagnosticsBtn" type="button">Probar conexion</button>
+                  <button class="ghost-btn" id="configureAndroidServerBtn" type="button">Configurar APK</button>
+                </div>
+              </div>
+              <div class="diagnostics-grid" id="diagnosticsGrid"></div>
+              <div class="diagnostics-log" id="diagnosticsLog"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="legal">
+          <div class="legal-workspace">
+            <section class="panel wide">
+              <div class="panel-header">
+                <div>
+                  <h2>Terminos, licencia y privacidad</h2>
+                  <p>Version vigente, evidencias de aceptacion y documentos legales del sistema</p>
+                </div>
+                <span class="tag info">Grupo Rocha Solutions</span>
+              </div>
+              <div class="legal-cards" id="legalCards"></div>
+            </section>
+            <section class="panel wide">
+              <div class="panel-header">
+                <div>
+                  <h2>Documentos vigentes</h2>
+                  <p>Terminos y Condiciones, Licencia de Uso, Privacidad, Datos Personales y GPS</p>
+                </div>
+              </div>
+              <div class="legal-documents" id="legalDocumentsList"></div>
+            </section>
+            <section class="panel admin-only">
+              <div class="panel-header">
+                <div>
+                  <h2>Publicar nueva version</h2>
+                  <p>Una nueva version obliga a todos los usuarios a aceptar nuevamente</p>
+                </div>
+              </div>
+              <form id="legalPublishForm" class="legal-publish-form">
+                <label>
+                  Version
+                  <input name="version" required placeholder="LEGAL-2026-07-27-v2">
+                </label>
+                <label>
+                  Titulo
+                  <input name="title" required placeholder="Terminos, Licencia y Privacidad">
+                </label>
+                <label>
+                  Resumen
+                  <input name="summary" placeholder="Descripcion breve del cambio">
+                </label>
+                <label>
+                  Terminos y Condiciones
+                  <textarea data-legal-document="terms" rows="5"></textarea>
+                </label>
+                <label>
+                  Licencia de Uso
+                  <textarea data-legal-document="license" rows="5"></textarea>
+                </label>
+                <label>
+                  Politica de Privacidad
+                  <textarea data-legal-document="privacy" rows="5"></textarea>
+                </label>
+                <label>
+                  Uso del GPS
+                  <textarea data-legal-document="gps" rows="5"></textarea>
+                </label>
+                <label>
+                  Avisos Legales
+                  <textarea data-legal-document="legal-notice" rows="5"></textarea>
+                </label>
+                <label>
+                  Motivo administrativo
+                  <textarea name="motive" rows="3" required placeholder="Ej: actualizacion legal, nuevo alcance de datos o GPS"></textarea>
+                </label>
+                <div class="form-actions">
+                  <button class="primary-btn" type="submit">Publicar version</button>
+                </div>
+              </form>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Historial de versiones</h2>
+                  <p>Versiones publicadas y hash documental</p>
+                </div>
+              </div>
+              <div class="activity-list" id="legalHistoryList"></div>
+            </section>
+            <section class="panel wide admin-only">
+              <div class="panel-header">
+                <div>
+                  <h2>Aceptacion electronica</h2>
+                  <p>Usuario, fecha, hora, IP, dispositivo, version y hash aceptado</p>
+                </div>
+              </div>
+              <div class="activity-list compact" id="legalAcceptancesList"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="ayuda">
+          <div class="help-workspace">
+            <section class="panel wide">
+              <div class="panel-header">
+                <div>
+                  <h2>Centro de ayuda inteligente</h2>
+                  <p>Manual por modulos, busqueda, recorrido guiado e instructivos imprimibles</p>
+                </div>
+                <button class="secondary-btn" id="downloadFullHelpManualBtn" type="button">Descargar manual PDF</button>
+              </div>
+              <div class="data-filter-bar">
+                <label class="data-search-box">
+                  <span>Buscar ayuda</span>
+                  <input id="helpSearch" type="search" autocomplete="off" placeholder="Modulo, accion o palabra clave">
+                </label>
+                <select id="helpRoleFilter" aria-label="Filtrar ayuda por rol">
+                  <option value="all">Todos los roles</option>
+                </select>
+                <select id="helpModuleFilter" aria-label="Filtrar ayuda por modulo">
+                  <option value="all">Todos los modulos</option>
+                </select>
+              </div>
+            </section>
+            <section class="panel help-list-panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Modulos</h2>
+                  <p>Seleccionar un tema para ver el paso a paso</p>
+                </div>
+              </div>
+              <div class="help-topic-list" id="helpTopicList"></div>
+            </section>
+            <section class="panel wide">
+              <div class="help-support-panel" id="helpSupportPanel"></div>
+              <div id="helpTopicDetail"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="acerca">
+          <div class="about-workspace">
+            <section class="panel wide">
+              <div class="panel-header">
+                <div>
+                  <h2>Acerca del sistema</h2>
+                  <p>Informacion de version, licencia, servidor, soporte y novedades</p>
+                </div>
+                <button class="whatsapp-btn" type="button" data-support-whatsapp>Soporte WhatsApp</button>
+              </div>
+              <div class="about-grid" id="aboutSystemGrid"></div>
+              <p class="about-copyright" id="aboutCopyright"></p>
+              <div class="about-support-panel" id="aboutSupportPanel"></div>
+            </section>
+            <section class="panel wide">
+              <div class="panel-header">
+                <div>
+                  <h2>Historial de versiones</h2>
+                  <p>Release notes operativas para soporte y mantenimiento</p>
+                </div>
+              </div>
+              <div class="activity-list" id="aboutReleaseNotes"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="admin">
+          <div class="admin-grid">
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Informacion administrativa</h2>
+                  <p>Indicadores listos para gerencia y contador</p>
+                </div>
+                <button class="secondary-btn" id="cleanLocalDataBtn" type="button">Limpiar datos locales</button>
+              </div>
+              <div class="admin-list" id="adminList"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Alcance de la solucion</h2>
+                  <p>Necesidades cubiertas en la demo</p>
+                </div>
+              </div>
+              <div class="requirements-list" id="requirementsList"></div>
+            </section>
+            <section class="panel admin-session-panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Sesiones activas</h2>
+                  <p>Presencia, dispositivo, IP y GPS en tiempo real</p>
+                </div>
+                <button class="secondary-btn" id="refreshSessionsBtn" type="button">Actualizar</button>
+              </div>
+              <div class="session-summary" id="sessionSummary"></div>
+              <form class="session-settings-form" id="sessionSettingsForm">
+                <label>
+                  Sesion duplicada
+                  <select id="sessionDuplicatePolicy" name="duplicatePolicy">
+                    <option value="replace">Cerrar sesion anterior</option>
+                    <option value="reject">Rechazar nuevo ingreso</option>
+                  </select>
+                </label>
+                <label>
+                  Sin conexion luego de
+                  <input id="sessionOfflineAfterMs" name="offlineAfterMs" type="number" min="15000" step="5000">
+                </label>
+                <label>
+                  Heartbeat ms
+                  <input id="sessionHeartbeatMs" name="heartbeatIntervalMs" type="number" min="5000" step="1000">
+                </label>
+                <label>
+                  GPS minimo metros
+                  <input id="sessionGpsMinDistance" name="locationUpdateMinDistanceMeters" type="number" min="0" step="5">
+                </label>
+                <label>
+                  GPS en movimiento ms
+                  <input id="sessionMovingMs" name="locationMovingIntervalMs" type="number" min="5000" step="1000">
+                </label>
+                <label>
+                  GPS detenido ms
+                  <input id="sessionStationaryMs" name="locationStationaryIntervalMs" type="number" min="10000" step="5000">
+                </label>
+                <label>
+                  GPS max antiguedad ms
+                  <input id="sessionGpsMaxAgeMs" name="locationMaxAgeMs" type="number" min="30000" step="10000">
+                </label>
+                <label>
+                  Duracion sesion laboral ms
+                  <input id="sessionTtlMs" name="sessionTtlMs" type="number" min="57600000" step="3600000">
+                </label>
+                <label>
+                  Jornada desde
+                  <input id="sessionWorkdayStartHour" name="workdayStartHour" type="number" min="0" max="23" step="1">
+                </label>
+                <label>
+                  Jornada hasta
+                  <input id="sessionWorkdayEndHour" name="workdayEndHour" type="number" min="1" max="24" step="1">
+                </label>
+                <button class="primary-btn" type="submit">Guardar politica</button>
+              </form>
+              <div class="responsive-table session-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Usuario</th>
+                      <th>Dispositivo</th>
+                      <th>Estado</th>
+                      <th>IP / GPS</th>
+                      <th>Actividad</th>
+                      <th>Accion</th>
+                    </tr>
+                  </thead>
+                  <tbody id="activeSessionsTable"></tbody>
+                </table>
+              </div>
+              <div class="presence-history" id="sessionRecentList"></div>
+            </section>
+            <section class="panel admin-license-panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Licencia e integridad</h2>
+                  <p>Blindaje de instalacion, servidor autorizado y archivos criticos</p>
+                </div>
+                <button class="secondary-btn" id="refreshLicenseBtn" type="button">Verificar</button>
+              </div>
+              <div class="license-status-grid" id="licenseStatusGrid"></div>
+              <div class="license-events" id="licenseEvents"></div>
+            </section>
+            <section class="panel admin-audit-panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Auditoria global</h2>
+                  <p>Historial completo por pedido, cliente, stock, reparto, sesion y transferencia</p>
+                </div>
+                <button class="secondary-btn" id="printAuditBtn" type="button">Imprimir auditoria</button>
+              </div>
+              <div class="data-filter-bar audit-filter-bar">
+                <label class="data-search-box">
+                  <span>Buscar auditoria</span>
+                  <input id="auditSearch" type="search" autocomplete="off" placeholder="Accion, usuario, pedido, cliente, IP o nota">
+                </label>
+                <select id="auditEntityFilter" aria-label="Filtrar auditoria por entidad">
+                  <option value="all">Todas las entidades</option>
+                </select>
+                <select id="auditActionFilter" aria-label="Filtrar auditoria por accion">
+                  <option value="all">Todas las acciones</option>
+                </select>
+                <button class="ghost-btn" id="clearAuditFilters" type="button">Limpiar</button>
+              </div>
+              <div class="audit-list" id="auditList"></div>
+            </section>
+            <section class="panel admin-gps-rejected-panel">
+              <div class="panel-header">
+                <div>
+                  <h2>GPS rechazado</h2>
+                  <p>Ubicaciones simuladas, falsas o no confiables bloqueadas por el sistema</p>
+                </div>
+              </div>
+              <div class="audit-list" id="rejectedGpsList"></div>
+            </section>
+          </div>
+        </section>
+        <footer class="app-footer">
+          <strong>&copy; 2026 Grupo Rocha Solutions</strong>
+          <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
+          <span id="appFooterVersion">Version del sistema: 8790-88-r20260808</span>
+          <span id="appFooterLicense">Licencia activa</span>
+        </footer>
+      </main>
+      <section class="admin-order-toasts" id="adminOrderToasts" aria-live="assertive" aria-label="Notificaciones de pedidos"></section>
+      <section class="notification-center" id="notificationCenter" hidden aria-label="Centro de notificaciones">
+        <div class="notification-center-card">
+          <div class="notification-center-header">
+            <div>
+              <p class="eyebrow">TIEMPO REAL</p>
+              <h2>Centro de notificaciones</h2>
+              <span id="notificationSummary">0 avisos</span>
+            </div>
+            <button class="icon-btn" id="closeNotificationCenterBtn" type="button" aria-label="Cerrar">x</button>
+          </div>
+          <div class="data-filter-bar notification-filter-bar">
+            <label class="data-search-box">
+              <span>Buscar aviso</span>
+              <input id="notificationSearch" type="search" autocomplete="off" placeholder="Pedido, cliente, ruta, comprobante o usuario">
+            </label>
+            <select id="notificationToneFilter" aria-label="Filtrar avisos por urgencia">
+              <option value="all">Todas las urgencias</option>
+              <option value="danger">Criticos</option>
+              <option value="warn">Atencion</option>
+              <option value="ok">OK</option>
+              <option value="info">Info</option>
+            </select>
+            <select id="notificationCategoryFilter" aria-label="Filtrar avisos por categoria">
+              <option value="all">Todas las categorias</option>
+            </select>
+          </div>
+          <div class="notification-center-actions">
+            <button class="ghost-btn" id="markNotificationsReadBtn" type="button">Marcar leidas</button>
+            <button class="ghost-btn" id="clearNotificationFiltersBtn" type="button">Limpiar filtros</button>
+          </div>
+          <div class="notification-list" id="notificationList"></div>
+        </div>
+      </section>
+    </div>
+
+    <dialog id="orderDialog">
+      <form method="dialog" id="orderForm" class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Alta rapida</p>
+            <h2>Nuevo pedido</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <label>
+          Cliente
+          <input name="client" required placeholder="Ej: Autoservicio La Esquina">
+        </label>
+        <div id="orderClientAccountInfo" class="order-account-preview"></div>
+        <label>
+          Productos
+          <input name="products" required placeholder="Ej: Aceite x12, arroz x20, yerba x10">
+        </label>
+        <div class="form-grid">
+          <label>
+            Vendedor
+            <select name="seller">
+              <option value="Sofia Benitez">Sofia Benitez</option>
+              <option value="Carlos Roldan">Carlos Roldan</option>
+              <option value="Nicolas Vera">Nicolas Vera</option>
+            </select>
+          </label>
+          <label>
+            Importe
+            <input name="amount" required type="number" min="1000" step="1000" value="96000">
+          </label>
+        </div>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" value="default" type="submit">Enviar a distribuidora</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="orderEditDialog">
+      <form id="orderEditForm" class="modal-card order-edit-modal">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Auditoria administrativa</p>
+            <h2 id="orderEditTitle">Editar pedido</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <p class="form-help">Los datos anteriores quedan guardados en auditoria. Solo se editan pedidos antes del despacho.</p>
+        <div class="order-edit-items" id="orderEditItemsList"></div>
+        <div class="order-edit-summary" id="orderEditSummary"></div>
+        <button class="secondary-btn" id="orderEditAddItemBtn" type="button">Agregar producto</button>
+        <label>
+          Observaciones
+          <textarea id="orderEditObservation" rows="3" placeholder="Observaciones operativas del pedido"></textarea>
+        </label>
+        <label>
+          Motivo obligatorio
+          <textarea id="orderEditMotive" rows="3" required placeholder="Ej: Cliente llamo y cambio cantidades"></textarea>
+        </label>
+        <p class="login-message" id="orderEditMessage"></p>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" id="orderEditSubmitBtn" type="submit">Guardar modificacion</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="orderTimelineDialog">
+      <form method="dialog" class="modal-card order-timeline-modal">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Trazabilidad completa</p>
+            <h2 id="orderTimelineTitle">Pedido</h2>
+            <div class="timeline-dialog-meta" id="orderTimelineMeta"></div>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <div class="timeline-summary" id="orderTimelineSummary"></div>
+        <div class="order-timeline-list" id="orderTimelineList"></div>
+        <menu>
+          <button class="primary-btn" value="default" type="button" data-close-dialog>Cerrar</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="orderLabelDialog">
+      <form id="orderLabelForm" class="modal-card order-label-modal">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Armado y etiquetado</p>
+            <h2 id="orderLabelTitle">Etiqueta de pedido</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <input id="orderLabelCode" type="hidden">
+        <div class="label-preview" id="orderLabelPreview"></div>
+        <div class="form-grid">
+          <label>
+            Numero de orden de armado
+            <input id="orderLabelAssemblyOrder" name="assemblyOrderNumber" type="number" min="1" step="1" required>
+          </label>
+          <label>
+            Cantidad de bultos
+            <input id="orderLabelPackages" name="packages" type="number" min="1" step="1" required>
+          </label>
+          <label>
+            Impresora / etiqueta
+            <input id="orderLabelPrinter" name="printer" autocomplete="off" placeholder="Zebra deposito, Brother, red">
+          </label>
+        </div>
+        <label>
+          Observaciones para etiqueta
+          <textarea id="orderLabelObservations" name="observations" rows="3" placeholder="Fragil, entregar por porton, cobrar contra entrega"></textarea>
+        </label>
+        <p class="login-message" id="orderLabelMessage"></p>
+        <div class="form-actions">
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="secondary-btn" type="submit" data-label-action="mark">Marcar generada</button>
+          <button class="primary-btn" type="submit" data-label-action="print">Generar e imprimir</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="orderScanDialog">
+      <form id="orderScanForm" class="modal-card order-scan-modal">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Control por scanner</p>
+            <h2 id="orderScanTitle">Escanear etiqueta</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <input id="orderScanCode" type="hidden">
+        <div class="scan-target" id="orderScanTarget"></div>
+        <label>
+          Codigo escaneado
+          <input id="orderScanValue" name="scanValue" autocomplete="off" inputmode="text" required placeholder="Apuntar la pistola y disparar">
+        </label>
+        <p class="login-message" id="orderScanMessage"></p>
+        <div class="form-actions">
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" type="submit">Validar scanner</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="clientDialog">
+      <form method="dialog" id="clientForm" class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Padron normalizado</p>
+            <h2 id="clientDialogTitle">Nuevo cliente</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <div class="form-grid">
+          <label>
+            Codigo cliente
+            <input name="codigo_cliente" required placeholder="Ej: 763">
+          </label>
+          <label>
+            Nombre comercial
+            <input name="nombre_comercial" required placeholder="Ej: Almacen Don Luis">
+          </label>
+        </div>
+        <label>
+          Razon social
+          <input name="razon_social" required placeholder="Puede ser igual al nombre comercial">
+        </label>
+        <div class="form-grid">
+          <label>
+            CUIT
+            <input name="cuit" inputmode="numeric" placeholder="Opcional si no lo tiene">
+          </label>
+          <label>
+            Condicion fiscal
+            <select name="condicion_fiscal" required>
+              <option value="Cons.Final">Consumidor final</option>
+              <option value="Responsable Inscripto">Responsable inscripto</option>
+              <option value="Monotributo">Monotributo</option>
+              <option value="Exento">Exento</option>
+            </select>
+          </label>
+        </div>
+        <label>
+          Domicilio
+          <input name="domicilio" required placeholder="Calle, numero y referencia">
+        </label>
+        <div class="form-grid">
+          <label>
+            Localidad
+            <input name="localidad" required placeholder="Ej: Cordoba">
+          </label>
+          <label>
+            Telefono
+            <input name="telefono" inputmode="tel" placeholder="Ej: 3512319015">
+          </label>
+        </div>
+        <label>
+          Email
+          <input name="email" type="email" placeholder="cliente@correo.com">
+        </label>
+        <label>
+          Horario de atencion
+          <input name="horario_atencion" placeholder="Ej: 08:00 a 13:00">
+        </label>
+        <div class="form-grid">
+          <label>
+            Latitud entrega
+            <input name="latitud" type="number" step="0.000001" placeholder="-31.416700">
+          </label>
+          <label>
+            Longitud entrega
+            <input name="longitud" type="number" step="0.000001" placeholder="-64.183300">
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Tipo de cliente
+            <input name="tipo_cliente" required placeholder="Ej: AUTOSERVICIO">
+          </label>
+          <label>
+            Zona
+            <input name="zona" required placeholder="Ej: ZONA 1">
+          </label>
+        </div>
+        <label>
+          Condicion comercial
+          <input name="condicion_comercial" placeholder="Ej: Cuenta corriente autorizada, contado, bonificacion especial">
+        </label>
+        <div class="form-grid">
+          <label>
+            Ruta
+            <input name="ruta" placeholder="Ej: LuVi / Centro / CIGARRILLOS">
+          </label>
+          <label>
+            Vendedor asignado
+            <select name="vendedor_asignado" id="clientSellerSelect"></select>
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Forma de pago
+            <select name="forma_pago" required>
+              <option value="Contado">Contado</option>
+              <option value="Cuenta corriente">Cuenta corriente</option>
+              <option value="Transferencia">Transferencia</option>
+              <option value="Mercado Pago">Mercado Pago</option>
+            </select>
+          </label>
+          <label>
+            Dias credito
+            <input name="dias_credito" type="number" min="0" step="1" value="0">
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Limite de cuenta
+            <input name="limite_credito" id="clientCreditLimitInput" required type="number" min="0" step="1000" value="0">
+          </label>
+          <label>
+            Saldo inicial
+            <input name="saldo_inicial" type="number" min="0" step="1000" value="0">
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Dia visita
+            <input name="dia_visita" placeholder="Ej: 2/7 LuVi">
+          </label>
+          <label>
+            Frecuencia
+            <input name="frecuencia_visita" placeholder="Ej: 7 dias">
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Estado
+            <select name="estado">
+              <option value="Activo">Activo</option>
+              <option value="Con deuda">Con deuda</option>
+              <option value="Bloqueado">Bloqueado</option>
+              <option value="Pendiente de aprobacion">Pendiente de aprobacion</option>
+            </select>
+          </label>
+          <label>
+            Observaciones
+            <input name="observaciones" placeholder="Dato dudoso, referencia o aclaracion">
+          </label>
+        </div>
+        <label id="clientChangeMotiveField">
+          Motivo del cambio
+          <textarea name="motivo_cambio" id="clientChangeMotive" rows="3" placeholder="Obligatorio al editar: quien pidio el cambio y por que"></textarea>
+        </label>
+        <label id="clientAdminPasswordField">
+          Clave de administrador para editar
+          <input name="admin_password" id="clientAdminPassword" autocomplete="current-password" type="password" placeholder="Reingresar clave admin">
+        </label>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" id="clientSubmitBtn" value="default" type="submit">Guardar cliente</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="mixedEntityDialog">
+      <form method="dialog" class="modal-card wide-modal">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Ficha administrativa unificada</p>
+            <h2 id="mixedEntityTitle">Entidad mixta</h2>
+            <p id="mixedEntitySubtitle">Cliente y proveedor</p>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <div id="mixedEntityBody"></div>
+        <menu>
+          <button class="primary-btn" value="cancel" type="button" data-close-dialog>Cerrar</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="productDialog">
+      <form method="dialog" id="productForm" class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Catalogo normalizado</p>
+            <h2>Nuevo producto</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <div class="form-grid">
+          <label>
+            Codigo producto
+            <input name="codigo_producto" required placeholder="Ej: 1202">
+          </label>
+          <label>
+            Codigo barras
+            <input name="codigo_barras" inputmode="numeric" placeholder="Backlog lector">
+          </label>
+        </div>
+        <label>
+          Descripcion
+          <input name="descripcion" required placeholder="Ej: BUSCAPINA PERLAS X 10">
+        </label>
+        <div class="form-grid">
+          <label>
+            Rubro
+            <input name="rubro" required placeholder="Ej: ANALGESICOS">
+          </label>
+          <label>
+            Marca
+            <input name="marca" placeholder="S/D">
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Familia
+            <input name="familia" placeholder="S/D">
+          </label>
+          <label>
+            Segmento / version
+            <input name="segmento" placeholder="S/D">
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Stock actual
+            <input name="stock_actual" required type="number" min="0" step="1" value="0">
+          </label>
+          <label>
+            Stock minimo
+            <input name="stock_minimo" required type="number" min="0" step="1" value="0">
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Bultos
+            <input name="bultos" placeholder="Ej: 1/0">
+          </label>
+          <label>
+            Costo
+            <input name="costo" type="number" min="0" step="0.01" value="0">
+          </label>
+        </div>
+        <div class="price-list-editor-table" data-price-list-editor="product">
+          <div class="price-list-editor-head">
+            <span>Lista</span>
+            <span>% sobre costo</span>
+            <span>Precio</span>
+          </div>
+          <label data-price-list-row="1"><span>Lista 1</span><input name="precio_lista_1_pct" type="number" min="0" step="0.01" value="0"><input name="precio_lista_1" type="number" min="0" step="0.01" value="0"></label>
+          <label data-price-list-row="2"><span>Lista 2 / Preventa</span><input name="precio_lista_2_pct" type="number" min="0" step="0.01" value="0"><input name="precio_lista_2" required type="number" min="0" step="0.01" value="0"></label>
+          <label data-price-list-row="3"><span>Lista 3</span><input name="precio_lista_3_pct" type="number" min="0" step="0.01" value="0"><input name="precio_lista_3" type="number" min="0" step="0.01" value="0"></label>
+          <label data-price-list-row="4"><span>Lista 4</span><input name="precio_lista_4_pct" type="number" min="0" step="0.01" value="0"><input name="precio_lista_4" type="number" min="0" step="0.01" value="0"></label>
+          <label data-price-list-row="5"><span>Lista 5</span><input name="precio_lista_5_pct" type="number" min="0" step="0.01" value="0"><input name="precio_lista_5" type="number" min="0" step="0.01" value="0"></label>
+        </div>
+        <div class="form-grid">
+          <label>
+            IVA
+            <input name="iva" type="number" min="0" step="0.01" value="0">
+          </label>
+          <label>
+            Bonificacion
+            <input name="bonificacion" placeholder="Ej: 0">
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Activo
+            <select name="activo">
+              <option value="SI">SI</option>
+              <option value="NO">NO</option>
+            </select>
+          </label>
+        </div>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" value="default" type="submit">Guardar producto</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="stockEntryDialog">
+      <form method="dialog" id="stockEntryForm" class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Ingreso manual</p>
+            <h2>Cargar stock</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <label>
+          Producto
+          <select name="product" id="stockEntryProductSelect"></select>
+        </label>
+        <div class="form-grid">
+          <label>
+            Movimiento
+            <select name="movement_type">
+              <option value="Ingreso">Ingreso</option>
+              <option value="Mercaderia en transito">Mercaderia en transito</option>
+              <option value="Ingreso desde transito">Ingreso desde transito</option>
+              <option value="Ajuste positivo">Ajuste positivo</option>
+              <option value="Ajuste negativo">Ajuste negativo</option>
+            </select>
+          </label>
+          <label>
+            Cantidad
+            <input name="qty" required type="number" min="1" step="1" value="1">
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Proveedor
+            <select name="supplier" id="stockEntrySupplierSelect"></select>
+          </label>
+          <label>
+            Comprobante
+            <input name="note" placeholder="Factura, remito o motivo">
+          </label>
+        </div>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" value="default" type="submit">Cargar ingreso</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="supplierRemitDialog">
+      <form id="supplierRemitForm" class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Proveedor</p>
+            <h2>Cargar remito</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <div class="form-grid">
+          <label>
+            Proveedor
+            <select id="supplierRemitSupplier" name="supplier" required></select>
+          </label>
+          <label>
+            Numero de remito
+            <input id="supplierRemitNumber" name="remitNumber" required autocomplete="off">
+          </label>
+          <label>
+            Fecha
+            <input id="supplierRemitDate" name="date" type="date" required>
+          </label>
+          <label id="supplierRemitAmountField">
+            Importe proveedor
+            <input id="supplierRemitAmount" name="amount" type="number" min="0" step="0.01" value="0">
+          </label>
+        </div>
+        <section class="remit-builder">
+          <div class="section-head compact">
+            <div>
+              <h3>Productos recibidos</h3>
+              <p>Buscar por nombre, codigo, rubro, proveedor o nomenclador interno</p>
+            </div>
+          </div>
+          <label>
+            Producto del inventario
+            <select id="supplierRemitProductSearch"></select>
+          </label>
+          <div class="form-grid">
+            <label>
+              Cantidad
+              <input id="supplierRemitQty" type="number" min="0" step="0.01" value="1">
+            </label>
+            <label id="supplierRemitUnitField">
+              Unidad
+              <input id="supplierRemitUnit" autocomplete="off" value="unidad">
+            </label>
+            <label id="supplierRemitUnitPriceField">
+              Precio unitario
+              <input id="supplierRemitUnitPrice" type="number" min="0" step="0.01" value="0">
+            </label>
+            <label id="supplierRemitMultiplierField">
+              Multiplicador stock
+              <input id="supplierRemitMultiplier" type="number" min="0.01" step="0.01" value="1">
+            </label>
+          </div>
+          <div class="remit-subtotal-line">
+            <span id="supplierRemitSubtotalLabel">Subtotal</span>
+            <strong id="supplierRemitSubtotal">$ 0</strong>
+            <button class="secondary-btn" id="supplierRemitAddProductBtn" type="button">Agregar producto</button>
+          </div>
+          <div class="remit-items-list" id="supplierRemitItemsList"></div>
+          <textarea id="supplierRemitProducts" name="productsText" rows="3" hidden></textarea>
+        </section>
+        <section class="mobile-file-panel">
+          <div class="section-head compact">
+            <div>
+              <h3>Adjunto obligatorio</h3>
+              <p>Desde celular abre camara, galeria o selector PDF/imagen</p>
+            </div>
+          </div>
+          <div class="file-action-grid">
+            <label class="file-action-btn" for="supplierRemitCamera">
+              <span class="file-action-icon">CAM</span>
+              <strong>Sacar foto</strong>
+            </label>
+            <label class="file-action-btn" for="supplierRemitGallery">
+              <span class="file-action-icon">IMG</span>
+              <strong>Galeria</strong>
+            </label>
+            <label class="file-action-btn" for="supplierRemitFile">
+              <span class="file-action-icon">PDF</span>
+              <strong>Archivo</strong>
+            </label>
+          </div>
+          <input class="visually-hidden-file" id="supplierRemitCamera" type="file" accept="image/*" capture="environment">
+          <input class="visually-hidden-file" id="supplierRemitGallery" type="file" accept="image/*">
+          <input class="visually-hidden-file" id="supplierRemitFile" type="file" accept="application/pdf,image/*">
+          <small id="supplierRemitFileStatus">Sin adjunto seleccionado.</small>
+        </section>
+        <label>
+          Observaciones
+          <textarea id="supplierRemitObservations" name="observations" rows="3" placeholder="Diferencias, bultos observados o comentario"></textarea>
+        </label>
+        <p class="login-message" id="supplierRemitMessage"></p>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" id="supplierRemitSubmitBtn" type="submit">Guardar remito</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="supplierRemitValidationDialog">
+      <form id="supplierRemitValidationForm" class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Conciliacion administrativa</p>
+            <h2 id="supplierRemitValidationTitle">Validar remito</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <input id="supplierRemitValidationId" type="hidden">
+        <p class="form-help">El stock y la cuenta corriente del proveedor se actualizan recien al validar este paso.</p>
+        <div class="form-grid">
+          <label>
+            Importe final
+            <input id="supplierRemitValidationAmount" name="amount" required type="number" min="0" step="0.01" value="0">
+          </label>
+          <label>
+            Numero de factura
+            <input id="supplierRemitValidationInvoice" name="invoiceNumber" required autocomplete="off" placeholder="Factura asociada">
+          </label>
+          <label>
+            Fecha factura
+            <input id="supplierRemitValidationInvoiceDate" name="invoiceDate" type="date">
+          </label>
+          <label>
+            Diferencia $ 
+            <input id="supplierRemitValidationDifferenceAmount" name="differenceAmount" type="number" step="0.01" value="0">
+          </label>
+        </div>
+        <label class="checkbox-line">
+          <input id="supplierRemitValidationCosts" name="costsValidated" type="checkbox" checked>
+          Costos revisados y aprobados por Administracion
+        </label>
+        <label>
+          Diferencias detectadas
+          <textarea id="supplierRemitValidationDifferences" name="differences" rows="2" placeholder="Bultos faltantes, precios distintos, productos no recibidos o sin diferencias"></textarea>
+        </label>
+        <section class="mobile-file-panel">
+          <div class="section-head compact">
+            <div>
+              <h3>Factura / respaldo</h3>
+              <p>Opcional: adjuntar factura, PDF o imagen para auditoria.</p>
+            </div>
+          </div>
+          <div class="file-action-grid">
+            <label class="file-action-btn" for="supplierInvoiceCamera">
+              <span class="file-action-icon">CAM</span>
+              <strong>Sacar foto</strong>
+            </label>
+            <label class="file-action-btn" for="supplierInvoiceGallery">
+              <span class="file-action-icon">IMG</span>
+              <strong>Galeria</strong>
+            </label>
+            <label class="file-action-btn" for="supplierInvoiceFile">
+              <span class="file-action-icon">PDF</span>
+              <strong>Archivo</strong>
+            </label>
+          </div>
+          <input class="visually-hidden-file" id="supplierInvoiceCamera" type="file" accept="image/*" capture="environment">
+          <input class="visually-hidden-file" id="supplierInvoiceGallery" type="file" accept="image/*">
+          <input class="visually-hidden-file" id="supplierInvoiceFile" type="file" accept="application/pdf,image/*">
+          <small id="supplierInvoiceFileStatus">Sin factura adjunta.</small>
+        </section>
+        <label>
+          Observaciones administrativas
+          <textarea id="supplierRemitValidationObservations" name="observations" rows="3" placeholder="Control de remito, factura, costos y diferencias"></textarea>
+        </label>
+        <p class="login-message" id="supplierRemitValidationMessage"></p>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" id="supplierRemitValidationSubmitBtn" type="submit">Validar e ingresar stock</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="supplierPaymentDialog">
+      <form id="supplierPaymentForm" class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Proveedor</p>
+            <h2>Registrar pago</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <div class="form-grid">
+          <label>
+            Proveedor
+            <select id="supplierPaymentSupplier" name="supplier" required></select>
+          </label>
+          <label>
+            Medio
+            <select id="supplierPaymentMethod" name="method" required>
+              <option value="Efectivo">Efectivo</option>
+              <option value="Transferencia">Transferencia</option>
+              <option value="Mercaderia">Mercaderia</option>
+            </select>
+          </label>
+          <label>
+            Importe
+            <input id="supplierPaymentAmount" name="amount" required type="number" min="0" step="0.01" value="0">
+          </label>
+          <label>
+            Fecha
+            <input id="supplierPaymentDate" name="date" type="date" required>
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Banco
+            <input id="supplierPaymentBank" name="bank" autocomplete="off" placeholder="Si corresponde">
+          </label>
+          <label>
+            Operacion
+            <input id="supplierPaymentOperation" name="operationNumber" autocomplete="off" placeholder="Nro. comprobante / transferencia">
+          </label>
+        </div>
+        <label>
+          Mercaderia entregada como pago
+          <textarea id="supplierPaymentMerchandise" name="merchandiseDetail" rows="2" placeholder="Completar si el medio es Mercaderia"></textarea>
+        </label>
+        <section class="mobile-file-panel">
+          <div class="section-head compact">
+            <div>
+              <h3>Documentacion de respaldo</h3>
+              <p>Obligatoria para registrar el pago.</p>
+            </div>
+          </div>
+          <div class="file-action-grid">
+            <label class="file-action-btn" for="supplierPaymentCamera">
+              <span class="file-action-icon">CAM</span>
+              <strong>Sacar foto</strong>
+            </label>
+            <label class="file-action-btn" for="supplierPaymentGallery">
+              <span class="file-action-icon">IMG</span>
+              <strong>Galeria</strong>
+            </label>
+            <label class="file-action-btn" for="supplierPaymentFile">
+              <span class="file-action-icon">PDF</span>
+              <strong>Archivo</strong>
+            </label>
+          </div>
+          <input class="visually-hidden-file" id="supplierPaymentCamera" type="file" accept="image/*" capture="environment">
+          <input class="visually-hidden-file" id="supplierPaymentGallery" type="file" accept="image/*">
+          <input class="visually-hidden-file" id="supplierPaymentFile" type="file" accept="application/pdf,image/*">
+          <small id="supplierPaymentFileStatus">Sin respaldo seleccionado.</small>
+        </section>
+        <label>
+          Observaciones
+          <textarea id="supplierPaymentObservations" name="observations" rows="3" placeholder="Detalle de efectivo, transferencia o mercaderia"></textarea>
+        </label>
+        <p class="login-message" id="supplierPaymentMessage"></p>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" id="supplierPaymentSubmitBtn" type="submit">Registrar pago pendiente</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="physicalStockAdjustDialog">
+      <form method="dialog" id="physicalStockAdjustForm" class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Inventario fisico</p>
+            <h2 id="physicalStockAdjustTitle">Autorizar ajuste</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <p class="form-help">El conteo solo informa diferencias. Este paso modifica stock fisico y requiere clave de administrador.</p>
+        <input id="physicalStockAdjustCode" name="product_code" type="hidden">
+        <div class="form-grid">
+          <label>
+            Stock anterior
+            <input id="physicalStockAdjustPrevious" name="previous_stock" readonly>
+          </label>
+          <label>
+            Stock nuevo
+            <input id="physicalStockAdjustNext" name="next_stock" readonly>
+          </label>
+        </div>
+        <label>
+          Motivo del ajuste
+          <textarea id="physicalStockAdjustReason" name="reason" rows="3" required placeholder="Ej: corte de stock fisico, diferencia encontrada, control de rubro"></textarea>
+        </label>
+        <label>
+          Clave administrador
+          <input id="physicalStockAdjustPassword" name="admin_password" autocomplete="current-password" required type="password" placeholder="Reingresar clave">
+        </label>
+        <p class="login-message" id="physicalStockAdjustMessage"></p>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" id="physicalStockAdjustSubmitBtn" value="default" type="submit">Autorizar ajuste</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="initialStockDialog">
+      <form method="dialog" id="initialStockForm" class="modal-card wide-modal">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Puesta en marcha</p>
+            <h2>Cargar inventario inicial</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <p class="form-help">Usar CSV o pegar desde Excel con columnas: codigo_producto, codigo_barras, descripcion, cantidad_fisica, deposito, observacion. No se aplican cambios si hay errores.</p>
+        <div class="form-grid">
+          <label>
+            Archivo CSV
+            <input id="initialStockFile" type="file" accept=".csv,.txt,text/csv,text/plain">
+          </label>
+          <label>
+            Nombre del archivo / fuente
+            <input id="initialStockFileName" name="file_name" placeholder="Inventario inicial deposito">
+          </label>
+        </div>
+        <label>
+          Pegar inventario desde Excel o CSV
+          <textarea id="initialStockText" rows="8" placeholder="codigo_producto;codigo_barras;descripcion;cantidad_fisica;deposito;observacion"></textarea>
+        </label>
+        <label>
+          Observacion general
+          <textarea id="initialStockObservation" rows="2" placeholder="Ej: conteo inicial previo a puesta en marcha"></textarea>
+        </label>
+        <div class="table-actions">
+          <button class="secondary-btn" id="previewInitialStockBtn" type="button">Vista previa</button>
+          <button class="ghost-btn" id="clearInitialStockBtn" type="button">Limpiar</button>
+        </div>
+        <div class="physical-stock-note">
+          <strong>Confirmacion requerida:</strong>
+          <span>La carga genera backup previo, movimiento por producto y auditoria global.</span>
+        </div>
+        <div class="responsive-table">
+          <table class="dense-table">
+            <thead>
+              <tr>
+                <th>Fila</th>
+                <th>Producto</th>
+                <th>Codigo</th>
+                <th>Cantidad fisica</th>
+                <th>Stock actual</th>
+                <th>Diferencia</th>
+                <th>Deposito</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody id="initialStockPreviewTable"></tbody>
+          </table>
+        </div>
+        <div class="form-grid">
+          <label>
+            Escribir CONFIRMAR
+            <input id="initialStockConfirmText" autocomplete="off" placeholder="CONFIRMAR">
+          </label>
+          <label>
+            Resumen
+            <input id="initialStockSummary" readonly value="Sin vista previa">
+          </label>
+        </div>
+        <p class="login-message" id="initialStockMessage"></p>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" id="applyInitialStockBtn" type="submit" disabled>Aplicar inventario inicial</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="stockEditDialog">
+      <form method="dialog" id="stockEditForm" class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Operacion de alto rango</p>
+            <h2>Modificar producto</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <p class="form-help">Para guardar cambios se debe revalidar la clave del administrador logueado. Esta accion impacta preventa, stock y reposicion.</p>
+        <input name="original_name" type="hidden">
+        <div class="form-grid">
+          <label>
+            Administrador
+            <input id="stockEditAdminName" readonly value="">
+          </label>
+          <label>
+            Clave admin
+            <input name="admin_password" autocomplete="current-password" required type="password" placeholder="Reingresar clave">
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Codigo producto
+            <input name="codigo_producto" required>
+          </label>
+          <label>
+            Codigo barras
+            <input name="codigo_barras" inputmode="numeric">
+          </label>
+        </div>
+        <label>
+          Descripcion
+          <input name="descripcion" required>
+        </label>
+        <div class="form-grid">
+          <label>
+            Rubro
+            <input name="rubro" required>
+          </label>
+          <label>
+            Marca
+            <input name="marca">
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Familia
+            <input name="familia">
+          </label>
+          <label>
+            Segmento / version
+            <input name="segmento">
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Stock actual
+            <input name="stock_actual" required type="number" min="0" step="1">
+          </label>
+          <label>
+            Stock minimo
+            <input name="stock_minimo" required type="number" min="0" step="1">
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Bultos
+            <input name="bultos">
+          </label>
+          <label>
+            Costo
+            <input name="costo" type="number" min="0" step="0.01">
+          </label>
+        </div>
+        <div class="price-list-editor-table" data-price-list-editor="stock">
+          <div class="price-list-editor-head">
+            <span>Lista</span>
+            <span>% sobre costo</span>
+            <span>Precio</span>
+          </div>
+          <label data-price-list-row="1"><span>Lista 1</span><input name="precio_lista_1_pct" type="number" min="0" step="0.01"><input name="precio_lista_1" type="number" min="0" step="0.01"></label>
+          <label data-price-list-row="2"><span>Lista 2 / Preventa</span><input name="precio_lista_2_pct" type="number" min="0" step="0.01"><input name="precio_lista_2" required type="number" min="0" step="0.01"></label>
+          <label data-price-list-row="3"><span>Lista 3</span><input name="precio_lista_3_pct" type="number" min="0" step="0.01"><input name="precio_lista_3" type="number" min="0" step="0.01"></label>
+          <label data-price-list-row="4"><span>Lista 4</span><input name="precio_lista_4_pct" type="number" min="0" step="0.01"><input name="precio_lista_4" type="number" min="0" step="0.01"></label>
+          <label data-price-list-row="5"><span>Lista 5</span><input name="precio_lista_5_pct" type="number" min="0" step="0.01"><input name="precio_lista_5" type="number" min="0" step="0.01"></label>
+        </div>
+        <div class="form-grid">
+          <label>
+            IVA
+            <input name="iva" type="number" min="0" step="0.01">
+          </label>
+          <label>
+            Bonificacion
+            <input name="bonificacion">
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Activo
+            <select name="activo">
+              <option value="SI">SI</option>
+              <option value="NO">NO</option>
+            </select>
+          </label>
+        </div>
+        <p class="login-message" id="stockEditMessage"></p>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" id="stockEditSaveBtn" value="default" type="submit">Validar y guardar</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="supplyPlannerDialog">
+      <form method="dialog" class="modal-card supply-planner-modal">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Abastecimiento</p>
+            <h2>Compras pendientes</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <p class="form-help">Productos comprometidos con pedidos que todavia no tienen reserva completa. Esta vista sirve para planificar compras sin tocar stock manualmente.</p>
+        <div class="supply-planner-summary" id="supplyPlannerSummary"></div>
+        <div class="responsive-table">
+          <table class="supply-planner-table">
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Faltante</th>
+                <th>En transito</th>
+                <th>Comprar</th>
+                <th>Pedidos afectados</th>
+              </tr>
+            </thead>
+            <tbody id="supplyPlannerTable"></tbody>
+          </table>
+        </div>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cerrar</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="transferProofDialog">
+      <form id="transferProofForm" class="modal-card transfer-proof-modal">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Conciliacion bancaria</p>
+            <h2 id="transferProofTitle">Cargar comprobante</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <input id="transferProofId" type="hidden">
+        <div class="transfer-proof-dropzone" id="transferProofDropzone" tabindex="0">
+          <strong>Soltar comprobante aca</strong>
+          <span>Tambien puede pegar una captura con Ctrl+V o usar los botones.</span>
+          <small id="transferProofFileStatus">Sin archivo seleccionado.</small>
+        </div>
+        <div class="file-action-grid mobile-attachment-actions">
+          <label class="file-action-btn" for="transferProofCamera">
+            <span class="file-action-icon">CAM</span>
+            <strong>Sacar foto</strong>
+          </label>
+          <label class="file-action-btn" for="transferProofGallery">
+            <span class="file-action-icon">IMG</span>
+            <strong>Galeria</strong>
+          </label>
+          <label class="file-action-btn" for="transferProofFile">
+            <span class="file-action-icon">PDF</span>
+            <strong>Archivo</strong>
+          </label>
+        </div>
+        <input class="visually-hidden-file" id="transferProofCamera" type="file" accept="image/*" capture="environment">
+        <input class="visually-hidden-file" id="transferProofGallery" type="file" accept="image/*">
+        <input class="visually-hidden-file" id="transferProofFile" type="file" accept="application/pdf,image/*">
+        <label>
+          Observaciones
+          <textarea id="transferProofObservations" rows="3" placeholder="Origen del comprobante, WhatsApp, referencia, banco o aclaracion"></textarea>
+        </label>
+        <p class="login-message" id="transferProofMessage"></p>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" id="transferProofSubmitBtn" type="submit">Guardar comprobante</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="deliveryCollectionDialog">
+      <form id="deliveryCollectionForm" class="modal-card delivery-collection-form">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Entrega controlada</p>
+            <h2 id="deliveryCollectionTitle">Confirmar entrega</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <input id="deliveryCollectionOrderCode" type="hidden">
+        <div class="delivery-total-line">
+          <span>Total del pedido</span>
+          <strong id="deliveryCollectionTotal">$ 0</strong>
+        </div>
+        <div class="delivery-items-box">
+          <div class="delivery-items-head">
+            <span>Productos entregados y devoluciones</span>
+            <small>Cargar cantidad bajada y cantidad que vuelve al deposito</small>
+          </div>
+          <div id="deliveryItemsList" class="delivery-items-list"></div>
+        </div>
+        <section class="delivery-return-box">
+          <div>
+            <span>Devolucion registrada</span>
+            <strong id="deliveryReturnTotal">$ 0</strong>
+          </div>
+          <small id="deliveryReturnSummary">Sin mercaderia devuelta.</small>
+          <label>
+            Motivo de devolucion
+            <input id="deliveryReturnReason" autocomplete="off" placeholder="Producto rechazado, diferencia, rotura, no pedido">
+          </label>
+        </section>
+        <label>
+          Modo de cobranza
+          <select id="deliveryPaymentMethod" required>
+            <option value="Efectivo">Efectivo</option>
+            <option value="Transferencia">Transferencia</option>
+            <option value="Transferencia Pendiente">Transferencia Pendiente</option>
+            <option value="Cuenta corriente">Cuenta corriente</option>
+            <option value="Mixto">Mixto</option>
+          </select>
+        </label>
+        <section class="mixed-payment-box always-visible">
+          <div class="section-head compact">
+            <div>
+              <h3>Cobranza mixta</h3>
+              <p>Cargar efectivo, transferencia y saldo pendiente. La suma debe cerrar contra el total cobrable.</p>
+            </div>
+          </div>
+          <div class="payment-preset-grid" aria-label="Accesos rapidos de cobranza">
+            <button class="mini-btn" type="button" data-delivery-payment-preset="cash">Todo efectivo</button>
+            <button class="mini-btn" type="button" data-delivery-payment-preset="transfer">Todo transferencia</button>
+            <button class="mini-btn" type="button" data-delivery-payment-preset="pending-transfer">Promete transferir</button>
+            <button class="mini-btn" type="button" data-delivery-payment-preset="credit">Todo cuenta corriente</button>
+            <button class="mini-btn primary-mini" type="button" data-delivery-payment-preset="mixed">Pago mixto manual</button>
+          </div>
+          <div class="form-grid">
+            <label>
+              Total cobrable
+              <input id="deliveryCollectibleAmount" readonly type="number" min="0" step="0.01">
+              <small class="money-preview" id="deliveryCollectibleAmountPreview">$ 0</small>
+            </label>
+            <label>
+              Efectivo
+              <input id="deliveryCashAmount" type="number" min="0" step="0.01" value="0">
+              <small class="money-preview" id="deliveryCashAmountPreview">$ 0</small>
+            </label>
+            <label>
+              Transferencia
+              <input id="deliveryTransferAmount" type="number" min="0" step="0.01" value="0">
+              <small class="money-preview" id="deliveryTransferAmountPreview">$ 0</small>
+            </label>
+            <label>
+              Cuenta corriente
+              <input id="deliveryCreditAmount" readonly type="number" min="0" step="0.01" value="0">
+              <small class="money-preview" id="deliveryCreditAmountPreview">$ 0</small>
+            </label>
+          </div>
+          <p class="mixed-payment-balance" id="deliveryMixedBalance">Saldo pendiente calculado: $ 0</p>
+          <input id="deliveryAmountPaid" type="hidden" value="0">
+          <input id="deliveryPendingAmount" type="hidden" value="0">
+        </section>
+        <div class="bank-alias-box" id="deliveryBankAliasBox" hidden>
+          <span>Alias para transferencia</span>
+          <strong id="deliveryCollectionAlias"></strong>
+        </div>
+        <section class="transfer-proof-box" id="deliveryTransferProofBox" hidden>
+          <div class="section-head compact">
+            <div>
+              <h3>Comprobante de transferencia</h3>
+              <p>Si hay importe por transferencia, la foto/captura/PDF es obligatorio para cerrar.</p>
+            </div>
+          </div>
+          <div class="form-grid">
+            <label>
+              Banco
+              <select id="deliveryTransferBank">
+                <option value="">Seleccionar banco</option>
+                <option value="Mercado Pago">Mercado Pago</option>
+                <option value="Naranja X">Naranja X</option>
+                <option value="Banco de Cordoba">Banco de Cordoba</option>
+                <option value="Banco Santander">Banco Santander</option>
+                <option value="Banco Galicia">Banco Galicia</option>
+                <option value="Banco Nacion">Banco Nacion</option>
+                <option value="Otros">Otros</option>
+              </select>
+            </label>
+            <label>
+              Alias
+              <input id="deliveryTransferAlias" autocomplete="off" placeholder="Alias de destino">
+            </label>
+            <label>
+              CBU/CVU
+              <input id="deliveryTransferCbu" autocomplete="off" placeholder="CBU o CVU">
+            </label>
+          </div>
+          <div class="file-action-grid mobile-attachment-actions">
+            <label class="file-action-btn" for="deliveryTransferPhoto">
+              <span class="file-action-icon">CAM</span>
+              <strong>Sacar foto</strong>
+            </label>
+            <label class="file-action-btn" for="deliveryTransferGallery">
+              <span class="file-action-icon">IMG</span>
+              <strong>Galeria</strong>
+            </label>
+            <label class="file-action-btn" for="deliveryTransferFile">
+              <span class="file-action-icon">PDF</span>
+              <strong>Archivo</strong>
+            </label>
+          </div>
+          <input class="visually-hidden-file" id="deliveryTransferPhoto" type="file" accept="image/*" capture="environment">
+          <input class="visually-hidden-file" id="deliveryTransferGallery" type="file" accept="image/*">
+          <input class="visually-hidden-file" id="deliveryTransferFile" type="file" accept="application/pdf,image/*">
+          <small id="deliveryTransferFileStatus">Sin comprobante seleccionado.</small>
+          <label>
+            Observaciones
+            <textarea id="deliveryTransferObservations" rows="2" placeholder="Nro. operacion, banco emisor o comentario"></textarea>
+          </label>
+        </section>
+        <div class="signature-field">
+          <div>
+            <span>Firma del cliente</span>
+            <button class="mini-btn" id="clearDeliverySignatureBtn" type="button">Limpiar</button>
+          </div>
+          <canvas id="deliverySignatureCanvas" width="640" height="220" aria-label="Firma digital del cliente"></canvas>
+        </div>
+        <div class="file-action-grid mobile-attachment-actions">
+          <label class="file-action-btn" for="deliveryProofPhoto">
+            <span class="file-action-icon">CAM</span>
+            <strong>Foto entrega</strong>
+          </label>
+          <input class="visually-hidden-file" id="deliveryProofPhoto" type="file" accept="image/*" capture="environment">
+        </div>
+        <label>
+          Observaciones de entrega
+          <textarea id="deliveryCollectionObservations" rows="3" placeholder="Detalle de efectivo, referencia de transferencia, devolucion, incidencia o aclaracion del cliente"></textarea>
+        </label>
+        <p class="login-message" id="deliveryCollectionMessage"></p>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" id="deliveryCollectionSubmitBtn" type="submit">Confirmar entrega</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="deliveryExceptionDialog">
+      <form id="deliveryExceptionForm" class="modal-card delivery-collection-form">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Incidencia de reparto</p>
+            <h2 id="deliveryExceptionTitle">No entregado</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <input id="deliveryExceptionOrderCode" type="hidden">
+        <label>
+          Estado
+          <select id="deliveryExceptionStatus" required>
+            <option value="No entregado">No entregado</option>
+            <option value="Postergado">Postergado</option>
+            <option value="Rechazado">Rechazado</option>
+          </select>
+        </label>
+        <label>
+          Motivo
+          <select id="deliveryExceptionReason" required>
+            <option value="">Seleccionar motivo</option>
+            <option value="Cliente cerrado">Cliente cerrado</option>
+            <option value="Cliente ausente">Cliente ausente</option>
+            <option value="Falta de dinero">Falta de dinero</option>
+            <option value="Pedido rechazado">Pedido rechazado</option>
+            <option value="Direccion incorrecta">Direccion incorrecta</option>
+            <option value="Reprogramado">Reprogramado</option>
+            <option value="Otro">Otro</option>
+          </select>
+        </label>
+        <label>
+          Observacion obligatoria
+          <textarea id="deliveryExceptionObservations" rows="3" required placeholder="Detalle breve para administracion"></textarea>
+        </label>
+        <div class="signature-field" id="deliveryExceptionSignatureBox">
+          <div>
+            <span>Firma del cliente</span>
+            <button class="mini-btn" id="clearDeliveryExceptionSignatureBtn" type="button">Limpiar</button>
+          </div>
+          <canvas id="deliveryExceptionSignatureCanvas" width="640" height="220" aria-label="Firma de rechazo del cliente"></canvas>
+        </div>
+        <div class="file-action-grid mobile-attachment-actions">
+          <label class="file-action-btn" for="deliveryExceptionPhoto">
+            <span class="file-action-icon">CAM</span>
+            <strong>Foto incidencia</strong>
+          </label>
+          <input class="visually-hidden-file" id="deliveryExceptionPhoto" type="file" accept="image/*" capture="environment">
+        </div>
+        <p class="login-message" id="deliveryExceptionMessage"></p>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" id="deliveryExceptionSubmitBtn" type="submit">Registrar incidencia</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="deliveryRouteClosureDialog">
+      <form id="deliveryRouteClosureForm" class="modal-card delivery-closure-form">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Rendicion de ruta</p>
+            <h2 id="deliveryRouteClosureTitle">Cerrar ruta diaria</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <input id="deliveryClosureRouteId" type="hidden">
+        <div class="delivery-closure-summary" id="deliveryClosureExpectedSummary"></div>
+        <section class="cash-breakdown-box">
+          <div class="section-head compact">
+            <div>
+              <h3>Rendir caja</h3>
+              <p>Ingresar cantidad de billetes recibidos. El total contado se calcula automaticamente.</p>
+            </div>
+          </div>
+          <div class="cash-denomination-grid" id="deliveryCashBreakdownGrid"></div>
+          <div class="cash-total-line">
+            <span>Total efectivo contado</span>
+            <strong id="deliveryClosureCashCounted">$ 0</strong>
+          </div>
+        </section>
+        <div class="form-grid">
+          <label>
+            Total efectivo informado
+            <input id="deliveryClosureCashReported" required readonly type="number" min="0" step="0.01">
+            <small class="money-preview" id="deliveryClosureCashReportedPreview">$ 0</small>
+          </label>
+          <label>
+            Total transferencias informado
+            <input id="deliveryClosureTransferReported" required type="number" min="0" step="0.01">
+            <small class="money-preview" id="deliveryClosureTransferReportedPreview">$ 0</small>
+          </label>
+        </div>
+        <div class="delivery-closure-diff" id="deliveryClosureDifferenceBox"></div>
+        <label id="deliveryClosureReasonField" hidden>
+          Motivo de diferencia
+          <select id="deliveryClosureDifferenceReason">
+            <option value="">Seleccionar motivo</option>
+            <option value="Error de carga">Error de carga</option>
+            <option value="Vuelto">Vuelto</option>
+            <option value="Cobro no registrado">Cobro no registrado</option>
+            <option value="Diferencia de caja">Diferencia de caja</option>
+            <option value="Dinero pendiente de entregar">Dinero pendiente de entregar</option>
+            <option value="Otro">Otro</option>
+          </select>
+        </label>
+        <label>
+          Observaciones / diferencias
+          <textarea id="deliveryClosureObservations" rows="3" placeholder="Detalle de diferencias, pedidos pendientes o novedades de la ruta"></textarea>
+        </label>
+        <p class="login-message" id="deliveryClosureMessage"></p>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" id="deliveryClosureSubmitBtn" type="submit">Cerrar ruta diaria</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="deliveryRecoveryDialog">
+      <form method="dialog" class="modal-card recovery-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Reparto</p>
+            <h2 id="deliveryRecoveryTitle">No se pudo completar la accion</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <p id="deliveryRecoveryMessage">Podes reintentar o volver al reparto.</p>
+        <textarea id="deliveryRecoveryTechnical" readonly rows="4" hidden></textarea>
+        <menu>
+          <button class="ghost-btn" id="deliveryRecoveryBackBtn" type="button">Volver atras</button>
+          <button class="secondary-btn" id="deliveryRecoveryRetryBtn" type="button">Reintentar</button>
+          <button class="secondary-btn" id="deliveryRecoveryCopyBtn" type="button">Copiar detalle tecnico</button>
+          <button class="primary-btn" id="deliveryRecoveryReturnBtn" type="button">Volver al reparto</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <script src="config.js?v=8790-88-r20260808"></script>
+    <script src="maps-config.js?v=8790-88-r20260808"></script>
+    <script src="order-engine.js?v=8790-88-r20260808"></script>
+    <script src="account-engine.js?v=8790-88-r20260808"></script>
+    <script src="delivery-engine.js?v=8790-88-r20260808"></script>
+    <script src="legal-engine.js?v=8790-88-r20260808"></script>
+    <script src="app.js?v=8790-88-r20260808"></script>
+  </body>
+</html>
+
+
+
+
+

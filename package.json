@@ -1,0 +1,13 @@
+{
+  "name": "distribuidora-lopez-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Demo CRM/preventa para Distribuidora Lopez con dashboard, pedidos, stock y GPS.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

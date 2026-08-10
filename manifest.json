@@ -1,0 +1,25 @@
+{
+  "name": "Distribuidora Lopez - Preventa",
+  "short_name": "DL Preventa",
+  "description": "Demo de preventa movil, pedidos, stock y cuentas corrientes para Distribuidora Lopez.",
+  "start_url": "index.html#preventa",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f7f9",
+  "theme_color": "#11252b",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icons/logo-distribuidora-lopez-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/logo-distribuidora-lopez-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
