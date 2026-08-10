@@ -32,8 +32,8 @@ REMOTE_LICENSE = f"{REMOTE_DEPLOY}/license-vultr.json"
 REMOTE_ENV_TMP = f"{REMOTE_DEPLOY}/distribuidora-lopez.env"
 REMOTE_UNIT_TMP = f"{REMOTE_DEPLOY}/distribuidora-lopez.service"
 VERSION = "8790-88"
-HTTPS_HOST = os.environ.get("DL_HTTPS_HOST", "distribuidora-lopez.216-128-169-34.sslip.io").strip()
-PUBLIC_BASE_URL = os.environ.get("DL_PUBLIC_BASE_URL", f"https://{HTTPS_HOST}").strip()
+HTTPS_HOST = os.environ.get("DL_HTTPS_HOST", "lopez.gruporochaapp.com").strip()
+PUBLIC_BASE_URL = os.environ.get("DL_PUBLIC_BASE_URL", "").strip()
 
 ROOT_FILES = [
     ".gitignore",

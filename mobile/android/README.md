@@ -10,6 +10,10 @@ Dominio configurado por defecto:
 
 `https://distribuidora-lopez.216-128-169-34.sslip.io/index.html?v=8790-88#preventa`
 
+Dominio recomendado cuando el DNS este activo:
+
+`https://lopez.gruporochaapp.com/index.html?v=8790-88#preventa`
+
 La APK v88 migra automaticamente configuraciones antiguas guardadas en el telefono cuando detecta:
 
 - localhost;

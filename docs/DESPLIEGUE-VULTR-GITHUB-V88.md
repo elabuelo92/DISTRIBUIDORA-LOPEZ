@@ -6,9 +6,20 @@ Fecha de cierre: 2026-08-10
 
 El sistema quedo publicado en el servidor Vultr mediante HTTPS y respaldado en GitHub como repositorio privado.
 
-URL operativa:
+URL operativa temporal:
 
 https://distribuidora-lopez.216-128-169-34.sslip.io/index.html#dashboard
+
+URL recomendada definitiva:
+
+https://lopez.gruporochaapp.com/index.html#dashboard
+
+Para activar la URL definitiva, crear en Google Cloud DNS:
+
+- Tipo: `A`
+- Nombre: `lopez`
+- Valor IPv4: `216.128.169.34`
+- TTL: `300`
 
 Health check:
 
