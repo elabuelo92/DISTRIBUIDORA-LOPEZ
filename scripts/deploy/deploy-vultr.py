@@ -32,6 +32,8 @@ REMOTE_LICENSE = f"{REMOTE_DEPLOY}/license-vultr.json"
 REMOTE_ENV_TMP = f"{REMOTE_DEPLOY}/distribuidora-lopez.env"
 REMOTE_UNIT_TMP = f"{REMOTE_DEPLOY}/distribuidora-lopez.service"
 VERSION = "8790-88"
+HTTPS_HOST = os.environ.get("DL_HTTPS_HOST", "distribuidora-lopez.216-128-169-34.sslip.io").strip()
+PUBLIC_BASE_URL = os.environ.get("DL_PUBLIC_BASE_URL", f"https://{HTTPS_HOST}").strip()
 
 ROOT_FILES = [
     ".gitignore",
@@ -215,7 +217,7 @@ def issue_license(fingerprint):
 
 def install_license_env_and_service(client):
     env_text = f"""PORT=8790
-DL_HOST=0.0.0.0
+DL_HOST=127.0.0.1
 DATA_DIR={REMOTE_DATA}
 STATE_FILE={REMOTE_DATA}/demo-state.json
 USERS_FILE={REMOTE_DATA}/users.json
@@ -231,11 +233,11 @@ DL_INTEGRITY_FILE={REMOTE_DATA}/integrity-manifest.json
 DL_SECURITY_AUDIT_FILE={REMOTE_DATA}/security-audit.log
 DL_LICENSE_ENFORCEMENT=strict
 DL_INTEGRITY_ENFORCE=block
-DL_API_BASE_URL=http://{HOST}:8790
+DL_API_BASE_URL={PUBLIC_BASE_URL}
 DL_API_PORT=8790
 DL_SOCKET_URL=
 DL_SERVER_NAME=VULTR-216-128-169-34
-DL_MAGIC_DNS_HOST=
+DL_MAGIC_DNS_HOST={HTTPS_HOST}
 DL_TIMEOUT_SERVER_MS=7000
 DL_TIMEOUT_HEALTH_MS=4500
 DL_TIMEOUT_LOGIN_GRACE_MS=30000
