@@ -62,7 +62,7 @@ public class MainActivity extends Activity {
 
     private static final String PREFS_NAME = "dl_preventa";
     private static final String PREF_SERVER_URL = "server_url";
-    private static final String DEFAULT_SERVER_URL = "https://distribuidora-lopez.216-128-169-34.sslip.io/index.html?v=8790-88#preventa";
+    private static final String DEFAULT_SERVER_URL = "https://lopez.gruporochaapp.com/index.html?v=8790-89#preventa";
 
     private WebView webView;
     private TextView statusView;
@@ -515,7 +515,7 @@ public class MainActivity extends Activity {
             String suffix = hash >= 0 ? value.substring(hash) : "#preventa";
             String base = hash >= 0 ? value.substring(0, hash) : value;
             while (base.endsWith("/")) base = base.substring(0, base.length() - 1);
-            value = base + "/index.html?v=8790-88" + suffix;
+            value = base + "/index.html?v=8790-89" + suffix;
         }
         return value;
     }
@@ -523,9 +523,11 @@ public class MainActivity extends Activity {
     private boolean shouldReplaceLegacyServerUrl(String rawUrl) {
         String value = rawUrl == null ? "" : rawUrl.trim().toLowerCase();
         if (value.length() == 0) return false;
-        if (value.contains("distribuidora-lopez.216-128-169-34.sslip.io")) return false;
+        if (value.contains("lopez.gruporochaapp.com")) return false;
+        if (value.contains("distribuidora.gruporochaapp.com")) return false;
         return value.contains("desktop-c2c0q4v")
                 || value.contains("tail6f19de")
+                || value.contains("distribuidora-lopez.216-128-169-34.sslip.io")
                 || value.contains("localhost")
                 || value.contains("127.0.0.1")
                 || value.contains("192.168.")
@@ -544,7 +546,7 @@ public class MainActivity extends Activity {
         input.setSelectAllOnFocus(true);
         new AlertDialog.Builder(this)
                 .setTitle(title)
-                .setMessage("Usar URL HTTPS del servidor. Ejemplo: https://distribuidora-lopez.216-128-169-34.sslip.io")
+                .setMessage("Usar URL HTTPS del servidor. Ejemplo: https://lopez.gruporochaapp.com")
                 .setView(input)
                 .setPositiveButton("Guardar y abrir", new DialogInterface.OnClickListener() {
                     @Override

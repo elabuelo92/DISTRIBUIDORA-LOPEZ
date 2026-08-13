@@ -30,6 +30,7 @@ const PRINT_LOG = path.join(DATA_DIR, "print-jobs.log");
 const STOCK_PRINT_SCRIPT = path.join(ROOT, "scripts", "print-stock-report.ps1");
 const STOCK_PRINTER_NAME = process.env.DL_STOCK_PRINTER_NAME || "";
 const DEFAULT_PASSWORD = process.env.DL_DEFAULT_PASSWORD || "Lopez2026!";
+const MANAGED_USER_ROLES = ["admin", "seller", "driver", "receiver", "depot"];
 const MAX_BODY = 16 * 1024 * 1024;
 const DEFAULT_SESSION_TTL_MS = Math.max(16 * 60 * 60 * 1000, Number(process.env.DL_SESSION_TTL_MS || 20 * 60 * 60 * 1000));
 const DEFAULT_WORKDAY_START_HOUR = Math.max(0, Math.min(23, Number(process.env.DL_WORKDAY_START_HOUR || 7)));
@@ -250,6 +251,21 @@ function writeUsers(users) {
   fs.writeFileSync(USERS_FILE, JSON.stringify({ users: Array.isArray(users) ? users : [] }, null, 2), "utf8");
 }
 
+function backupUsersFile() {
+  ensureDataFiles();
+  if (!fs.existsSync(USERS_FILE)) return "";
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backup = `${USERS_FILE}.backup-${stamp}`;
+  fs.copyFileSync(USERS_FILE, backup);
+  return backup;
+}
+
+function writeUsersWithBackup(users) {
+  const backup = backupUsersFile();
+  writeUsers(users);
+  return backup;
+}
+
 function publicUser(user) {
   if (!user) return null;
   return {
@@ -266,6 +282,82 @@ function publicUser(user) {
       || hasPermissionFlag(user, "priceEditAuthorization")
       || hasPermissionFlag(user, "orders.edit_prices")
   };
+}
+
+function publicManagedUser(user) {
+  if (!user) return null;
+  return {
+    ...publicUser(user),
+    active: user.active !== false,
+    updatedAt: user.updatedAt || "",
+    updatedBy: user.updatedBy || "",
+    createdAt: user.createdAt || "",
+    createdBy: user.createdBy || ""
+  };
+}
+
+function managedPriceListFromInput(input, previous) {
+  const rawNumber = Number(input.defaultPriceListNumber || input.priceListNumber || input.listaPrecio || 0);
+  const rawId = String(input.defaultPriceListId || input.priceListId || "").trim();
+  const currentId = previous && (previous.defaultPriceListId || previous.priceListId) || "";
+  const currentName = previous && (previous.defaultPriceListName || previous.priceListName) || "";
+  const number = Number.isFinite(rawNumber) && rawNumber >= 1 && rawNumber <= 5
+    ? Math.round(rawNumber)
+    : Number(String(rawId || currentId || "").match(/[1-5]/) && String(rawId || currentId || "").match(/[1-5]/)[0] || 0);
+  if (!number) {
+    return {
+      defaultPriceListId: currentId,
+      defaultPriceListName: currentName,
+      priceListLocked: input.priceListLocked === undefined ? previous && previous.priceListLocked === true : input.priceListLocked === true || input.priceListLocked === "true"
+    };
+  }
+  return {
+    defaultPriceListId: `PL-L${number}`,
+    defaultPriceListName: `Lista Nº ${number}`,
+    priceListLocked: input.priceListLocked === undefined ? previous && previous.priceListLocked === true : input.priceListLocked === true || input.priceListLocked === "true"
+  };
+}
+
+function normalizeManagedUserInput(input, previous, sessionUser) {
+  const username = String(input.username || "").trim().toLowerCase();
+  const name = String(input.name || "").trim();
+  const role = String(input.role || "").trim().toLowerCase();
+  const password = String(input.password || input.newPassword || "");
+  if (!username || !name || !MANAGED_USER_ROLES.includes(role)) {
+    throw new Error("Usuario, nombre y rol valido son obligatorios.");
+  }
+  if (!previous && !password) {
+    throw new Error("Un usuario nuevo requiere una clave inicial.");
+  }
+  const now = new Date().toISOString();
+  const next = {
+    ...(previous || {}),
+    username,
+    name,
+    role,
+    active: input.active === undefined ? previous ? previous.active !== false : true : input.active === true || input.active === "true" || input.active === "on",
+    updatedAt: now,
+    updatedBy: sessionUser && sessionUser.username || "admin"
+  };
+  if (!previous) {
+    next.createdAt = now;
+    next.createdBy = sessionUser && sessionUser.username || "admin";
+  }
+  if (role === "seller") next.sellerName = String(input.sellerName || name).trim();
+  else delete next.sellerName;
+  const priceList = managedPriceListFromInput(input, previous);
+  if (priceList.defaultPriceListId) {
+    next.defaultPriceListId = priceList.defaultPriceListId;
+    next.defaultPriceListName = priceList.defaultPriceListName;
+    next.priceListLocked = priceList.priceListLocked === true;
+  } else {
+    delete next.defaultPriceListId;
+    delete next.defaultPriceListName;
+    delete next.priceListLocked;
+  }
+  if (password) Object.assign(next, hashPassword(password));
+  if (!next.salt || !next.passwordHash) throw new Error("El usuario no tiene una clave valida.");
+  return next;
 }
 
 function hasPermissionFlag(user, key) {
@@ -1457,23 +1549,30 @@ function saveSupplierUpload(input, user) {
 }
 
 function normalizeSupplierServerRecord(supplier) {
-  const name = String(supplier.razon_social || supplier.name || supplier.nombre || "").trim();
+  const name = String(supplier.razon_social || supplier.name || supplier.nombre_comercial || supplier.nombre || "").trim();
   const balance = Math.max(0, numeric(supplier.balance ?? supplier.saldo_pendiente, 0));
   const paid = Math.max(0, numeric(supplier.totalPaid ?? supplier.total_pagado, 0));
   const purchased = Math.max(balance + paid, numeric(supplier.totalPurchased ?? supplier.total_comprado, balance + paid));
+  const commercialName = String(supplier.nombre_comercial || supplier.commercialName || supplier.nombre || name).trim();
   return {
     ...supplier,
     name,
     razon_social: name,
+    nombre_comercial: commercialName,
     cuit: String(supplier.cuit || "").trim(),
     direccion: String(supplier.direccion || supplier.address || "").trim(),
+    localidad: String(supplier.localidad || supplier.city || "").trim(),
+    provincia: String(supplier.provincia || supplier.state || "").trim(),
     telefono: String(supplier.telefono || supplier.phone || "").trim(),
+    whatsapp: String(supplier.whatsapp || supplier.whatsApp || supplier.telefono || supplier.phone || "").trim(),
     email: String(supplier.email || supplier.contact || "").trim(),
     contact: String(supplier.contact || supplier.contacto_principal || supplier.email || supplier.telefono || "").trim(),
     contacto_principal: String(supplier.contacto_principal || supplier.contact || "").trim(),
     condicion_pago: String(supplier.condicion_pago || supplier.paymentCondition || "Cuenta corriente").trim(),
+    datos_bancarios: supplier.datos_bancarios || supplier.bankData || supplier.bank || "",
     observaciones: String(supplier.observaciones || "").trim(),
     sector: String(supplier.sector || supplier.rubro || "Sin rubro").trim(),
+    estado_operativo: String(supplier.estado_operativo || supplier.estadoProveedor || supplier.estado || "Activo").trim() || "Activo",
     balance,
     saldo_pendiente: balance,
     totalPurchased: purchased,
@@ -1485,6 +1584,218 @@ function normalizeSupplierServerRecord(supplier) {
     status: String(supplier.status || supplier.estado || (balance > 0 ? "A pagar" : "Al dia")).trim(),
     movements: Array.isArray(supplier.movements) ? supplier.movements : []
   };
+}
+
+function normalizeSupplierCreateInput(input) {
+  const razonSocial = String(input.razon_social || input.razonSocial || input.name || input.nombre || "").trim();
+  if (!razonSocial) throw new Error("Indicar razon social del proveedor.");
+  return normalizeSupplierServerRecord({
+    razon_social: razonSocial,
+    name: razonSocial,
+    nombre_comercial: String(input.nombre_comercial || input.commercialName || input.nombreComercial || razonSocial).trim(),
+    cuit: String(input.cuit || "").trim(),
+    direccion: String(input.direccion || input.address || "").trim(),
+    localidad: String(input.localidad || input.city || "").trim(),
+    provincia: String(input.provincia || input.state || "").trim(),
+    telefono: String(input.telefono || input.phone || "").trim(),
+    whatsapp: String(input.whatsapp || input.whatsApp || input.telefono || input.phone || "").trim(),
+    email: String(input.email || "").trim(),
+    contacto_principal: String(input.contacto_principal || input.contact || input.contacto || "").trim(),
+    contact: String(input.contacto_principal || input.contact || input.contacto || input.email || input.telefono || "").trim(),
+    condicion_pago: String(input.condicion_pago || input.paymentCondition || "Cuenta corriente").trim(),
+    datos_bancarios: input.datos_bancarios || input.bankData || "",
+    observaciones: String(input.observaciones || input.notes || "").trim(),
+    sector: String(input.sector || input.rubro || "Sin rubro").trim(),
+    estado_operativo: String(input.estado_operativo || input.estado || "Activo").trim() || "Activo",
+    status: "Al dia",
+    balance: 0,
+    totalPaid: 0,
+    totalPurchased: 0,
+    movements: []
+  });
+}
+
+function supplierDuplicateCandidates(state, supplier) {
+  const suppliers = Array.isArray(state.suppliers) ? state.suppliers.map(normalizeSupplierServerRecord) : [];
+  const cuit = taxIdKey(supplier.cuit);
+  const reason = normalizeSearchText(supplier.razon_social || supplier.name);
+  const commercial = normalizeSearchText(supplier.nombre_comercial);
+  return suppliers.filter((item) => {
+    const itemCuit = taxIdKey(item.cuit);
+    if (cuit && itemCuit && cuit === itemCuit) return true;
+    const itemReason = normalizeSearchText(item.razon_social || item.name);
+    const itemCommercial = normalizeSearchText(item.nombre_comercial);
+    return Boolean((reason && (itemReason === reason || itemCommercial === reason))
+      || (commercial && (itemReason === commercial || itemCommercial === commercial)));
+  });
+}
+
+function nextProductCode(state, offset = 0) {
+  const numericCodes = (Array.isArray(state.products) ? state.products : [])
+    .map((product) => String(product.codigo_producto || product.code || "").trim())
+    .map((code) => (/^\d+$/.test(code) ? Number(code) : 0))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (numericCodes.length) {
+    return String(Math.max(...numericCodes) + 1 + offset);
+  }
+  return `NP${Date.now().toString().slice(-8)}${offset ? `-${offset}` : ""}`;
+}
+
+function productDuplicateCandidates(state, reference) {
+  const products = Array.isArray(state.products) ? state.products : [];
+  const code = String(reference.productCode || reference.codigo_producto || reference.code || "").trim();
+  const barcode = String(reference.barcode || reference.codigo_barras || "").trim();
+  const name = normalizeSearchText(reference.name || reference.product || reference.descripcion);
+  const brand = normalizeSearchText(reference.marca || reference.brand);
+  const category = normalizeSearchText(reference.rubro || reference.category || reference.categoria);
+  const presentation = [
+    numeric(reference.unitsPerBlister ?? reference.unidades_por_blister, 0),
+    numeric(reference.blistersPerBox ?? reference.blisters_por_caja, 0),
+    numeric(reference.unitsPerBox ?? reference.unidades_por_caja, 0)
+  ].join("|");
+  return products.filter((product) => {
+    if (code && sameText(product.codigo_producto || product.code, code)) return true;
+    if (barcode && sameText(product.codigo_barras, barcode)) return true;
+    const productName = normalizeSearchText(product.name || product.descripcion);
+    const productBrand = normalizeSearchText(product.marca || product.brand);
+    const productCategory = normalizeSearchText(product.rubro || product.category || product.categoria);
+    const productPresentation = [
+      numeric(product.unitsPerBlister ?? product.unidades_por_blister, 0),
+      numeric(product.blistersPerBox ?? product.blisters_por_caja, 0),
+      numeric(product.unitsPerBox ?? product.unidades_por_caja, 0)
+    ].join("|");
+    return Boolean(name && productName === name && (!brand || productBrand === brand) && (!category || productCategory === category) && productPresentation === presentation);
+  }).slice(0, 5);
+}
+
+function normalizeNewRemitProduct(state, item, input, index = 0) {
+  const source = item.newProduct && typeof item.newProduct === "object" ? item.newProduct : item;
+  const name = String(source.name || source.descripcion || source.product || "").trim();
+  if (!name) throw new Error("Indicar descripcion del producto nuevo.");
+  const code = String(source.productCode || source.codigo_producto || source.code || "").trim() || nextProductCode(state, index);
+  const unitsPerBlister = Math.max(0, numeric(source.unitsPerBlister ?? source.unidades_por_blister, 0));
+  const blistersPerBox = Math.max(0, numeric(source.blistersPerBox ?? source.blisters_por_caja, 0));
+  const boxesReceived = Math.max(0, numeric(source.boxesReceived ?? source.cajas_recibidas ?? item.boxesReceived, 0));
+  const unitsPerBox = Math.max(0, numeric(source.unitsPerBox ?? source.unidades_por_caja, unitsPerBlister && blistersPerBox ? unitsPerBlister * blistersPerBox : 0));
+  const totalUnitsReceived = Math.max(0, numeric(source.totalUnitsReceived ?? source.total_unidades_recibidas, unitsPerBox && boxesReceived ? unitsPerBox * boxesReceived : 0));
+  return {
+    productCode: code,
+    codigo_producto: code,
+    barcode: String(source.barcode || source.codigo_barras || "").trim(),
+    codigo_barras: String(source.barcode || source.codigo_barras || "").trim(),
+    name,
+    descripcion: name,
+    marca: String(source.marca || source.brand || "S/D").trim() || "S/D",
+    rubro: String(source.rubro || source.categoria || source.category || "S/D").trim() || "S/D",
+    categoria: String(source.categoria || source.rubro || source.category || "S/D").trim() || "S/D",
+    proveedor: String(source.proveedor || input.supplier || "").trim(),
+    unidad_venta: String(source.unidad_venta || source.unit || source.unidad || "unidad").trim() || "unidad",
+    unitsPerBlister,
+    blistersPerBox,
+    boxesReceived,
+    unitsPerBox,
+    totalUnitsReceived,
+    forceNewProduct: item.forceNewProduct === true || source.forceNewProduct === true,
+    photoDataUrl: String(source.photoDataUrl || source.photo_data_url || "").trim(),
+    photoUpload: source.photoUpload || null
+  };
+}
+
+function pendingProductFromRemitLine(line, sessionUser, at) {
+  const product = line.newProduct || {};
+  const parts = auditLocalParts(at);
+  return {
+    codigo_producto: line.productCode || product.productCode,
+    code: line.productCode || product.productCode,
+    codigo_barras: line.barcode || product.barcode || "",
+    name: line.name,
+    descripcion: line.name,
+    rubro: product.rubro || line.category || "S/D",
+    categoria: product.categoria || product.rubro || line.category || "S/D",
+    familia: product.rubro || line.category || "S/D",
+    marca: product.marca || "S/D",
+    proveedor: line.supplier || product.proveedor || "",
+    unidad_venta: product.unidad_venta || line.unit || "unidad",
+    unitsPerBlister: product.unitsPerBlister || 0,
+    blistersPerBox: product.blistersPerBox || 0,
+    boxesReceived: product.boxesReceived || 0,
+    unitsPerBox: product.unitsPerBox || 0,
+    totalUnitsReceived: product.totalUnitsReceived || line.stockQty || 0,
+    photoUpload: product.photoUpload || null,
+    stock_fisico: 0,
+    stock_actual: 0,
+    stock: 0,
+    stock_reservado: 0,
+    stock_disponible: 0,
+    stock_en_transito: 0,
+    stock_minimo: 0,
+    costo: 0,
+    cost: 0,
+    margen: 0,
+    precio_lista_1: 0,
+    precio_lista_2: 0,
+    precio_lista_3: 0,
+    precio_lista_4: 0,
+    precio_lista_5: 0,
+    price: 0,
+    activo: "NO",
+    estado: "Pendiente de validacion",
+    pendingValidation: true,
+    pendingRemitId: line.remitId || "",
+    pendingRemitNumber: line.remitNumber || "",
+    origen: "remito-proveedor",
+    createdAt: at,
+    createdDate: parts.date,
+    createdTime: parts.time,
+    createdBy: sessionUser.name,
+    createdByUsername: sessionUser.username
+  };
+}
+
+function validationForRemitLine(lineValidations, line, index) {
+  const code = normalizeSearchText(line.productCode || line.codigo_producto || "");
+  const barcode = normalizeSearchText(line.barcode || line.codigo_barras || "");
+  const name = normalizeSearchText(line.name || line.product || "");
+  return lineValidations.find((item) => {
+    const itemCode = normalizeSearchText(item.productCode || item.codigo_producto || "");
+    const itemBarcode = normalizeSearchText(item.barcode || item.codigo_barras || "");
+    const itemName = normalizeSearchText(item.name || item.product || "");
+    return (item.index === index)
+      || (code && itemCode === code)
+      || (barcode && itemBarcode === barcode)
+      || (name && itemName === name);
+  }) || {};
+}
+
+function applyValidatedPricing(product, validation, sessionUser, at) {
+  const previous = cloneAuditValue(product);
+  const cost = Math.max(0, numeric(validation.cost ?? validation.costo ?? product.costo ?? product.cost, 0));
+  if (cost <= 0) throw new Error(`Indicar costo valido para ${product.name || product.descripcion}.`);
+  product.costo = cost;
+  product.cost = cost;
+  const listInput = validation.priceLists || validation.lists || {};
+  SYSTEM_PRICE_LISTS.forEach((number) => {
+    const row = Array.isArray(listInput)
+      ? listInput.find((item) => Number(item.listNumber || item.number || item.lista) === number)
+      : listInput[number] || listInput[`lista_${number}`] || listInput[`precio_lista_${number}`] || {};
+    const pct = Math.max(0, numeric(row.marginPct ?? row.pct ?? row.percent ?? row.porcentaje, 0));
+    const rawPrice = Math.max(0, numeric(row.price ?? row.precio ?? row.value, 0));
+    const price = rawPrice > 0 ? rawPrice : cost * (1 + pct / 100);
+    product[`precio_lista_${number}`] = Math.round(price * 100) / 100;
+    product[`margen_lista_${number}`] = Math.round((cost > 0 ? ((product[`precio_lista_${number}`] / cost) - 1) * 100 : pct) * 100) / 100;
+  });
+  product.margen = product.margen_lista_2 || 0;
+  product.price = product.precio_lista_2 || product.precio_lista_1 || 0;
+  product.priceListId = "PL-L2";
+  product.priceListName = "Lista Nº 2";
+  product.activo = "SI";
+  product.estado = "Activo";
+  product.pendingValidation = false;
+  product.validatedAt = at;
+  product.validatedBy = sessionUser.name;
+  product.priceUpdatedAt = at;
+  product.priceUpdatedBy = sessionUser.name;
+  return previous;
 }
 
 function taxIdKey(value) {
@@ -1628,24 +1939,45 @@ function findProductByRemitItem(state, item) {
 function normalizeSupplierRemitItems(state, input) {
   const structured = Array.isArray(input.items) ? input.items : [];
   if (structured.length) {
-    return structured.map((item) => {
-      const product = findProductByRemitItem(state, item);
+    return structured.map((item, index) => {
+      const isNewProduct = Boolean(item.isNewProduct || item.newProduct);
+      const newProduct = isNewProduct ? normalizeNewRemitProduct(state, item, input, index) : null;
+      const product = isNewProduct ? null : findProductByRemitItem(state, item);
       const qty = Math.max(0, numeric(item.qty ?? item.cantidad, 0));
-      const multiplier = Math.max(0.01, numeric(item.multiplier ?? item.multiplicador, 1));
+      const unitsPerBlister = Math.max(0, numeric(item.unitsPerBlister ?? item.unidades_por_blister ?? (newProduct && newProduct.unitsPerBlister), 0));
+      const blistersPerBox = Math.max(0, numeric(item.blistersPerBox ?? item.blisters_por_caja ?? (newProduct && newProduct.blistersPerBox), 0));
+      const boxesReceived = Math.max(0, numeric(item.boxesReceived ?? item.cajas_recibidas ?? (newProduct && newProduct.boxesReceived), 0));
+      const unitsPerBox = Math.max(0, numeric(item.unitsPerBox ?? item.unidades_por_caja ?? (newProduct && newProduct.unitsPerBox), unitsPerBlister && blistersPerBox ? unitsPerBlister * blistersPerBox : 0));
+      const calculatedTotalUnits = unitsPerBox && boxesReceived ? unitsPerBox * boxesReceived : 0;
+      const multiplier = Math.max(0.01, numeric(item.multiplier ?? item.multiplicador, unitsPerBox || 1));
       const unitPrice = Math.max(0, numeric(item.unitPrice ?? item.precio_unitario, 0));
       const subtotal = Math.max(0, numeric(item.subtotal, qty * unitPrice));
-      const stockQty = Math.max(0, numeric(item.stockQty ?? item.stock_qty, qty * multiplier));
+      const stockQty = Math.max(0, numeric(item.stockQty ?? item.stock_qty ?? (newProduct && newProduct.totalUnitsReceived), calculatedTotalUnits || qty * multiplier));
+      const candidate = newProduct || item;
       return {
-        productCode: product && (product.codigo_producto || product.code) || String(item.productCode || item.codigo_producto || "").trim(),
-        barcode: product && product.codigo_barras || String(item.barcode || item.codigo_barras || "").trim(),
-        name: product && (product.name || product.descripcion) || String(item.name || item.product || item.descripcion || "").trim(),
-        category: product && product.rubro || String(item.category || item.rubro || "").trim(),
+        isNewProduct,
+        newProduct,
+        possibleDuplicates: isNewProduct ? productDuplicateCandidates(state, candidate).map((match) => ({
+          productCode: match.codigo_producto || match.code || "",
+          barcode: match.codigo_barras || "",
+          name: match.name || match.descripcion || "",
+          marca: match.marca || "",
+          rubro: match.rubro || ""
+        })) : [],
+        productCode: product && (product.codigo_producto || product.code) || String(candidate.productCode || candidate.codigo_producto || "").trim(),
+        barcode: product && product.codigo_barras || String(candidate.barcode || candidate.codigo_barras || "").trim(),
+        name: product && (product.name || product.descripcion) || String(candidate.name || candidate.product || candidate.descripcion || "").trim(),
+        category: product && product.rubro || String(candidate.category || candidate.rubro || candidate.categoria || "").trim(),
         supplier: String(item.supplier || input.supplier || "").trim(),
-        nomenclator: String(item.nomenclator || item.nomenclador || item.codigo_interno || item.productCode || "").trim(),
+        nomenclator: String(item.nomenclator || item.nomenclador || item.codigo_interno || candidate.productCode || "").trim(),
         qty,
         unit: String(item.unit || item.unidad || "unidad").trim() || "unidad",
         unitPrice,
         multiplier,
+        unitsPerBlister,
+        blistersPerBox,
+        boxesReceived,
+        unitsPerBox,
         stockQty,
         subtotal: Math.round(subtotal * 100) / 100
       };
@@ -3283,6 +3615,85 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/admin/users" && req.method === "GET") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Administracion de usuarios permitida solo para administradores." });
+        return;
+      }
+      sendJson(res, 200, {
+        ok: true,
+        users: readUsers().map(publicManagedUser),
+        roles: MANAGED_USER_ROLES
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/admin/users" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Administracion de usuarios permitida solo para administradores." });
+        return;
+      }
+      const body = await readBody(req);
+      const input = JSON.parse(body || "{}");
+      if (!verifyCurrentUserPassword(sessionUser, input.admin_password || input.adminPassword || "")) {
+        appendAuditToStateFile(req, sessionUser, input, {
+          action: "USUARIO_CLAVE_ADMIN_RECHAZADA",
+          entityType: "usuario",
+          entityId: String(input.username || input.targetUsername || "").trim().toLowerCase(),
+          entityLabel: String(input.name || input.username || input.targetUsername || "").trim(),
+          previousValue: null,
+          newValue: { username: String(input.username || input.targetUsername || "").trim().toLowerCase() },
+          note: "Clave de administrador incorrecta al gestionar usuarios"
+        });
+        sendJson(res, 401, { ok: false, error: "Clave de administrador incorrecta." });
+        return;
+      }
+      try {
+        const users = readUsers();
+        const targetUsername = String(input.targetUsername || input.originalUsername || input.username || "").trim().toLowerCase();
+        const index = users.findIndex((user) => String(user.username || "").trim().toLowerCase() === targetUsername);
+        const previous = index >= 0 ? users[index] : null;
+        const next = normalizeManagedUserInput(input, previous, sessionUser);
+        const duplicate = users.findIndex((user, userIndex) => userIndex !== index && String(user.username || "").trim().toLowerCase() === next.username);
+        if (duplicate >= 0) {
+          sendJson(res, 409, { ok: false, error: `El usuario ${next.username} ya existe.` });
+          return;
+        }
+        if (previous && previous.username === sessionUser.username && next.active === false) {
+          sendJson(res, 400, { ok: false, error: "No se puede desactivar el usuario administrador conectado." });
+          return;
+        }
+        if (index >= 0) users[index] = next;
+        else users.push(next);
+        const backup = writeUsersWithBackup(users);
+        if (next.active === false) {
+          activeSessionsForUsername(next.username).forEach((item) => closeSession(item.token, "disabled-by-admin", sessionUser.name));
+        }
+        appendAuditToStateFile(req, sessionUser, input, {
+          action: previous ? "USUARIO_ACTUALIZADO" : "USUARIO_CREADO",
+          entityType: "usuario",
+          entityId: next.username,
+          entityLabel: next.name,
+          previousValue: publicManagedUser(previous),
+          newValue: publicManagedUser(next),
+          note: String(input.motive || input.motivo || "Gestion web de usuarios").trim()
+        });
+        sendJson(res, 200, {
+          ok: true,
+          user: publicManagedUser(next),
+          users: readUsers().map(publicManagedUser),
+          backup: backup ? path.basename(backup) : ""
+        });
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar el usuario." });
+      }
+      return;
+    }
+
     if (requestUrl.pathname === "/api/admin/sessions" && req.method === "GET") {
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
@@ -4743,6 +5154,67 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/suppliers" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Alta de proveedores permitida solo para administracion." });
+        return;
+      }
+      const input = JSON.parse(await readBody(req) || "{}");
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      try {
+        currentState.suppliers = Array.isArray(currentState.suppliers) ? currentState.suppliers.map(normalizeSupplierServerRecord) : [];
+        const supplier = normalizeSupplierCreateInput(input);
+        const duplicates = supplierDuplicateCandidates(currentState, supplier);
+        const exactCuit = taxIdKey(supplier.cuit)
+          ? duplicates.find((item) => taxIdKey(item.cuit) === taxIdKey(supplier.cuit))
+          : null;
+        if (exactCuit) throw new Error(`Ya existe un proveedor con ese CUIT: ${exactCuit.name}.`);
+        if (duplicates.length && input.allowPossibleDuplicate !== true) {
+          throw new Error(`Posible proveedor existente: ${duplicates.map((item) => item.name).join(", ")}. Confirmar duplicado para continuar.`);
+        }
+        const at = new Date().toISOString();
+        supplier.createdAt = at;
+        supplier.createdBy = sessionUser.name;
+        supplier.updatedAt = at;
+        supplier.updatedBy = sessionUser.name;
+        currentState.suppliers.unshift(supplier);
+        currentState.suppliers = currentState.suppliers.map(normalizeSupplierServerRecord);
+        currentState.activity = Array.isArray(currentState.activity) ? currentState.activity : [];
+        currentState.activity.unshift({
+          type: "Proveedores",
+          title: `Proveedor creado: ${supplier.name}`,
+          text: `${supplier.nombre_comercial || supplier.name} queda disponible para remitos.`
+        });
+        writeStateResponse(res, currentState, { supplier }, auditEntry(req, sessionUser, input, {
+          action: "PROVEEDOR_CREADO",
+          entityType: "proveedor",
+          entityId: supplier.name,
+          entityLabel: supplier.name,
+          previousValue: null,
+          newValue: supplier,
+          note: "Alta de proveedor desde modulo Proveedores"
+        }), [
+          notificationEntry(req, sessionUser, input, {
+            action: "PROVEEDOR_CREADO",
+            category: "Proveedores",
+            title: "Proveedor creado",
+            text: `${supplier.name} disponible para carga de remitos.`,
+            tone: "ok",
+            entityType: "proveedor",
+            entityId: supplier.name,
+            entityLabel: supplier.name,
+            audience: ["admin"]
+          })
+        ], sessionUser);
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo crear el proveedor." });
+      }
+      return;
+    }
+
     if (requestUrl.pathname === "/api/suppliers/remits" && req.method === "POST") {
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
@@ -4761,10 +5233,10 @@ const server = http.createServer(async (req, res) => {
         if (!remitNumber) throw new Error("Indicar numero de remito.");
         if (!input.fileDataUrl && !input.dataUrl) throw new Error("Adjuntar foto, imagen o PDF del remito.");
         currentState.suppliers = Array.isArray(currentState.suppliers) ? currentState.suppliers.map(normalizeSupplierServerRecord) : [];
+        currentState.products = Array.isArray(currentState.products) ? currentState.products : [];
         let supplier = currentState.suppliers.find((item) => sameText(item.name, supplierName) || sameText(item.razon_social, supplierName));
         if (!supplier) {
-          supplier = normalizeSupplierServerRecord({ name: supplierName, sector: "Sin rubro", status: "A pagar" });
-          currentState.suppliers.unshift(supplier);
+          throw new Error("Proveedor no encontrado. Crear proveedor primero con + Nuevo proveedor.");
         }
         let lines = normalizeSupplierRemitItems(currentState, { ...input, supplier: supplier.name });
         if (receiverMode) {
@@ -4778,6 +5250,17 @@ const server = http.createServer(async (req, res) => {
           }));
         }
         if (!lines.length) throw new Error("Indicar productos recibidos en el remito.");
+        lines.forEach((line) => {
+          if (!line.isNewProduct) return;
+          const exactDuplicates = productDuplicateCandidates(currentState, line.newProduct || line).filter((match) => {
+            const sameCode = line.productCode && sameText(match.codigo_producto || match.code, line.productCode);
+            const sameBarcode = line.barcode && sameText(match.codigo_barras, line.barcode);
+            return sameCode || sameBarcode;
+          });
+          if (exactDuplicates.length) {
+            throw new Error(`No se puede crear ${line.name}: el codigo o codigo de barras ya existe en ${exactDuplicates[0].name || exactDuplicates[0].descripcion}.`);
+          }
+        });
         const upload = saveSupplierUpload({
           dataUrl: input.fileDataUrl || input.dataUrl || "",
           supplier: supplier.name,
@@ -4785,6 +5268,25 @@ const server = http.createServer(async (req, res) => {
           kind: "supplier-remit"
         }, sessionUser);
         const previousSupplier = cloneAuditValue(supplier);
+        lines = lines.map((line) => {
+          if (!line.isNewProduct || !(line.newProduct && line.newProduct.photoDataUrl)) return line;
+          return {
+            ...line,
+            newProduct: {
+              ...line.newProduct,
+              photoUpload: saveSupplierUpload({
+                dataUrl: line.newProduct.photoDataUrl,
+                supplier: supplier.name,
+                remitNumber,
+                kind: "supplier-product"
+              }, sessionUser)
+            }
+          };
+        });
+        const at = new Date().toISOString();
+        const parts = auditLocalParts(at);
+        const remitId = `REM-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+        const pendingProducts = [];
         const productResults = lines.map((line) => ({
           product: line.name,
           name: line.name,
@@ -4792,19 +5294,25 @@ const server = http.createServer(async (req, res) => {
           barcode: line.barcode,
           category: line.category,
           nomenclator: line.nomenclator,
+          isNewProduct: line.isNewProduct,
+          newProduct: line.newProduct ? { ...line.newProduct, photoDataUrl: "" } : null,
+          possibleDuplicates: line.possibleDuplicates || [],
           qty: line.qty,
           unit: line.unit,
           multiplier: line.multiplier,
+          unitsPerBlister: line.unitsPerBlister,
+          blistersPerBox: line.blistersPerBox,
+          boxesReceived: line.boxesReceived,
+          unitsPerBox: line.unitsPerBox,
           stockQty: line.stockQty,
           unitPrice: receiverMode ? 0 : line.unitPrice,
           subtotal: receiverMode ? 0 : line.subtotal,
+          productValidationStatus: line.isNewProduct ? "Producto pendiente de validacion" : "Producto existente",
           stockStatus: "Pendiente de Validacion"
         }));
         const declaredAmount = receiverMode ? 0 : Math.max(0, numeric(input.amount, 0) || productResults.reduce((sum, item) => sum + numeric(item.subtotal, 0), 0));
-        const at = new Date().toISOString();
-        const parts = auditLocalParts(at);
         const remit = {
-          id: `REM-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+          id: remitId,
           type: "Remito",
           supplier: supplier.name,
           remitNumber,
@@ -4833,6 +5341,21 @@ const server = http.createServer(async (req, res) => {
           differenceAmount: 0,
           adminObservations: ""
         };
+        productResults.forEach((line) => {
+          if (!line.isNewProduct) return;
+          const pendingProduct = pendingProductFromRemitLine({
+            ...line,
+            remitId: remit.id,
+            remitNumber: remit.remitNumber
+          }, sessionUser, at);
+          pendingProduct.pendingRemitId = remit.id;
+          pendingProduct.pendingRemitNumber = remit.remitNumber;
+          pendingProducts.push(pendingProduct);
+          currentState.products.unshift(pendingProduct);
+        });
+        if (pendingProducts.length) {
+          ensurePriceListsState(currentState);
+        }
         supplier.movements = Array.isArray(supplier.movements) ? supplier.movements : [];
         supplier.movements.unshift({
           type: "Remito",
@@ -4861,15 +5384,27 @@ const server = http.createServer(async (req, res) => {
           text: `${supplier.name}: ${productResults.length} productos recibidos. Stock y cuenta proveedor pendientes de validacion administrativa.`
         });
         const completedOrders = [];
-        writeStateResponse(res, currentState, { remit, supplier: stateForUser({ suppliers: [supplier] }, sessionUser).suppliers[0] || supplier, completedOrders }, auditEntry(req, sessionUser, input, {
-          action: "PROVEEDOR_REMITO_CARGADO",
-          entityType: "proveedor",
-          entityId: supplier.name,
-          entityLabel: supplier.name,
-          previousValue: previousSupplier,
-          newValue: { supplier, remit },
-          note: `Remito ${remitNumber} pendiente de validacion - ${productResults.length} productos`
-        }), [
+        const remitAuditEntries = [
+          auditEntry(req, sessionUser, input, {
+            action: "PROVEEDOR_REMITO_CARGADO",
+            entityType: "proveedor",
+            entityId: supplier.name,
+            entityLabel: supplier.name,
+            previousValue: previousSupplier,
+            newValue: { supplier, remit },
+            note: `Remito ${remitNumber} pendiente de validacion - ${productResults.length} productos`
+          }),
+          ...pendingProducts.map((product) => auditEntry(req, sessionUser, input, {
+            action: "PRODUCTO_NUEVO_PENDIENTE_REMITO",
+            entityType: "producto",
+            entityId: product.codigo_producto || product.name,
+            entityLabel: product.name,
+            previousValue: null,
+            newValue: product,
+            note: `Producto creado pendiente de validacion por remito ${remitNumber}. Stock no actualizado.`
+          }))
+        ];
+        writeStateResponse(res, currentState, { remit, supplier: stateForUser({ suppliers: [supplier] }, sessionUser).suppliers[0] || supplier, completedOrders }, remitAuditEntries, [
           notificationEntry(req, sessionUser, input, {
             action: "PROVEEDOR_REMITO_CARGADO",
             category: "Proveedores",
@@ -4903,6 +5438,7 @@ const server = http.createServer(async (req, res) => {
         const remitId = decodeURIComponent(supplierRemitValidateMatch[1]);
         currentState.supplierMovements = Array.isArray(currentState.supplierMovements) ? currentState.supplierMovements : [];
         currentState.suppliers = Array.isArray(currentState.suppliers) ? currentState.suppliers.map(normalizeSupplierServerRecord) : [];
+        currentState.products = Array.isArray(currentState.products) ? currentState.products : [];
         const remit = currentState.supplierMovements.find((item) => item.id === remitId);
         if (!remit) throw new Error("Remito no encontrado.");
         if (remit.economicValidated) throw new Error("El remito ya fue validado administrativamente.");
@@ -4914,6 +5450,8 @@ const server = http.createServer(async (req, res) => {
         const previousSupplier = cloneAuditValue(supplier);
         const previousRemit = cloneAuditValue(remit);
         const previousOrdersByCode = new Map((currentState.orders || []).map((order) => [order.code, cloneAuditValue(order)]));
+        const lineValidations = Array.isArray(input.lineValidations) ? input.lineValidations : [];
+        const pricingAuditEntries = [];
         const at = new Date().toISOString();
         const parts = auditLocalParts(at);
         const invoiceUpload = input.invoiceFileDataUrl || input.invoiceDataUrl
@@ -4925,12 +5463,32 @@ const server = http.createServer(async (req, res) => {
             }, sessionUser)
           : null;
         const completedSet = new Set();
-        const productResults = (Array.isArray(remit.products) ? remit.products : []).map((line) => {
+        const productResults = (Array.isArray(remit.products) ? remit.products : []).map((line, index) => {
+          const product = findProductByRemitItem(currentState, line);
+          if (!product) throw new Error(`Producto no encontrado para validar remito: ${line.name || line.product || index + 1}.`);
+          const validation = validationForRemitLine(lineValidations, line, index);
+          const productWasPending = Boolean(line.isNewProduct || product.pendingValidation || normalizeSearchText(product.estado).includes("pendiente"));
+          const shouldUpdatePricing = productWasPending || validation.updatePricing === true;
+          let previousProductForPricing = null;
+          if (shouldUpdatePricing) {
+            previousProductForPricing = applyValidatedPricing(product, validation, sessionUser, at);
+            pricingAuditEntries.push(auditEntry(req, sessionUser, input, {
+              action: productWasPending ? "PRODUCTO_NUEVO_VALIDADO" : "PRODUCTO_COSTO_LISTAS_ACTUALIZADO",
+              entityType: "producto",
+              entityId: product.codigo_producto || product.name,
+              entityLabel: product.name || product.descripcion,
+              previousValue: previousProductForPricing,
+              newValue: product,
+              note: `Validacion de costo/listas por remito ${remit.remitNumber || remit.id}`
+            }));
+          }
           const result = orderEngine.applyStockEntry(currentState, {
-            product: line.product || line.name,
+            productCode: product.codigo_producto || line.productCode,
+            product: product.name || line.product || line.name,
             qty: numeric(line.stockQty, line.qty),
             supplier: supplier.name,
-            movementType: "Ingreso",
+            movementType: "INGRESO POR REMITO DE PROVEEDOR",
+            remitNumber: remit.remitNumber || remit.id,
             note: `Remito ${remit.remitNumber || remit.id} validado`
           }, sessionUser.name);
           (result.completedOrders || []).forEach((code) => completedSet.add(code));
@@ -4939,6 +5497,17 @@ const server = http.createServer(async (req, res) => {
             ...line,
             product: productName,
             name: productName,
+            isNewProduct: false,
+            productValidationStatus: "Validado por administracion",
+            costValidated: shouldUpdatePricing,
+            costValidatedAt: shouldUpdatePricing ? at : line.costValidatedAt || "",
+            costValidatedBy: shouldUpdatePricing ? sessionUser.name : line.costValidatedBy || "",
+            unitPrice: shouldUpdatePricing ? numeric(result.product && result.product.costo, line.unitPrice) : line.unitPrice,
+            priceLists: SYSTEM_PRICE_LISTS.map((number) => ({
+              listNumber: number,
+              marginPct: numeric(result.product && result.product[`margen_lista_${number}`], 0),
+              price: numeric(result.product && result.product[`precio_lista_${number}`], 0)
+            })),
             stockStatus: "Ingresado a Stock",
             stockAppliedQty: numeric(line.stockQty, line.qty),
             stockAppliedAt: at,
@@ -4960,6 +5529,7 @@ const server = http.createServer(async (req, res) => {
         remit.differenceAmount = numeric(input.differenceAmount, 0);
         remit.adminObservations = String(input.observations || input.note || "").trim();
         remit.products = productResults;
+        ensurePriceListsState(currentState);
         supplier.totalPurchased = numeric(supplier.totalPurchased, 0) + amount;
         supplier.total_comprado = supplier.totalPurchased;
         supplier.balance = numeric(supplier.balance, 0) + amount;
@@ -5006,15 +5576,18 @@ const server = http.createServer(async (req, res) => {
           text: `${supplier.name}: factura ${invoiceNumber}, stock ingresado, importe ${amount}. ${remit.adminObservations}`.trim()
         });
         const completedOrders = Array.from(completedSet);
-        writeStateResponse(res, currentState, { remit, supplier, completedOrders }, auditEntry(req, sessionUser, input, {
-          action: "PROVEEDOR_REMITO_VALIDADO",
-          entityType: "proveedor",
-          entityId: supplier.name,
-          entityLabel: supplier.name,
-          previousValue: { supplier: previousSupplier, remit: previousRemit },
-          newValue: { supplier, remit },
-          note: `Remito ${remit.remitNumber || remit.id} conciliado con factura ${invoiceNumber} por ${amount}`
-        }), [
+        writeStateResponse(res, currentState, { remit, supplier, completedOrders }, [
+          auditEntry(req, sessionUser, input, {
+            action: "PROVEEDOR_REMITO_VALIDADO",
+            entityType: "proveedor",
+            entityId: supplier.name,
+            entityLabel: supplier.name,
+            previousValue: { supplier: previousSupplier, remit: previousRemit },
+            newValue: { supplier, remit },
+            note: `Remito ${remit.remitNumber || remit.id} conciliado con factura ${invoiceNumber} por ${amount}`
+          }),
+          ...pricingAuditEntries
+        ], [
           notificationEntry(req, sessionUser, input, {
             action: "PROVEEDOR_REMITO_VALIDADO",
             category: "Proveedores",

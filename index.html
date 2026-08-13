@@ -124,6 +124,7 @@
           <button class="nav-item" data-view="legal"><span class="icon" aria-hidden="true">LEG</span>Legal</button>
           <button class="nav-item" data-view="ayuda"><span class="icon" aria-hidden="true">?</span>Ayuda</button>
           <button class="nav-item" data-view="acerca"><span class="icon" aria-hidden="true">i</span>Acerca</button>
+          <button class="nav-item admin-only" data-view="usuarios"><span class="icon" aria-hidden="true">USR</span>Usuarios</button>
           <button class="nav-item" data-view="admin"><span class="icon" aria-hidden="true">ADM</span>Admin</button>
         </nav>
 
@@ -691,14 +692,13 @@
               <details class="assembly-print-settings admin-only">
                 <summary>
                   <strong>Configuracion de impresion de Armado</strong>
-                  <span>Precios, QR, observaciones, logo, control y resaltados</span>
+                  <span>Precios, observaciones, logo, control y resaltados</span>
                 </summary>
                 <form id="assemblyPrintSettingsForm" class="assembly-print-form">
                   <label class="inline-check"><input name="showPrices" type="checkbox"> Mostrar precios</label>
                   <label class="inline-check"><input name="showAmounts" type="checkbox"> Mostrar importes</label>
                   <label class="inline-check"><input name="showInternalCode" type="checkbox"> Mostrar codigo interno</label>
                   <label class="inline-check"><input name="showObservations" type="checkbox"> Mostrar observaciones</label>
-                  <label class="inline-check"><input name="showQr" type="checkbox"> Mostrar QR / codigo de recuperacion</label>
                   <label class="inline-check"><input name="showClientLogo" type="checkbox"> Mostrar logo cliente</label>
                   <label>
                     Tamano de letra
@@ -1692,6 +1692,7 @@
                 <p>Compras, deuda, vencimientos y reposicion</p>
               </div>
               <div class="table-actions">
+                <button class="secondary-btn admin-only" id="newSupplierBtn" type="button">+ Nuevo proveedor</button>
                 <button class="secondary-btn admin-only" id="newSupplierPaymentBtn" type="button">Registrar pago</button>
                 <button class="primary-btn admin-receiver-only" id="newSupplierRemitBtn" type="button">Cargar remito</button>
               </div>
@@ -2214,6 +2215,119 @@
             </section>
           </div>
         </section>
+
+        <section class="view" id="usuarios">
+          <div class="admin-grid users-admin-grid">
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Crear o modificar usuario</h2>
+                  <p>Acceso directo administrativo con backup y auditoria</p>
+                </div>
+                <button class="secondary-btn" id="newManagedUserBtn" type="button">Nuevo usuario</button>
+              </div>
+              <form class="form-grid" id="userAdminForm">
+                <input id="userAdminTargetUsername" name="targetUsername" type="hidden">
+                <label>
+                  Usuario
+                  <input id="userAdminUsername" name="username" autocomplete="off" required placeholder="Ej: kevin">
+                </label>
+                <label>
+                  Nombre visible
+                  <input id="userAdminName" name="name" autocomplete="off" required placeholder="Ej: Kevin Guibert">
+                </label>
+                <label>
+                  Rol
+                  <select id="userAdminRole" name="role" required>
+                    <option value="admin">Administrador</option>
+                    <option value="seller">Vendedor</option>
+                    <option value="driver">Repartidor</option>
+                    <option value="receiver">Recepcion mercaderia</option>
+                    <option value="depot">Deposito / Armado</option>
+                  </select>
+                </label>
+                <label>
+                  Vendedor asociado
+                  <input id="userAdminSellerName" name="sellerName" autocomplete="off" placeholder="Solo para rol vendedor">
+                </label>
+                <label>
+                  Lista de precios por defecto
+                  <select id="userAdminPriceList" name="defaultPriceListNumber">
+                    <option value="">Sin cambio / predeterminada</option>
+                    <option value="1">Lista Nº 1</option>
+                    <option value="2">Lista Nº 2 / Preventa</option>
+                    <option value="3">Lista Nº 3</option>
+                    <option value="4">Lista Nº 4</option>
+                    <option value="5">Lista Nº 5</option>
+                  </select>
+                </label>
+                <label>
+                  Nueva clave
+                  <input id="userAdminPassword" name="password" autocomplete="new-password" type="password" placeholder="Obligatoria solo al crear">
+                </label>
+                <label>
+                  Clave administrador
+                  <input id="userAdminPasswordConfirm" name="admin_password" autocomplete="current-password" required type="password" placeholder="Reingresar clave admin">
+                </label>
+                <label>
+                  Motivo
+                  <input id="userAdminMotive" name="motive" autocomplete="off" required placeholder="Alta, cambio de rol, recupero de clave">
+                </label>
+                <label class="check-row">
+                  <input id="userAdminActive" name="active" type="checkbox" checked>
+                  Usuario activo
+                </label>
+                <label class="check-row">
+                  <input id="userAdminPriceLocked" name="priceListLocked" type="checkbox" checked>
+                  Bloquear cambio de lista
+                </label>
+                <div class="form-actions">
+                  <button class="ghost-btn" id="clearManagedUserFormBtn" type="button">Limpiar</button>
+                  <button class="primary-btn" id="saveManagedUserBtn" type="submit">Guardar usuario</button>
+                </div>
+              </form>
+              <p class="login-message" id="userAdminMessage"></p>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Usuarios del sistema</h2>
+                  <p>Administradores, vendedores, reparto, recepcion y deposito</p>
+                </div>
+                <button class="secondary-btn" id="refreshManagedUsersBtn" type="button">Actualizar</button>
+              </div>
+              <div class="data-filter-bar">
+                <label class="data-search-box">
+                  <span>Buscar usuario</span>
+                  <input id="managedUsersSearch" type="search" autocomplete="off" placeholder="Usuario, nombre, rol o vendedor">
+                </label>
+                <select id="managedUsersRoleFilter" aria-label="Filtrar usuarios por rol">
+                  <option value="all">Todos los roles</option>
+                  <option value="admin">Administradores</option>
+                  <option value="seller">Vendedores</option>
+                  <option value="driver">Repartidores</option>
+                  <option value="receiver">Recepcion</option>
+                  <option value="depot">Deposito</option>
+                </select>
+              </div>
+              <div class="responsive-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Usuario</th>
+                      <th>Rol</th>
+                      <th>Lista</th>
+                      <th>Estado</th>
+                      <th>Actualizacion</th>
+                      <th>Accion</th>
+                    </tr>
+                  </thead>
+                  <tbody id="managedUsersTable"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </section>
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
@@ -2727,6 +2841,88 @@
       </form>
     </dialog>
 
+    <dialog id="supplierDialog">
+      <form id="supplierForm" class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Proveedor</p>
+            <h2>Nuevo proveedor</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <div class="form-grid">
+          <label>
+            Razon social
+            <input id="supplierName" name="razon_social" required autocomplete="off">
+          </label>
+          <label>
+            Nombre comercial
+            <input id="supplierCommercialName" name="nombre_comercial" autocomplete="off">
+          </label>
+          <label>
+            CUIT
+            <input id="supplierCuit" name="cuit" autocomplete="off">
+          </label>
+          <label>
+            Estado
+            <select id="supplierOperationalStatus" name="estado_operativo">
+              <option value="Activo">Activo</option>
+              <option value="Inactivo">Inactivo</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Domicilio
+            <input id="supplierAddress" name="direccion" autocomplete="off">
+          </label>
+          <label>
+            Localidad
+            <input id="supplierCity" name="localidad" autocomplete="off">
+          </label>
+          <label>
+            Provincia
+            <input id="supplierProvince" name="provincia" autocomplete="off">
+          </label>
+          <label>
+            Condicion de pago
+            <input id="supplierPaymentCondition" name="condicion_pago" autocomplete="off" value="Cuenta corriente">
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Telefono
+            <input id="supplierPhone" name="telefono" autocomplete="off">
+          </label>
+          <label>
+            WhatsApp
+            <input id="supplierWhatsapp" name="whatsapp" autocomplete="off">
+          </label>
+          <label>
+            Email
+            <input id="supplierEmail" name="email" type="email" autocomplete="off">
+          </label>
+          <label>
+            Contacto principal
+            <input id="supplierContact" name="contacto_principal" autocomplete="off">
+          </label>
+        </div>
+        <label>
+          Datos bancarios
+          <textarea id="supplierBankData" name="datos_bancarios" rows="2" placeholder="Banco, CBU, alias o datos de pago"></textarea>
+        </label>
+        <label>
+          Observaciones
+          <textarea id="supplierObservations" name="observaciones" rows="2"></textarea>
+        </label>
+        <p class="login-message" id="supplierMessage"></p>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" id="supplierSubmitBtn" type="submit">Guardar proveedor</button>
+        </menu>
+      </form>
+    </dialog>
+
     <dialog id="supplierRemitDialog">
       <form id="supplierRemitForm" class="modal-card">
         <div class="modal-header">
@@ -2760,6 +2956,7 @@
               <h3>Productos recibidos</h3>
               <p>Buscar por nombre, codigo, rubro, proveedor o nomenclador interno</p>
             </div>
+            <button class="secondary-btn" id="supplierRemitNewProductBtn" type="button">+ Crear producto nuevo</button>
           </div>
           <label>
             Producto del inventario
@@ -2783,6 +2980,25 @@
               <input id="supplierRemitMultiplier" type="number" min="0.01" step="0.01" value="1">
             </label>
           </div>
+          <div class="form-grid remit-presentation-grid">
+            <label>
+              Unidades por blister
+              <input id="supplierRemitUnitsPerBlister" type="number" min="0" step="1" value="0">
+            </label>
+            <label>
+              Blisters por bulto/caja
+              <input id="supplierRemitBlistersPerBox" type="number" min="0" step="1" value="0">
+            </label>
+            <label>
+              Bultos/cajas recibidas
+              <input id="supplierRemitBoxesReceived" type="number" min="0" step="1" value="0">
+            </label>
+            <label>
+              Total unidades
+              <input id="supplierRemitTotalUnits" type="number" readonly value="0">
+            </label>
+          </div>
+          <div class="remit-preview-summary" id="supplierRemitPreviewSummary"></div>
           <div class="remit-subtotal-line">
             <span id="supplierRemitSubtotalLabel">Subtotal</span>
             <strong id="supplierRemitSubtotal">$ 0</strong>
@@ -2829,6 +3045,99 @@
       </form>
     </dialog>
 
+    <dialog id="supplierProductDialog">
+      <form id="supplierProductForm" class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Producto desde remito</p>
+            <h2>Crear producto nuevo</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <div class="form-grid">
+          <label>
+            Descripcion
+            <input id="supplierProductName" name="name" required autocomplete="off">
+          </label>
+          <label>
+            Codigo interno
+            <input id="supplierProductCode" name="productCode" autocomplete="off" placeholder="Automatico si se deja vacio">
+          </label>
+          <label>
+            Codigo de barras
+            <input id="supplierProductBarcode" name="barcode" autocomplete="off">
+          </label>
+          <label>
+            Proveedor
+            <input id="supplierProductSupplier" name="supplier" readonly>
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Marca
+            <input id="supplierProductBrand" name="marca" autocomplete="off" value="S/D">
+          </label>
+          <label>
+            Rubro / Categoria
+            <input id="supplierProductCategory" name="rubro" autocomplete="off" value="S/D">
+          </label>
+          <label>
+            Unidad de venta
+            <input id="supplierProductUnit" name="unidad_venta" autocomplete="off" value="unidad">
+          </label>
+          <label>
+            Estado inicial
+            <input value="Pendiente de validacion" readonly>
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            Unidades por blister
+            <input id="supplierProductUnitsPerBlister" name="unitsPerBlister" type="number" min="0" step="1" value="0">
+          </label>
+          <label>
+            Blisters por bulto/caja
+            <input id="supplierProductBlistersPerBox" name="blistersPerBox" type="number" min="0" step="1" value="0">
+          </label>
+          <label>
+            Bultos/cajas recibidas
+            <input id="supplierProductBoxesReceived" name="boxesReceived" type="number" min="0" step="1" value="0">
+          </label>
+          <label>
+            Total unidades recibidas
+            <input id="supplierProductTotalUnits" type="number" readonly value="0">
+          </label>
+        </div>
+        <section class="mobile-file-panel">
+          <div class="section-head compact">
+            <div>
+              <h3>Foto del producto</h3>
+              <p>Opcional: camara o galeria para identificar el alta.</p>
+            </div>
+          </div>
+          <div class="file-action-grid">
+            <label class="file-action-btn" for="supplierProductCamera">
+              <span class="file-action-icon">CAM</span>
+              <strong>Sacar foto</strong>
+            </label>
+            <label class="file-action-btn" for="supplierProductGallery">
+              <span class="file-action-icon">IMG</span>
+              <strong>Galeria</strong>
+            </label>
+          </div>
+          <input class="visually-hidden-file" id="supplierProductCamera" type="file" accept="image/*" capture="environment">
+          <input class="visually-hidden-file" id="supplierProductGallery" type="file" accept="image/*">
+          <small id="supplierProductFileStatus">Sin foto seleccionada.</small>
+        </section>
+        <div class="remit-preview-summary" id="supplierProductDuplicateSummary"></div>
+        <p class="login-message" id="supplierProductMessage"></p>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="primary-btn" id="supplierProductSubmitBtn" type="submit">Agregar al remito</button>
+        </menu>
+      </form>
+    </dialog>
+
     <dialog id="supplierRemitValidationDialog">
       <form id="supplierRemitValidationForm" class="modal-card">
         <div class="modal-header">
@@ -2840,6 +3149,7 @@
         </div>
         <input id="supplierRemitValidationId" type="hidden">
         <p class="form-help">El stock y la cuenta corriente del proveedor se actualizan recien al validar este paso.</p>
+        <section class="supplier-validation-products" id="supplierRemitValidationProducts"></section>
         <div class="form-grid">
           <label>
             Importe final

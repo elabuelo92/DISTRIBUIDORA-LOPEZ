@@ -1,4 +1,4 @@
-# Despliegue Vultr y GitHub - v88
+# Despliegue Vultr y GitHub - v89
 
 Fecha de cierre: 2026-08-10
 
@@ -6,24 +6,37 @@ Fecha de cierre: 2026-08-10
 
 El sistema quedo publicado en el servidor Vultr mediante HTTPS y respaldado en GitHub como repositorio privado.
 
-URL operativa temporal:
+URL operativa anterior de respaldo:
 
 https://distribuidora-lopez.216-128-169-34.sslip.io/index.html#dashboard
 
-URL recomendada definitiva:
+URL definitiva:
 
 https://lopez.gruporochaapp.com/index.html#dashboard
 
-Para activar la URL definitiva, crear en Google Cloud DNS:
+Acceso directo para crear o modificar usuarios:
+
+https://lopez.gruporochaapp.com/index.html#usuarios
+
+Este acceso requiere iniciar sesion con un usuario administrador. Cada alta, cambio de rol, cambio de lista de precios, activacion/desactivacion o cambio de clave solicita nuevamente la clave del administrador conectado, genera backup de `users.json` y registra auditoria.
+
+DNS configurado en Squarespace:
 
 - Tipo: `A`
 - Nombre: `lopez`
 - Valor IPv4: `216.128.169.34`
-- TTL: `300`
+- TTL: `14400`
+
+Alias alternativo configurado:
+
+- Tipo: `A`
+- Nombre: `distribuidora`
+- Valor IPv4: `216.128.169.34`
+- TTL: `14400`
 
 Health check:
 
-https://distribuidora-lopez.216-128-169-34.sslip.io/api/health
+https://lopez.gruporochaapp.com/api/health
 
 Repositorio:
 
@@ -66,10 +79,10 @@ https://github.com/elabuelo92/distribuidora-lopez-erp
 
 APK generada:
 
-`C:\DistribuidoraLopez\SERVIDOR_UNICO_8790\android-apk\out\DL-Preventa-V88-VULTR-HTTPS.apk`
+`C:\DistribuidoraLopez\SERVIDOR_UNICO_8790\android-apk\out\DL-Preventa-V89-LOPEZ-HTTPS.apk`
 
 URL embebida:
 
-https://distribuidora-lopez.216-128-169-34.sslip.io
+https://lopez.gruporochaapp.com
 
-Las APK antiguas pueden seguir intentando conectar contra IPs o hosts anteriores. Para pruebas limpias en telefonos, instalar esta APK v88 o borrar datos de la app anterior antes de abrirla.
+Las APK antiguas pueden seguir intentando conectar contra IPs o hosts anteriores. Para pruebas limpias en telefonos, instalar esta APK v89. La v89 migra automaticamente configuraciones antiguas como IP local, Tailscale, `http://` o `sslip.io` hacia el dominio propio.

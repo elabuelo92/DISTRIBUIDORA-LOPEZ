@@ -5010,6 +5010,8 @@ td small {
 .diagnostic-detail,
 .remit-item,
 .remit-subtotal-line,
+.remit-preview-summary,
+.supplier-validation-product,
 .mobile-file-panel,
 .mixed-payment-box {
   border: 1px solid var(--line);
@@ -5135,6 +5137,25 @@ td small {
   gap: 8px;
 }
 
+.remit-preview-summary {
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 13px;
+  background: #fff;
+}
+
+.remit-preview-summary[data-tone="warn"] {
+  border-color: #f2c98a;
+  background: #fff8ea;
+  color: #835100;
+}
+
+.remit-preview-summary[data-tone="ok"] {
+  border-color: #b5dfd3;
+  background: #ecfaf5;
+  color: #0a6d54;
+}
+
 .remit-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -5147,6 +5168,36 @@ td small {
 .remit-item small {
   display: block;
   overflow-wrap: anywhere;
+}
+
+.supplier-validation-products {
+  display: grid;
+  gap: 12px;
+  margin: 10px 0 14px;
+}
+
+.supplier-validation-product {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: #fff;
+}
+
+.supplier-validation-product-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.supplier-validation-product-head strong,
+.supplier-validation-product-head small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.supplier-price-table {
+  margin: 0;
 }
 
 .file-action-grid {

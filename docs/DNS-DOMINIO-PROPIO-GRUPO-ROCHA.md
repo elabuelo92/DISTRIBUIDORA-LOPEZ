@@ -29,25 +29,35 @@ Caddy ya esta preparado para aceptar:
 - `distribuidora.gruporochaapp.com`
 - `distribuidora-lopez.216-128-169-34.sslip.io`
 
-## DNS requerido
+## DNS configurado
 
-El dominio `gruporochaapp.com` usa Google Cloud DNS.
+El dominio `gruporochaapp.com` se administra desde Squarespace DNS.
 
-Crear estos registros:
+Registros personalizados cargados el 2026-08-10:
 
 ### Registro principal
 
 - Tipo: `A`
 - Nombre: `lopez`
 - Valor IPv4: `216.128.169.34`
-- TTL: `300`
+- TTL: `14400` (valor disponible por defecto en Squarespace)
 
 ### Registro alternativo opcional
 
 - Tipo: `A`
 - Nombre: `distribuidora`
 - Valor IPv4: `216.128.169.34`
-- TTL: `300`
+- TTL: `14400` (valor disponible por defecto en Squarespace)
+
+## Ajuste aplicado en Caddy
+
+Se reconstruyo `/etc/caddy/Caddyfile` en el servidor Vultr y se dejo Caddy administrado por `systemd`:
+
+- Servicio: `caddy.service`
+- Estado esperado: `active` y `enabled`
+- Proceso valido: `/usr/bin/caddy run --environ --config /etc/caddy/Caddyfile --adapter caddyfile`
+
+Tambien se detuvo el contenedor Docker viejo `caddy:2-alpine`, que estaba compitiendo por los puertos `80/443`.
 
 ## URL final recomendada
 
@@ -61,6 +71,13 @@ Desde Windows:
 Resolve-DnsName lopez.gruporochaapp.com
 Invoke-WebRequest https://lopez.gruporochaapp.com/api/health -UseBasicParsing
 ```
+
+Verificacion realizada:
+
+- `https://lopez.gruporochaapp.com/api/health` -> `200`
+- `https://distribuidora.gruporochaapp.com/api/health` -> `200`
+- `https://wifi.gruporochaapp.com/` -> `200`
+- `https://saas.gruporochaapp.com/` -> `200`
 
 Desde Android:
 

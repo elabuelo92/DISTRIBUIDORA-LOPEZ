@@ -1,10 +1,31 @@
 # Administrar usuarios y claves
 
-Fecha: 2026-06-23
+Fecha: 2026-08-10
 
 ## Importante
 
 `data\users.json` es el archivo de usuarios, pero las claves estan protegidas con `salt` y `passwordHash`. No se debe escribir una clave visible dentro de ese archivo ni modificar esos dos campos manualmente.
+
+## Metodo recomendado en produccion
+
+Ingresar como administrador y abrir:
+
+```text
+https://lopez.gruporochaapp.com/index.html#usuarios
+```
+
+Desde esa pantalla se puede:
+
+- Crear usuarios.
+- Modificar nombre visible.
+- Cambiar rol.
+- Asociar vendedor.
+- Asignar lista de precios predeterminada.
+- Bloquear el cambio de lista de precios.
+- Activar o desactivar usuarios.
+- Cambiar clave.
+
+Cada guardado solicita nuevamente la clave del administrador conectado, genera backup automatico de `data/users.json` y registra auditoria.
 
 ## Cambiar usuarios en el paquete origen
 
@@ -18,7 +39,7 @@ La herramienta permite:
 
 - Cambiar el nombre de ingreso.
 - Cambiar el nombre visible.
-- Elegir rol `admin`, `seller` o `driver`.
+- Elegir rol `admin`, `seller`, `driver`, `receiver` o `depot`.
 - Asociar una cuenta `seller` con el vendedor correspondiente.
 - Cambiar la clave individual.
 - Crear usuarios nuevos.

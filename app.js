@@ -82,6 +82,7 @@ const titles = {
   legal: "Legal",
   ayuda: "Centro de ayuda",
   acerca: "Acerca del sistema",
+  usuarios: "Usuarios y accesos",
   admin: "Administracion"
 };
 
@@ -127,7 +128,7 @@ const DEFAULT_ASSEMBLY_PRINT_SETTINGS = {
   showAmounts: true,
   showInternalCode: true,
   showObservations: true,
-  showQr: true,
+  showQr: false,
   showClientLogo: true,
   fontSize: 12,
   highlightColors: {
@@ -454,6 +455,9 @@ let gpsDailyRoutesPayload = null;
 let gpsDailyRoutesLoading = false;
 let gpsDailyRoutesLastFetchKey = "";
 let securityLicenseStatus = null;
+let managedUsers = [];
+let managedUsersSearchTerm = "";
+let managedUsersRoleFilter = "all";
 let presenceHeartbeatIntervalId = null;
 let presenceLocationIntervalId = null;
 let lastPresenceLocationSent = null;
@@ -472,6 +476,8 @@ let orderLabelTargetCode = "";
 let orderScanTargetCode = "";
 let clientEditTargetId = "";
 let supplierRemitItems = [];
+let supplierNewProductPhotoDataUrl = "";
+let supplierRemitValidationCurrent = null;
 let connectionDiagnostics = {
   status: "Pendiente",
   server: CONNECTION_CONFIG.SERVER_NAME || "SERVIDOR_UNICO_8790",
@@ -924,6 +930,7 @@ function normalizeAssemblyPrintSettings(settings) {
   return {
     ...DEFAULT_ASSEMBLY_PRINT_SETTINGS,
     ...incoming,
+    showQr: false,
     fontSize: Math.min(16, Math.max(10, numeric(incoming.fontSize, DEFAULT_ASSEMBLY_PRINT_SETTINGS.fontSize))),
     highlightColors: {
       ...DEFAULT_ASSEMBLY_PRINT_SETTINGS.highlightColors,
@@ -1667,23 +1674,30 @@ function applyDuePriceListsLocal(nextState) {
 }
 
 function normalizeSupplierRecord(supplier) {
-  const name = String(supplier.razon_social || supplier.name || supplier.nombre || "").trim();
+  const name = String(supplier.razon_social || supplier.name || supplier.nombre_comercial || supplier.nombre || "").trim();
   const balance = Math.max(0, numeric(supplier.balance ?? supplier.saldo_pendiente, 0));
   const paid = Math.max(0, numeric(supplier.totalPaid ?? supplier.total_pagado, 0));
   const purchased = Math.max(balance + paid, numeric(supplier.totalPurchased ?? supplier.total_comprado, balance + paid));
+  const commercialName = String(supplier.nombre_comercial || supplier.commercialName || supplier.nombre || name).trim();
   return {
     ...supplier,
     name,
     razon_social: name,
+    nombre_comercial: commercialName,
     cuit: String(supplier.cuit || "").trim(),
     direccion: String(supplier.direccion || supplier.address || "").trim(),
+    localidad: String(supplier.localidad || supplier.city || "").trim(),
+    provincia: String(supplier.provincia || supplier.state || "").trim(),
     telefono: String(supplier.telefono || supplier.phone || "").trim(),
+    whatsapp: String(supplier.whatsapp || supplier.whatsApp || supplier.telefono || supplier.phone || "").trim(),
     email: String(supplier.email || supplier.contact || "").trim(),
     contact: String(supplier.contact || supplier.contacto_principal || supplier.email || supplier.telefono || "").trim(),
     contacto_principal: String(supplier.contacto_principal || supplier.contact || "").trim(),
     condicion_pago: String(supplier.condicion_pago || supplier.paymentCondition || "Cuenta corriente").trim(),
+    datos_bancarios: supplier.datos_bancarios || supplier.bankData || "",
     observaciones: String(supplier.observaciones || "").trim(),
     sector: String(supplier.sector || supplier.rubro || "Sin rubro").trim(),
+    estado_operativo: String(supplier.estado_operativo || supplier.estadoProveedor || supplier.estado || "Activo").trim() || "Activo",
     balance,
     saldo_pendiente: balance,
     totalPurchased: purchased,
@@ -3338,6 +3352,10 @@ function renderActiveView(viewId = activeViewId()) {
       break;
     case "acerca":
       renderAboutSystem();
+      break;
+    case "usuarios":
+      renderManagedUsers();
+      if (!managedUsers.length) refreshManagedUsers();
       break;
     case "admin":
       renderAdmin();
@@ -7138,7 +7156,7 @@ function renderAssemblyPrintSettings() {
   form.elements.showAmounts.checked = settings.showAmounts;
   form.elements.showInternalCode.checked = settings.showInternalCode;
   form.elements.showObservations.checked = settings.showObservations;
-  form.elements.showQr.checked = settings.showQr;
+  if (form.elements.showQr) form.elements.showQr.checked = false;
   form.elements.showClientLogo.checked = settings.showClientLogo;
   form.elements.fontSize.value = settings.fontSize;
   form.elements.promoColor.value = settings.highlightColors.promo;
@@ -7162,7 +7180,7 @@ function saveAssemblyPrintSettings(event) {
       showAmounts: form.elements.showAmounts.checked,
       showInternalCode: form.elements.showInternalCode.checked,
       showObservations: form.elements.showObservations.checked,
-      showQr: form.elements.showQr.checked,
+      showQr: false,
       showClientLogo: form.elements.showClientLogo.checked,
       fontSize: Number(form.elements.fontSize.value || DEFAULT_ASSEMBLY_PRINT_SETTINGS.fontSize),
       highlightColors: {
@@ -11512,11 +11530,16 @@ function renderSuppliers() {
   const suppliers = state.suppliers.filter((supplier) => {
     const text = [
       supplier.name,
+      supplier.nombre_comercial,
       supplier.cuit,
       supplier.contact,
       supplier.email,
       supplier.telefono,
+      supplier.whatsapp,
+      supplier.localidad,
+      supplier.provincia,
       supplier.condicion_pago,
+      supplier.estado_operativo,
       supplier.sector,
       supplier.balance,
       supplier.due,
@@ -11555,7 +11578,7 @@ function renderSuppliers() {
     const mixedEntity = mixedEntityForSupplier(supplier);
     return `
     <tr>
-      <td><strong>${escapeHtml(supplier.name)}</strong>${mixedEntity ? '<small><span class="tag info">Tambien cliente</span></small>' : ""}</td>
+      <td><strong>${escapeHtml(supplier.name)}</strong><small>${escapeHtml(supplier.nombre_comercial || supplier.estado_operativo || "")}</small>${mixedEntity ? '<small><span class="tag info">Tambien cliente</span></small>' : ""}</td>
       <td><strong>${escapeHtml(supplier.cuit || "Sin CUIT")}</strong><small>${escapeHtml(supplier.condicion_pago || "Sin condicion")}</small></td>
       <td>${escapeHtml(supplier.contact)}</td>
       <td>${escapeHtml(supplier.sector)}</td>
@@ -11624,6 +11647,250 @@ function setSupplierPaymentMessage(text, tone = "danger") {
   message.dataset.tone = tone;
 }
 
+function setSupplierMessage(text, tone = "danger") {
+  const message = byId("supplierMessage");
+  if (!message) return;
+  message.textContent = text || "";
+  message.dataset.tone = tone;
+}
+
+function setSupplierProductMessage(text, tone = "danger") {
+  const message = byId("supplierProductMessage");
+  if (!message) return;
+  message.textContent = text || "";
+  message.dataset.tone = tone;
+}
+
+function localSupplierDuplicates(payload) {
+  const cuit = String(payload.cuit || "").replace(/\D/g, "");
+  const reason = normalizeSearchText(payload.razon_social || payload.name);
+  const commercial = normalizeSearchText(payload.nombre_comercial);
+  return (state.suppliers || []).filter((supplier) => {
+    const supplierCuit = String(supplier.cuit || "").replace(/\D/g, "");
+    if (cuit && supplierCuit && cuit === supplierCuit) return true;
+    const supplierReason = normalizeSearchText(supplier.razon_social || supplier.name);
+    const supplierCommercial = normalizeSearchText(supplier.nombre_comercial);
+    return Boolean((reason && (supplierReason === reason || supplierCommercial === reason))
+      || (commercial && (supplierReason === commercial || supplierCommercial === commercial)));
+  });
+}
+
+function openSupplierDialog() {
+  if (!isAdminUser()) {
+    window.alert("Solo administracion puede crear proveedores.");
+    return;
+  }
+  const form = byId("supplierForm");
+  form.reset();
+  byId("supplierPaymentCondition").value = "Cuenta corriente";
+  byId("supplierOperationalStatus").value = "Activo";
+  setSupplierMessage("");
+  byId("supplierDialog").showModal();
+}
+
+async function submitSupplier(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const submit = byId("supplierSubmitBtn");
+  const formData = new FormData(form);
+  const payload = Object.fromEntries(formData.entries());
+  const duplicates = localSupplierDuplicates(payload);
+  if (duplicates.length && !window.confirm(`Posible proveedor existente: ${duplicates.map((item) => item.name).join(", ")}. Desea crearlo igual?`)) {
+    setSupplierMessage("Alta detenida para evitar duplicado.", "warn");
+    return;
+  }
+  submit.disabled = true;
+  submit.textContent = "Guardando...";
+  setSupplierMessage("Creando proveedor y actualizando padron...", "info");
+  try {
+    const response = await postOperationalAction("api/suppliers", {
+      ...payload,
+      allowPossibleDuplicate: duplicates.length > 0
+    });
+    if (response.state) {
+      state = normalizeState(response.state);
+      saveState();
+      applyStateVisibility();
+    } else if (response.supplier) {
+      state.suppliers = [normalizeSupplierRecord(response.supplier), ...(state.suppliers || [])];
+    }
+    populateSupplierRemitOptions(response.supplier && response.supplier.name);
+    populateSupplierPaymentOptions(response.supplier && response.supplier.name);
+    byId("supplierDialog").close("default");
+    showCompactNotice(`Proveedor ${response.supplier && response.supplier.name || ""} creado.`, "ok");
+  } catch (error) {
+    setSupplierMessage(error.message || "No se pudo guardar el proveedor.");
+  } finally {
+    submit.disabled = false;
+    submit.textContent = "Guardar proveedor";
+  }
+}
+
+function supplierProductAttachmentFile() {
+  return byId("supplierProductCamera").files[0]
+    || byId("supplierProductGallery").files[0]
+    || null;
+}
+
+function updateSupplierProductFileStatus() {
+  const file = supplierProductAttachmentFile();
+  const status = byId("supplierProductFileStatus");
+  if (status) status.textContent = file ? `Foto lista: ${file.name}` : "Sin foto seleccionada.";
+}
+
+function supplierPresentationValues(prefix) {
+  const unitsPerBlister = Math.max(0, numeric(byId(`${prefix}UnitsPerBlister`)?.value, 0));
+  const blistersPerBox = Math.max(0, numeric(byId(`${prefix}BlistersPerBox`)?.value, 0));
+  const boxesReceived = Math.max(0, numeric(byId(`${prefix}BoxesReceived`)?.value, 0));
+  const unitsPerBox = unitsPerBlister > 0 && blistersPerBox > 0 ? unitsPerBlister * blistersPerBox : 0;
+  const totalUnits = unitsPerBox > 0 && boxesReceived > 0 ? unitsPerBox * boxesReceived : 0;
+  return {
+    unitsPerBlister,
+    blistersPerBox,
+    boxesReceived,
+    unitsPerBox,
+    totalUnits
+  };
+}
+
+function updateSupplierRemitPresentationPreview() {
+  const presentation = supplierPresentationValues("supplierRemit");
+  const totalInput = byId("supplierRemitTotalUnits");
+  if (totalInput) totalInput.value = presentation.totalUnits ? String(presentation.totalUnits) : "0";
+  const summary = byId("supplierRemitPreviewSummary");
+  if (summary) {
+    summary.innerHTML = presentation.totalUnits
+      ? `<strong>Calculo:</strong> ${presentation.unitsPerBlister} unid. x ${presentation.blistersPerBox} blister x ${presentation.boxesReceived} bultos = <strong>${presentation.totalUnits} unidades</strong>`
+      : "Si el producto viene en bultos/blisters, completar los tres campos para calcular unidades.";
+  }
+}
+
+function updateSupplierProductPresentationPreview() {
+  const presentation = supplierPresentationValues("supplierProduct");
+  const totalInput = byId("supplierProductTotalUnits");
+  if (totalInput) totalInput.value = presentation.totalUnits ? String(presentation.totalUnits) : "0";
+}
+
+function localProductDuplicates(payload) {
+  const code = normalizeSearchText(payload.productCode || payload.codigo_producto);
+  const barcode = normalizeSearchText(payload.barcode || payload.codigo_barras);
+  const name = normalizeSearchText(payload.name || payload.descripcion);
+  const brand = normalizeSearchText(payload.marca);
+  const category = normalizeSearchText(payload.rubro || payload.categoria);
+  return (state.products || []).filter((product) => {
+    if (code && normalizeSearchText(product.codigo_producto || product.code) === code) return true;
+    if (barcode && normalizeSearchText(product.codigo_barras) === barcode) return true;
+    return Boolean(name
+      && normalizeSearchText(product.name || product.descripcion) === name
+      && (!brand || normalizeSearchText(product.marca) === brand)
+      && (!category || normalizeSearchText(product.rubro) === category));
+  }).slice(0, 5);
+}
+
+function renderSupplierProductDuplicates() {
+  const payload = supplierProductPayloadFromForm();
+  const duplicates = localProductDuplicates(payload);
+  const box = byId("supplierProductDuplicateSummary");
+  if (!box) return duplicates;
+  box.innerHTML = duplicates.length
+    ? `<strong>Posible producto existente:</strong> ${duplicates.map((product) => `${escapeHtml(product.name || product.descripcion)} (${escapeHtml(product.codigo_producto || product.codigo_barras || "sin codigo")})`).join(" / ")}`
+    : "Sin duplicados evidentes por codigo, barra o descripcion/marca.";
+  box.dataset.tone = duplicates.length ? "warn" : "ok";
+  return duplicates;
+}
+
+function supplierProductPayloadFromForm() {
+  const presentation = supplierPresentationValues("supplierProduct");
+  return {
+    name: byId("supplierProductName")?.value.trim() || "",
+    productCode: byId("supplierProductCode")?.value.trim() || "",
+    barcode: byId("supplierProductBarcode")?.value.trim() || "",
+    marca: byId("supplierProductBrand")?.value.trim() || "S/D",
+    rubro: byId("supplierProductCategory")?.value.trim() || "S/D",
+    proveedor: byId("supplierProductSupplier")?.value.trim() || byId("supplierRemitSupplier")?.value || "",
+    unidad_venta: byId("supplierProductUnit")?.value.trim() || "unidad",
+    ...presentation
+  };
+}
+
+function openSupplierProductDialog() {
+  const supplierName = byId("supplierRemitSupplier")?.value || "";
+  if (!supplierName) {
+    setSupplierRemitMessage("Seleccionar proveedor antes de crear producto.");
+    return;
+  }
+  const form = byId("supplierProductForm");
+  form.reset();
+  byId("supplierProductSupplier").value = supplierName;
+  byId("supplierProductBrand").value = "S/D";
+  byId("supplierProductCategory").value = "S/D";
+  byId("supplierProductUnit").value = "unidad";
+  supplierNewProductPhotoDataUrl = "";
+  ["supplierProductCamera", "supplierProductGallery"].forEach((id) => { byId(id).value = ""; });
+  updateSupplierProductPresentationPreview();
+  updateSupplierProductFileStatus();
+  renderSupplierProductDuplicates();
+  setSupplierProductMessage("");
+  byId("supplierProductDialog").showModal();
+}
+
+async function submitSupplierProduct(event) {
+  event.preventDefault();
+  const submit = byId("supplierProductSubmitBtn");
+  const payload = supplierProductPayloadFromForm();
+  const duplicates = renderSupplierProductDuplicates();
+  if (!payload.name) {
+    setSupplierProductMessage("Indicar descripcion del producto.");
+    return;
+  }
+  if (payload.totalUnits <= 0) {
+    setSupplierProductMessage("Completar presentacion y bultos recibidos para calcular unidades.");
+    return;
+  }
+  if (duplicates.length && !window.confirm("Hay posibles productos existentes. Si corresponde, cancelar y seleccionar el producto del inventario. Desea crear uno nuevo igual?")) {
+    setSupplierProductMessage("Alta detenida para revisar duplicados.", "warn");
+    return;
+  }
+  submit.disabled = true;
+  submit.textContent = "Agregando...";
+  try {
+    const file = supplierProductAttachmentFile();
+    supplierNewProductPhotoDataUrl = file ? await fileToEvidenceDataUrl(file) : "";
+    supplierRemitItems.push({
+      isNewProduct: true,
+      forceNewProduct: true,
+      newProduct: {
+        ...payload,
+        photoDataUrl: supplierNewProductPhotoDataUrl
+      },
+      productCode: payload.productCode,
+      barcode: payload.barcode,
+      name: payload.name,
+      category: payload.rubro,
+      supplier: payload.proveedor,
+      nomenclator: payload.productCode || "Automatico",
+      qty: payload.boxesReceived,
+      unit: "bulto",
+      unitPrice: 0,
+      multiplier: payload.unitsPerBox || 1,
+      unitsPerBlister: payload.unitsPerBlister,
+      blistersPerBox: payload.blistersPerBox,
+      boxesReceived: payload.boxesReceived,
+      unitsPerBox: payload.unitsPerBox,
+      stockQty: payload.totalUnits,
+      subtotal: 0
+    });
+    byId("supplierProductDialog").close("default");
+    setSupplierRemitMessage("Producto nuevo agregado al remito. Queda pendiente de validacion administrativa.", "info");
+    renderSupplierRemitItems();
+  } catch (error) {
+    setSupplierProductMessage(error.message || "No se pudo agregar el producto.");
+  } finally {
+    submit.disabled = false;
+    submit.textContent = "Agregar al remito";
+  }
+}
+
 function supplierRemitSearchText(product) {
   return normalizeSearchText([
     product.name,
@@ -11668,7 +11935,10 @@ function resolveSupplierRemitProduct(query) {
 function updateSupplierRemitSubtotal() {
   const qty = Math.max(0, numeric(byId("supplierRemitQty").value, 0));
   const unitPrice = Math.max(0, numeric(byId("supplierRemitUnitPrice").value, 0));
-  const subtotal = Math.round(qty * unitPrice * 100) / 100;
+  updateSupplierRemitPresentationPreview();
+  const presentation = supplierPresentationValues("supplierRemit");
+  const stockQty = presentation.totalUnits > 0 ? presentation.totalUnits : qty * Math.max(0.01, numeric(byId("supplierRemitMultiplier").value, 1));
+  const subtotal = Math.round(stockQty * unitPrice * 100) / 100;
   byId("supplierRemitSubtotal").textContent = money.format(subtotal);
 }
 
@@ -11705,8 +11975,9 @@ function renderSupplierRemitItems() {
     container.innerHTML = supplierRemitItems.map((item, index) => `
       <article class="remit-item">
         <div>
-          <strong>${escapeHtml(item.name)}</strong>
-          <small>${escapeHtml(item.productCode || "Sin codigo")} - ${escapeHtml(item.unit)} - stock +${item.stockQty}</small>
+          <strong>${escapeHtml(item.name)} ${item.isNewProduct ? '<span class="tag warn">Nuevo pendiente</span>' : ""}</strong>
+          <small>${escapeHtml(item.productCode || "Codigo automatico")} - ${escapeHtml(item.unit)} - stock +${item.stockQty}</small>
+          ${item.unitsPerBox ? `<small>${item.unitsPerBlister} unid. x ${item.blistersPerBox} blister x ${item.boxesReceived} bultos = ${item.stockQty} unidades</small>` : ""}
         </div>
         <span>${isSupplierReceiverMode() ? `${item.qty} ${escapeHtml(item.unit)} - stock +${item.stockQty}` : `${item.qty} x ${money.format(item.unitPrice)} = ${money.format(item.subtotal)}`}</span>
         <button class="mini-btn danger-btn" type="button" data-remove-remit-item="${index}">Quitar</button>
@@ -11725,15 +11996,17 @@ function addSupplierRemitItem() {
   }
   const qty = Math.max(0, numeric(byId("supplierRemitQty").value, 0));
   const receiverMode = isSupplierReceiverMode();
-  const multiplier = receiverMode ? 1 : Math.max(0.01, numeric(byId("supplierRemitMultiplier").value, 1));
+  const presentation = supplierPresentationValues("supplierRemit");
+  const multiplier = presentation.unitsPerBox > 0 ? presentation.unitsPerBox : (receiverMode ? 1 : Math.max(0.01, numeric(byId("supplierRemitMultiplier").value, 1)));
   const unitPrice = receiverMode ? 0 : Math.max(0, numeric(byId("supplierRemitUnitPrice").value, 0));
   if (qty <= 0) {
     setSupplierRemitMessage("Indicar cantidad recibida.");
     return;
   }
-  const subtotal = Math.round(qty * unitPrice * 100) / 100;
-  const stockQty = Math.round(qty * multiplier * 100) / 100;
+  const stockQty = Math.round((presentation.totalUnits > 0 ? presentation.totalUnits : qty * multiplier) * 100) / 100;
+  const subtotal = Math.round(stockQty * unitPrice * 100) / 100;
   supplierRemitItems.push({
+    isNewProduct: false,
     productCode: product.codigo_producto || "",
     barcode: product.codigo_barras || "",
     name: product.name,
@@ -11744,6 +12017,10 @@ function addSupplierRemitItem() {
     unit: receiverMode ? "unidad" : String(byId("supplierRemitUnit").value || "unidad").trim() || "unidad",
     unitPrice,
     multiplier,
+    unitsPerBlister: presentation.unitsPerBlister,
+    blistersPerBox: presentation.blistersPerBox,
+    boxesReceived: presentation.boxesReceived,
+    unitsPerBox: presentation.unitsPerBox,
     stockQty,
     subtotal
   });
@@ -11752,6 +12029,9 @@ function addSupplierRemitItem() {
   byId("supplierRemitUnit").value = "unidad";
   byId("supplierRemitUnitPrice").value = "0";
   byId("supplierRemitMultiplier").value = "1";
+  byId("supplierRemitUnitsPerBlister").value = "0";
+  byId("supplierRemitBlistersPerBox").value = "0";
+  byId("supplierRemitBoxesReceived").value = "0";
   updateSupplierRemitSubtotal();
   setSupplierRemitMessage("");
   renderSupplierRemitItems();
@@ -11796,11 +12076,11 @@ function updateSupplierPaymentFileStatus() {
   if (status) status.textContent = file ? `Respaldo listo: ${file.name}` : "Sin respaldo seleccionado.";
 }
 
-function populateSupplierRemitOptions() {
+function populateSupplierRemitOptions(selectedName = "") {
   const select = byId("supplierRemitSupplier");
   if (!select) return;
   select.innerHTML = state.suppliers.map((supplier) => `
-    <option value="${escapeHtml(supplier.name)}">${escapeHtml(supplier.name)}</option>
+    <option value="${escapeHtml(supplier.name)}" ${sameSupplierName(supplier.name, selectedName) ? "selected" : ""}>${escapeHtml(supplier.name)}</option>
   `).join("");
 }
 
@@ -11831,6 +12111,10 @@ function openSupplierRemitDialog() {
     byId("supplierRemitUnitPrice").value = "0";
     byId("supplierRemitMultiplier").value = "1";
   }
+  byId("supplierRemitUnitsPerBlister").value = "0";
+  byId("supplierRemitBlistersPerBox").value = "0";
+  byId("supplierRemitBoxesReceived").value = "0";
+  byId("supplierRemitTotalUnits").value = "0";
   updateSupplierRemitSubtotal();
   renderSupplierRemitItems();
   updateSupplierRemitFileStatus();
@@ -11847,7 +12131,7 @@ async function submitSupplierRemit(event) {
   setSupplierRemitMessage("Registrando remito pendiente de validacion administrativa...", "info");
   try {
     if (!supplierRemitItems.length) {
-      throw new Error("Agregar al menos un producto del nomenclador.");
+      throw new Error("Agregar al menos un producto existente o nuevo al remito.");
     }
     const attachment = supplierRemitAttachmentFile();
     if (!attachment) {
@@ -11875,13 +12159,134 @@ async function submitSupplierRemit(event) {
     setSupplierRemitMessage(error.message || "No se pudo guardar el remito.");
   } finally {
     submit.disabled = false;
-    submit.textContent = "Guardar remito";
+    submit.textContent = isSupplierReceiverMode() ? "Registrar recepcion" : "Guardar remito";
   }
+}
+
+function productForSupplierRemitLine(line) {
+  const code = normalizeSearchText(line && line.productCode);
+  const barcode = normalizeSearchText(line && line.barcode);
+  const name = normalizeSearchText(line && (line.name || line.product));
+  return (state.products || []).find((product) => code && normalizeSearchText(product.codigo_producto || product.code) === code)
+    || (state.products || []).find((product) => barcode && normalizeSearchText(product.codigo_barras) === barcode)
+    || (state.products || []).find((product) => name && normalizeSearchText(product.name || product.descripcion) === name)
+    || null;
+}
+
+function renderSupplierRemitValidationProducts(remit) {
+  const container = byId("supplierRemitValidationProducts");
+  if (!container) return;
+  const lines = Array.isArray(remit && remit.products) ? remit.products : [];
+  if (!lines.length) {
+    container.innerHTML = '<p class="empty-note">El remito no tiene productos asociados.</p>';
+    return;
+  }
+  container.innerHTML = `
+    <div class="section-head compact">
+      <div>
+        <h3>Productos, costos y listas</h3>
+        <p>Los productos nuevos quedan obligatoriamente validados antes de ingresar stock.</p>
+      </div>
+    </div>
+    ${lines.map((line, index) => {
+      const product = productForSupplierRemitLine(line) || {};
+      const requiresPricing = Boolean(line.isNewProduct || product.pendingValidation || normalizeSearchText(product.estado).includes("pendiente"));
+      const cost = Math.max(0, numeric(line.unitPrice || product.costo || product.cost, 0));
+      return `
+        <article class="supplier-validation-product" data-validation-index="${index}" data-requires-pricing="${requiresPricing ? "true" : "false"}" data-product-code="${escapeHtml(line.productCode || product.codigo_producto || "")}" data-barcode="${escapeHtml(line.barcode || product.codigo_barras || "")}" data-product-name="${escapeHtml(line.name || line.product || product.name || "")}">
+          <div class="supplier-validation-product-head">
+            <div>
+              <strong>${escapeHtml(line.name || line.product || "Producto")}</strong>
+              <small>${escapeHtml(line.productCode || product.codigo_producto || "Sin codigo")} - ${escapeHtml(line.barcode || product.codigo_barras || "Sin barras")} - stock +${numeric(line.stockQty, line.qty)}</small>
+              ${line.unitsPerBox ? `<small>${line.unitsPerBlister} x ${line.blistersPerBox} x ${line.boxesReceived} = ${line.stockQty} unidades</small>` : ""}
+            </div>
+            <span class="tag ${requiresPricing ? "warn" : "ok"}">${requiresPricing ? "Nuevo / pendiente" : "Existente"}</span>
+          </div>
+          <label class="checkbox-line">
+            <input type="checkbox" data-validation-update-pricing ${requiresPricing ? "checked disabled" : ""}>
+            Actualizar costo y listas con esta validacion
+          </label>
+          <div class="form-grid">
+            <label>
+              Costo
+              <input data-validation-cost type="number" min="0" step="0.01" value="${formatDecimalInput(cost)}">
+            </label>
+            <label>
+              Unidades a ingresar
+              <input readonly value="${numeric(line.stockQty, line.qty)}">
+            </label>
+            <label>
+              Estado stock
+              <input readonly value="${escapeHtml(line.stockStatus || "Pendiente de Validacion")}">
+            </label>
+          </div>
+          <div class="price-list-editor-table supplier-price-table">
+            <div class="price-list-editor-head">
+              <span>Lista</span>
+              <span>% sobre costo</span>
+              <span>Precio</span>
+            </div>
+            ${SYSTEM_PRICE_LISTS.map((number) => {
+              const price = Math.max(0, numeric(product[`precio_lista_${number}`] || line[`precio_lista_${number}`], cost));
+              const pct = priceMarginFromCost(price, cost);
+              return `
+                <label>
+                  <strong>Lista ${number}</strong>
+                  <input data-validation-field="pct" data-list-number="${number}" type="number" min="0" step="0.01" value="${formatDecimalInput(pct)}">
+                  <input data-validation-field="price" data-list-number="${number}" type="number" min="0" step="0.01" value="${formatDecimalInput(price)}">
+                </label>
+              `;
+            }).join("")}
+          </div>
+        </article>
+      `;
+    }).join("")}
+  `;
+}
+
+function syncSupplierValidationPriceCard(card, sourceInput = null) {
+  if (!card) return;
+  const cost = Math.max(0, numeric(card.querySelector("[data-validation-cost]")?.value, 0));
+  const field = sourceInput && sourceInput.dataset.validationField;
+  const listNumber = sourceInput && sourceInput.dataset.listNumber;
+  SYSTEM_PRICE_LISTS.forEach((number) => {
+    const priceInput = card.querySelector(`[data-validation-field="price"][data-list-number="${number}"]`);
+    const pctInput = card.querySelector(`[data-validation-field="pct"][data-list-number="${number}"]`);
+    if (!priceInput || !pctInput) return;
+    if (field === "pct" && listNumber === String(number)) {
+      priceInput.value = formatDecimalInput(priceFromMargin(cost, pctInput.value));
+    } else if (field === "price" && listNumber === String(number)) {
+      pctInput.value = formatDecimalInput(priceMarginFromCost(priceInput.value, cost));
+    } else if (!field || sourceInput && sourceInput.matches("[data-validation-cost]")) {
+      priceInput.value = formatDecimalInput(priceFromMargin(cost, pctInput.value));
+    }
+  });
+}
+
+function collectSupplierRemitLineValidations() {
+  return Array.from(document.querySelectorAll(".supplier-validation-product")).map((card) => {
+    const requiresPricing = card.dataset.requiresPricing === "true";
+    const updatePricingInput = card.querySelector("[data-validation-update-pricing]");
+    return {
+      index: Number(card.dataset.validationIndex || 0),
+      productCode: card.dataset.productCode || "",
+      barcode: card.dataset.barcode || "",
+      name: card.dataset.productName || "",
+      updatePricing: requiresPricing || Boolean(updatePricingInput && updatePricingInput.checked),
+      cost: numeric(card.querySelector("[data-validation-cost]")?.value, 0),
+      priceLists: SYSTEM_PRICE_LISTS.map((number) => ({
+        listNumber: number,
+        marginPct: numeric(card.querySelector(`[data-validation-field="pct"][data-list-number="${number}"]`)?.value, 0),
+        price: numeric(card.querySelector(`[data-validation-field="price"][data-list-number="${number}"]`)?.value, 0)
+      }))
+    };
+  });
 }
 
 function openSupplierRemitValidationDialog(remitId) {
   const remit = (state.supplierMovements || []).find((item) => item.id === remitId);
   if (!remit) return;
+  supplierRemitValidationCurrent = remit;
   byId("supplierRemitValidationId").value = remit.id;
   byId("supplierRemitValidationTitle").textContent = `Validar remito ${remit.remitNumber || remit.id}`;
   byId("supplierRemitValidationAmount").value = String(remit.declaredAmount || remit.amount || 0);
@@ -11891,6 +12296,7 @@ function openSupplierRemitValidationDialog(remitId) {
   byId("supplierRemitValidationCosts").checked = true;
   byId("supplierRemitValidationDifferences").value = remit.differences || "";
   byId("supplierRemitValidationObservations").value = remit.adminObservations || "";
+  renderSupplierRemitValidationProducts(remit);
   ["supplierInvoiceCamera", "supplierInvoiceGallery", "supplierInvoiceFile"].forEach((id) => { byId(id).value = ""; });
   updateSupplierInvoiceFileStatus();
   setSupplierRemitValidationMessage("");
@@ -11918,6 +12324,7 @@ async function submitSupplierRemitValidation(event) {
       invoiceDate: byId("supplierRemitValidationInvoiceDate").value,
       invoiceFileDataUrl,
       costsValidated: byId("supplierRemitValidationCosts").checked,
+      lineValidations: collectSupplierRemitLineValidations(),
       differences: byId("supplierRemitValidationDifferences").value,
       differenceAmount: numeric(byId("supplierRemitValidationDifferenceAmount").value, 0),
       observations: byId("supplierRemitValidationObservations").value
@@ -13043,6 +13450,150 @@ function renderAdmin() {
   renderSessionMonitor();
   renderLicensePanel();
   renderDiagnostics();
+}
+
+function setUserAdminMessage(message, tone = "") {
+  const node = byId("userAdminMessage");
+  if (!node) return;
+  node.textContent = message || "";
+  node.dataset.tone = tone || "";
+}
+
+function managedUserPriceListNumber(user) {
+  return priceListNumberFromValue(user && (user.defaultPriceListId || user.defaultPriceListName || user.priceListId || user.priceListName));
+}
+
+function resetManagedUserForm(user = null) {
+  const form = byId("userAdminForm");
+  if (!form) return;
+  form.reset();
+  byId("userAdminTargetUsername").value = user ? user.username || "" : "";
+  byId("userAdminUsername").value = user ? user.username || "" : "";
+  byId("userAdminName").value = user ? user.name || "" : "";
+  byId("userAdminRole").value = user ? user.role || "seller" : "seller";
+  byId("userAdminSellerName").value = user ? user.sellerName || "" : "";
+  byId("userAdminPriceList").value = user ? String(managedUserPriceListNumber(user) || "") : "";
+  byId("userAdminPassword").value = "";
+  byId("userAdminPassword").required = !user;
+  byId("userAdminPasswordConfirm").value = "";
+  byId("userAdminMotive").value = user ? "Actualizacion administrativa" : "Alta de usuario";
+  byId("userAdminActive").checked = user ? user.active !== false : true;
+  byId("userAdminPriceLocked").checked = user ? user.priceListLocked === true : true;
+  setUserAdminMessage(user ? `Editando ${user.username}. La clave queda igual si no se informa nueva clave.` : "Nuevo usuario listo para cargar.", "info");
+}
+
+function filteredManagedUsers() {
+  const terms = normalizeSearchText(managedUsersSearchTerm).split(/\s+/).filter(Boolean);
+  return managedUsers.filter((user) => {
+    if (managedUsersRoleFilter !== "all" && user.role !== managedUsersRoleFilter) return false;
+    if (!terms.length) return true;
+    return matchesSearch([
+      user.username,
+      user.name,
+      roleLabel(user.role),
+      user.role,
+      user.sellerName,
+      user.defaultPriceListName
+    ].join(" "), terms);
+  });
+}
+
+function renderManagedUsers() {
+  if (!isAdminUser()) return;
+  const tbody = byId("managedUsersTable");
+  if (!tbody) return;
+  const rows = filteredManagedUsers();
+  tbody.innerHTML = rows.length ? rows.map((user) => {
+    const priceList = user.defaultPriceListName || (managedUserPriceListNumber(user) ? priceListNameForNumber(managedUserPriceListNumber(user)) : "Predeterminada");
+    const statusTone = user.active === false ? "danger" : "ok";
+    return `
+      <tr>
+        <td>
+          <strong>${escapeHtml(user.username)}</strong>
+          <small>${escapeHtml(user.name || "")}</small>
+          ${user.sellerName ? `<small>Vendedor: ${escapeHtml(user.sellerName)}</small>` : ""}
+        </td>
+        <td>${escapeHtml(roleLabel(user.role))}</td>
+        <td>
+          <strong>${escapeHtml(priceList)}</strong>
+          <small>${user.priceListLocked ? "Bloqueada para el usuario" : "Editable con autorizacion"}</small>
+        </td>
+        <td><span class="tag ${statusTone}">${user.active === false ? "Inactivo" : "Activo"}</span></td>
+        <td>
+          <small>${escapeHtml(user.updatedAt ? formatOrderTime(user.updatedAt) : "Sin cambios registrados")}</small>
+          <small>${escapeHtml(user.updatedBy || "")}</small>
+        </td>
+        <td><button class="secondary-btn" type="button" data-edit-managed-user="${escapeHtml(user.username)}">Editar</button></td>
+      </tr>
+    `;
+  }).join("") : '<tr><td colspan="6" class="empty-note">No hay usuarios para los filtros seleccionados.</td></tr>';
+}
+
+async function refreshManagedUsers() {
+  if (!isAdminUser()) return;
+  const tbody = byId("managedUsersTable");
+  if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="empty-note">Cargando usuarios...</td></tr>';
+  try {
+    const response = await fetchWithTimeout(apiUrl("api/admin/users"), { cache: "no-store" }, SERVER_TIMEOUT_MS);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) throw new Error(payload.error || "No se pudo cargar usuarios.");
+    managedUsers = Array.isArray(payload.users) ? payload.users : [];
+    renderManagedUsers();
+    if (!byId("userAdminTargetUsername").value && !byId("userAdminUsername").value) resetManagedUserForm();
+  } catch (error) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="empty-note">${escapeHtml(error.message || "No se pudo cargar usuarios.")}</td></tr>`;
+    setUserAdminMessage(error.message || "No se pudo cargar usuarios.", "info");
+  }
+}
+
+async function submitManagedUserForm(event) {
+  event.preventDefault();
+  if (!isAdminUser()) return;
+  const form = event.currentTarget;
+  const submit = byId("saveManagedUserBtn");
+  const payload = {
+    targetUsername: byId("userAdminTargetUsername").value.trim().toLowerCase(),
+    username: byId("userAdminUsername").value.trim().toLowerCase(),
+    name: byId("userAdminName").value.trim(),
+    role: byId("userAdminRole").value,
+    sellerName: byId("userAdminSellerName").value.trim(),
+    defaultPriceListNumber: byId("userAdminPriceList").value,
+    password: byId("userAdminPassword").value,
+    admin_password: byId("userAdminPasswordConfirm").value,
+    motive: byId("userAdminMotive").value.trim(),
+    active: byId("userAdminActive").checked,
+    priceListLocked: byId("userAdminPriceLocked").checked
+  };
+  if (!payload.username || !payload.name || !payload.role || !payload.admin_password || !payload.motive) {
+    setUserAdminMessage("Completar usuario, nombre, rol, clave admin y motivo.", "info");
+    return;
+  }
+  if (!payload.targetUsername && !payload.password) {
+    setUserAdminMessage("Un usuario nuevo requiere clave inicial.", "info");
+    return;
+  }
+  submit.disabled = true;
+  setUserAdminMessage("Guardando usuario...", "info");
+  try {
+    const response = await fetchWithTimeout(apiUrl("api/admin/users"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify(payload)
+    }, SERVER_TIMEOUT_MS);
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.ok === false) throw new Error(result.error || "No se pudo guardar el usuario.");
+    managedUsers = Array.isArray(result.users) ? result.users : managedUsers;
+    renderManagedUsers();
+    resetManagedUserForm(result.user || null);
+    byId("userAdminPasswordConfirm").value = "";
+    byId("userAdminPassword").value = "";
+    setUserAdminMessage(`Usuario ${result.user && result.user.username || payload.username} guardado correctamente. Backup: ${result.backup || "registrado"}.`, "ok");
+  } catch (error) {
+    setUserAdminMessage(error.message || "No se pudo guardar el usuario.", "info");
+  } finally {
+    submit.disabled = false;
+  }
 }
 
 function securityTone(ok, warn = false) {
@@ -14862,6 +15413,18 @@ document.querySelectorAll(".nav-item").forEach((button) => {
 document.querySelectorAll("[data-open-view]").forEach((button) => {
   button.addEventListener("click", () => switchView(button.dataset.openView));
 });
+byId("userAdminForm").addEventListener("submit", submitManagedUserForm);
+byId("newManagedUserBtn").addEventListener("click", () => resetManagedUserForm());
+byId("clearManagedUserFormBtn").addEventListener("click", () => resetManagedUserForm());
+byId("refreshManagedUsersBtn").addEventListener("click", refreshManagedUsers);
+byId("managedUsersSearch").addEventListener("input", debounce((event) => {
+  managedUsersSearchTerm = event.target.value;
+  renderManagedUsers();
+}, 160));
+byId("managedUsersRoleFilter").addEventListener("change", (event) => {
+  managedUsersRoleFilter = event.target.value;
+  renderManagedUsers();
+});
 
 const debouncedRenderAll = debounce(renderAll, 180);
 const debouncedRenderOrders = debounce(renderOrders, 180);
@@ -15186,6 +15749,7 @@ byId("clearSuppliersFilters").addEventListener("click", () => {
   byId("suppliersSectorFilter").value = "all";
   renderSuppliers();
 });
+byId("newSupplierBtn").addEventListener("click", openSupplierDialog);
 byId("newSupplierRemitBtn").addEventListener("click", openSupplierRemitDialog);
 byId("openSupplierReceiverRemitBtn").addEventListener("click", openSupplierRemitDialog);
 byId("newSupplierPaymentBtn").addEventListener("click", () => openSupplierPaymentDialog());
@@ -15193,10 +15757,13 @@ byId("supplierAccountSelect").addEventListener("change", (event) => {
   selectedSupplierAccountName = event.target.value;
   renderSupplierAccountPanel();
 });
+byId("supplierForm").addEventListener("submit", submitSupplier);
 byId("supplierRemitForm").addEventListener("submit", submitSupplierRemit);
 byId("supplierRemitValidationForm").addEventListener("submit", submitSupplierRemitValidation);
 byId("supplierPaymentForm").addEventListener("submit", submitSupplierPayment);
 byId("supplierRemitAddProductBtn").addEventListener("click", addSupplierRemitItem);
+byId("supplierRemitNewProductBtn").addEventListener("click", openSupplierProductDialog);
+byId("supplierProductForm").addEventListener("submit", submitSupplierProduct);
 byId("supplierRemitProductSearch").addEventListener("change", () => {
   const product = resolveSupplierRemitProduct(byId("supplierRemitProductSearch").value);
   if (product && !isSupplierReceiverMode() && numeric(byId("supplierRemitUnitPrice").value, 0) <= 0) {
@@ -15204,8 +15771,14 @@ byId("supplierRemitProductSearch").addEventListener("change", () => {
   }
   updateSupplierRemitSubtotal();
 });
-["supplierRemitQty", "supplierRemitUnitPrice", "supplierRemitMultiplier"].forEach((id) => {
+["supplierRemitQty", "supplierRemitUnitPrice", "supplierRemitMultiplier", "supplierRemitUnitsPerBlister", "supplierRemitBlistersPerBox", "supplierRemitBoxesReceived"].forEach((id) => {
   byId(id).addEventListener("input", updateSupplierRemitSubtotal);
+});
+["supplierProductUnitsPerBlister", "supplierProductBlistersPerBox", "supplierProductBoxesReceived"].forEach((id) => {
+  byId(id).addEventListener("input", updateSupplierProductPresentationPreview);
+});
+["supplierProductName", "supplierProductCode", "supplierProductBarcode", "supplierProductBrand", "supplierProductCategory"].forEach((id) => {
+  byId(id).addEventListener("input", renderSupplierProductDuplicates);
 });
 byId("supplierRemitItemsList").addEventListener("click", (event) => {
   const button = event.target.closest("[data-remove-remit-item]");
@@ -15224,6 +15797,17 @@ byId("supplierRemitItemsList").addEventListener("click", (event) => {
     keepOnlySelectedFileInput(id, ["supplierInvoiceCamera", "supplierInvoiceGallery", "supplierInvoiceFile"]);
     updateSupplierInvoiceFileStatus();
   });
+});
+["supplierProductCamera", "supplierProductGallery"].forEach((id) => {
+  byId(id).addEventListener("change", () => {
+    keepOnlySelectedFileInput(id, ["supplierProductCamera", "supplierProductGallery"]);
+    updateSupplierProductFileStatus();
+  });
+});
+byId("supplierRemitValidationProducts").addEventListener("input", (event) => {
+  const input = event.target.closest("[data-validation-cost], [data-validation-field]");
+  if (!input) return;
+  syncSupplierValidationPriceCard(input.closest(".supplier-validation-product"), input);
 });
 ["supplierPaymentCamera", "supplierPaymentGallery", "supplierPaymentFile"].forEach((id) => {
   byId(id).addEventListener("change", () => {
@@ -15634,6 +16218,13 @@ document.addEventListener("click", (event) => {
   const button = event.target.closest("[data-force-session-close]");
   if (!button) return;
   forceCloseSession(button.dataset.forceSessionClose);
+});
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-edit-managed-user]");
+  if (!button) return;
+  const user = managedUsers.find((item) => item.username === button.dataset.editManagedUser);
+  if (user) resetManagedUserForm(user);
 });
 
 document.addEventListener("click", (event) => {

@@ -62,9 +62,39 @@ def canonical_field(header):
     for field, aliases in FIELD_ALIASES.items():
         if normalized in aliases:
             return field
-    for field, aliases in FIELD_ALIASES.items():
-        if any(alias in normalized for alias in aliases):
-            return field
+    if not normalized:
+        return ""
+    if "barra" in normalized or "ean" in normalized or "barcode" in normalized:
+        return "codigo_barras"
+    if "codigo proveedor" in normalized or "cod proveedor" in normalized:
+        return ""
+    if normalized.startswith("codigo") or normalized.startswith("cod ") or normalized in {"cod", "sku", "nomenclador"}:
+        return "codigo_producto"
+    if "descripcion" in normalized or "producto" in normalized or "articulo" in normalized or "mercaderia" in normalized:
+        return "descripcion"
+    if "subrubro" in normalized:
+        return "familia"
+    if "categoria" in normalized or normalized == "rubro" or normalized.startswith("rubro "):
+        return "rubro"
+    if "familia" in normalized or "grupo" in normalized:
+        return "familia"
+    if "marca" in normalized or "brand" in normalized:
+        return "marca"
+    if "proveedor" in normalized or "supplier" in normalized:
+        return "proveedor"
+    if "unid" in normalized or "unidad" in normalized or "presentacion" in normalized:
+        return "unidad_venta"
+    if "costo" in normalized or normalized == "cost":
+        return "costo"
+    if "stock minimo" in normalized or normalized == "minimo" or normalized == "min":
+        return "stock_minimo"
+    if "stock" in normalized or "existencia" in normalized or "cantidad" in normalized:
+        return "stock"
+    for number in range(1, 6):
+        if re.search(rf"(?:lista\s*{number}|lista{number}|\bl{number}\b|precio_lista_{number})", normalized):
+            return f"precio_lista_{number}"
+    if "activo" in normalized or "estado" in normalized or "habilitado" in normalized:
+        return "activo"
     return ""
 
 
