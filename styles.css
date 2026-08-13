@@ -1633,6 +1633,11 @@ h2 {
   margin-bottom: 14px;
 }
 
+.supplier-inline-action {
+  min-height: 40px;
+  align-self: end;
+}
+
 .data-search-box {
   display: grid;
   gap: 6px;

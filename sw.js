@@ -1,4 +1,4 @@
-﻿const CACHE_NAME = "distribuidora-lopez-servidor-unico-8790-v88";
+const CACHE_NAME = "distribuidora-lopez-servidor-unico-8790-v89";
 const ASSETS = [
   "./manifest.json",
   "./icons/icon.svg",
@@ -50,4 +50,3 @@ self.addEventListener("fetch", (event) => {
     caches.match(event.request).then((cached) => cached || fetch(event.request))
   );
 });
-

@@ -185,7 +185,7 @@ USERS_FILE=/opt/distribuidora-lopez/data/users.json \
 DL_LICENSE_FILE=/opt/distribuidora-lopez/data/license.json \
 DL_INTEGRITY_FILE=/opt/distribuidora-lopez/data/integrity-manifest.json \
 DL_INSTALLATION_NAME=SERVIDOR_UNICO_8790 \
-DL_VERSION=8790-88 \
+DL_VERSION=8790-89 \
 node scripts/license-admin.js manifest
 
 DATA_DIR=/opt/distribuidora-lopez/data \
@@ -194,7 +194,7 @@ USERS_FILE=/opt/distribuidora-lopez/data/users.json \
 DL_LICENSE_FILE=/opt/distribuidora-lopez/data/license.json \
 DL_INTEGRITY_FILE=/opt/distribuidora-lopez/data/integrity-manifest.json \
 DL_INSTALLATION_NAME=SERVIDOR_UNICO_8790 \
-DL_VERSION=8790-88 \
+DL_VERSION=8790-89 \
 node scripts/license-admin.js status
 ```
 

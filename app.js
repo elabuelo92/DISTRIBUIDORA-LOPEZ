@@ -179,7 +179,7 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-88";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-89";
 
 function configNumber(value, fallback) {
   const number = Number(value);
@@ -735,7 +735,7 @@ function safeSessionStorageSet(key, value) {
 
 function persistLocalMeta(reason = "") {
   safeLocalStorageSet(LOCAL_META_KEY, JSON.stringify({
-    version: "v88",
+    version: "v89",
     reason,
     savedAt: new Date().toISOString(),
     user: currentUser && {
@@ -1867,7 +1867,7 @@ function loadSessionDevice() {
     label: `Equipo ${id.slice(-6)}`,
     model: (navigator.userAgent || "Navegador").slice(0, 90),
     os: detectDeviceOs(),
-    appVersion: "v88-web"
+    appVersion: "v89-web"
   };
   safeLocalStorageSet("dlSessionDevice", JSON.stringify(device), 12000);
   return device;
@@ -1878,7 +1878,7 @@ function sessionDevicePayload() {
     ...sessionDevice,
     model: sessionDevice.model || (navigator.userAgent || "Navegador").slice(0, 90),
     os: sessionDevice.os || detectDeviceOs(),
-    appVersion: "v88-web"
+    appVersion: "v89-web"
   };
 }
 
@@ -15749,7 +15749,10 @@ byId("clearSuppliersFilters").addEventListener("click", () => {
   byId("suppliersSectorFilter").value = "all";
   renderSuppliers();
 });
-byId("newSupplierBtn").addEventListener("click", openSupplierDialog);
+["newSupplierBtn", "newSupplierInlineBtn"].forEach((id) => {
+  const button = byId(id);
+  if (button) button.addEventListener("click", openSupplierDialog);
+});
 byId("newSupplierRemitBtn").addEventListener("click", openSupplierRemitDialog);
 byId("openSupplierReceiverRemitBtn").addEventListener("click", openSupplierRemitDialog);
 byId("newSupplierPaymentBtn").addEventListener("click", () => openSupplierPaymentDialog());
