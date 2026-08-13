@@ -5,7 +5,7 @@
     SOCKET_URL: "",
     SERVER_NAME: "SERVIDOR_UNICO_8790",
     MAGIC_DNS_HOST: "desktop-c2c0q4v.tail6f19de.ts.net",
-    VERSION: "8790-89",
+    VERSION: "8790-90",
     TIMEOUTS: {
       server: 7000,
       health: 4500,
