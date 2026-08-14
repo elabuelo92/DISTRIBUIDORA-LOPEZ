@@ -9,10 +9,17 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="DL Preventa">
-    <link rel="manifest" href="manifest.json?v=8790-90-r20260813">
+    <script>
+      try {
+        document.documentElement.dataset.theme = localStorage.getItem("dlThemeMode") === "dark" ? "dark" : "light";
+      } catch {
+        document.documentElement.dataset.theme = "light";
+      }
+    </script>
+    <link rel="manifest" href="manifest.json?v=8790-91-r20260813">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-90-r20260813">
+    <link rel="stylesheet" href="styles.css?v=8790-91-r20260813">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -148,6 +155,12 @@
               <strong id="sessionUserName">Usuario</strong>
               <span id="sessionUserRole">Rol</span>
             </div>
+            <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
+              <span>Version instalada</span>
+              <strong data-version-value>8790-91</strong>
+              <small data-version-build>Actualizada 13/08/2026 21:10</small>
+            </button>
+            <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
             <button class="ghost-btn app-back-btn" id="appBackBtn" type="button">Volver</button>
             <button class="notification-btn" type="button" data-open-notifications aria-expanded="false">
               Avisos
@@ -170,6 +183,7 @@
             Avisos
             <strong class="notification-badge" data-notification-badge hidden>0</strong>
           </button>
+          <button class="ghost-btn compact theme-toggle-btn" id="mobileThemeToggleBtn" type="button">Oscuro</button>
           <button class="ghost-btn compact" id="mobileContextHelpBtn" type="button">Ayuda</button>
           <button class="whatsapp-btn" type="button" data-support-whatsapp aria-label="Soporte WhatsApp">WhatsApp</button>
           <button class="ghost-btn" id="mobileLogoutBtn" type="button">Salir</button>
@@ -180,6 +194,7 @@
             <img src="icons/grupo-rocha-solutions.png" alt="Grupo Rocha Solutions">
             <span>Powered by Grupo Rocha Solutions</span>
           </div>
+          <div class="dashboard-version-strip" id="dashboardVersionStrip" aria-live="polite"></div>
           <div class="metrics-grid" id="metricsGrid"></div>
           <div class="dashboard-insights" id="dashboardInsights"></div>
           <div class="dashboard-grid">
@@ -2332,7 +2347,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-90-r20260813</span>
+          <span id="appFooterVersion">Version del sistema: 8790-91</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -3898,13 +3913,13 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-90-r20260813"></script>
-    <script src="maps-config.js?v=8790-90-r20260813"></script>
-    <script src="order-engine.js?v=8790-90-r20260813"></script>
-    <script src="account-engine.js?v=8790-90-r20260813"></script>
-    <script src="delivery-engine.js?v=8790-90-r20260813"></script>
-    <script src="legal-engine.js?v=8790-90-r20260813"></script>
-    <script src="app.js?v=8790-90-r20260813"></script>
+    <script src="config.js?v=8790-91-r20260813"></script>
+    <script src="maps-config.js?v=8790-91-r20260813"></script>
+    <script src="order-engine.js?v=8790-91-r20260813"></script>
+    <script src="account-engine.js?v=8790-91-r20260813"></script>
+    <script src="delivery-engine.js?v=8790-91-r20260813"></script>
+    <script src="legal-engine.js?v=8790-91-r20260813"></script>
+    <script src="app.js?v=8790-91-r20260813"></script>
   </body>
 </html>
 

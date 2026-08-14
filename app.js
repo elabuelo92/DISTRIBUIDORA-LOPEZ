@@ -179,7 +179,11 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-90";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-91";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "13/08/2026 21:10 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-13T21:10:46-03:00";
+const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
+const THEME_STORAGE_KEY = "dlThemeMode";
 
 function configNumber(value, fallback) {
   const number = Number(value);
@@ -207,7 +211,8 @@ const SYSTEM_LOCAL_KEYS = [
   "lastOwnSellerLocation",
   "dlDeliveryDevice",
   "dlSessionDevice",
-  "dlLabelPrinter"
+  "dlLabelPrinter",
+  THEME_STORAGE_KEY
 ];
 const ORDER_WORKFLOW = [
   { status: ORDER_STATUS.PENDING, label: "Pendiente", short: "PEN" },
@@ -493,6 +498,13 @@ let connectionDiagnostics = {
   lastError: "",
   checkedAt: ""
 };
+let appVersionStatus = {
+  checkedAt: "",
+  serverVersion: "",
+  stateVersion: "",
+  ok: null,
+  error: ""
+};
 
 function apiUrl(path) {
   const cleanPath = String(path).replace(/^\/+/, "");
@@ -627,6 +639,7 @@ async function runConnectionDiagnostics() {
     const latencyMs = Math.round(performance.now() - startedAt);
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || payload.ok === false) throw new Error(payload.error || `HTTP ${response.status}`);
+    applyHealthVersionStatus(payload);
     if (payload.security) {
       securityLicenseStatus = payload.security;
       renderLicensePanel();
@@ -735,7 +748,7 @@ function safeSessionStorageSet(key, value) {
 
 function persistLocalMeta(reason = "") {
   safeLocalStorageSet(LOCAL_META_KEY, JSON.stringify({
-    version: "v90",
+    version: APP_VERSION,
     reason,
     savedAt: new Date().toISOString(),
     user: currentUser && {
@@ -1867,7 +1880,7 @@ function loadSessionDevice() {
     label: `Equipo ${id.slice(-6)}`,
     model: (navigator.userAgent || "Navegador").slice(0, 90),
     os: detectDeviceOs(),
-    appVersion: "v90-web"
+    appVersion: `${APP_VERSION}-web`
   };
   safeLocalStorageSet("dlSessionDevice", JSON.stringify(device), 12000);
   return device;
@@ -1878,7 +1891,7 @@ function sessionDevicePayload() {
     ...sessionDevice,
     model: sessionDevice.model || (navigator.userAgent || "Navegador").slice(0, 90),
     os: sessionDevice.os || detectDeviceOs(),
-    appVersion: "v90-web"
+    appVersion: `${APP_VERSION}-web`
   };
 }
 
@@ -2297,6 +2310,46 @@ function byId(id) {
   return document.getElementById(id);
 }
 
+function loadThemeMode() {
+  try {
+    return localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
+  } catch {
+    return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  }
+}
+
+function renderThemeControls() {
+  const mode = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  const label = mode === "dark" ? "Modo claro" : "Modo oscuro";
+  const shortLabel = mode === "dark" ? "Claro" : "Oscuro";
+  [byId("themeToggleBtn"), byId("mobileThemeToggleBtn")].filter(Boolean).forEach((button) => {
+    button.textContent = button.id === "mobileThemeToggleBtn" ? shortLabel : label;
+    button.setAttribute("aria-pressed", mode === "dark" ? "true" : "false");
+    button.title = mode === "dark" ? "Cambiar a pantalla clara" : "Aplicar pantalla modo oscuro";
+  });
+}
+
+function applyThemeMode(mode, persist = true) {
+  const nextMode = mode === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = nextMode;
+  if (document.body) document.body.dataset.theme = nextMode;
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (metaTheme) metaTheme.setAttribute("content", nextMode === "dark" ? "#081a1f" : "#11252b");
+  if (persist) {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, nextMode);
+    } catch {
+      // La preferencia visual no debe bloquear el uso del sistema.
+    }
+  }
+  renderThemeControls();
+}
+
+function toggleThemeMode() {
+  const current = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  applyThemeMode(current === "dark" ? "light" : "dark");
+}
+
 function triggerFileInput(inputId) {
   const input = byId(inputId);
   if (!input) return;
@@ -2445,6 +2498,9 @@ function showApp() {
   if (mobileName) mobileName.textContent = currentUser ? currentUser.name : "Modo demo";
   if (mobileRole) mobileRole.textContent = currentUser ? roleLabel(currentUser.role) : "Demo";
   renderInstitutionalFooter();
+  renderVersionStatus();
+  renderThemeControls();
+  refreshVersionStatus(true);
   updateBackButtons();
 }
 
@@ -3042,6 +3098,99 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function versionServerValue(payload) {
+  return String(payload && (payload.runtimeVersion || payload.version || payload.instance && payload.instance.version) || "").trim();
+}
+
+function versionStatusTone() {
+  if (appVersionStatus.error) return "danger";
+  if (appVersionStatus.serverVersion && appVersionStatus.serverVersion !== APP_VERSION) return "warn";
+  if (appVersionStatus.ok) return "ok";
+  return "info";
+}
+
+function versionStatusMessage() {
+  if (appVersionStatus.error) return `No se pudo verificar servidor: ${appVersionStatus.error}`;
+  if (appVersionStatus.serverVersion && appVersionStatus.serverVersion !== APP_VERSION) {
+    return `Atencion: navegador ${APP_VERSION}, servidor ${appVersionStatus.serverVersion}. Refrescar con Ctrl+F5 o limpiar cache.`;
+  }
+  if (appVersionStatus.ok) return `Version confirmada con servidor ${appVersionStatus.serverVersion || APP_VERSION}.`;
+  return "Pendiente de verificar contra el servidor.";
+}
+
+function applyHealthVersionStatus(payload) {
+  const serverVersion = versionServerValue(payload);
+  const mismatch = Boolean(serverVersion && serverVersion !== APP_VERSION);
+  appVersionStatus = {
+    checkedAt: new Date().toISOString(),
+    serverVersion,
+    stateVersion: payload && payload.stateVersion ? String(payload.stateVersion) : "",
+    ok: !mismatch,
+    error: ""
+  };
+  renderVersionStatus();
+}
+
+function renderVersionStatus() {
+  const tone = versionStatusTone();
+  const message = versionStatusMessage();
+  const checkedAt = appVersionStatus.checkedAt
+    ? new Date(appVersionStatus.checkedAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    : "sin check";
+  document.querySelectorAll("[data-version-status]").forEach((button) => {
+    button.classList.remove("ok", "warn", "danger", "info");
+    button.classList.add(tone);
+    button.title = `${message} Build ${APP_BUILD_LABEL}. Click para verificar.`;
+    const value = button.querySelector("[data-version-value]");
+    const build = button.querySelector("[data-version-build]");
+    if (value) value.textContent = APP_VERSION;
+    if (build) build.textContent = `Actualizada ${APP_BUILD_LABEL}`;
+  });
+  const strip = byId("dashboardVersionStrip");
+  if (!strip) return;
+  strip.innerHTML = `
+    <article class="version-check-card ${tone}">
+      <div>
+        <span>Ultima version instalada</span>
+        <strong>${escapeHtml(APP_VERSION)}</strong>
+        <small>${escapeHtml(APP_RELEASE_CHANNEL)} - ${escapeHtml(APP_BUILD_LABEL)} - check ${escapeHtml(checkedAt)}</small>
+      </div>
+      <div>
+        <span>Servidor</span>
+        <strong>${escapeHtml(appVersionStatus.serverVersion || "Sin verificar")}</strong>
+        <small>${escapeHtml(message)}</small>
+      </div>
+      <button class="secondary-btn compact" type="button" data-refresh-version-status>Verificar ahora</button>
+    </article>
+  `;
+}
+
+async function refreshVersionStatus(silent = true) {
+  appVersionStatus = {
+    ...appVersionStatus,
+    checkedAt: new Date().toISOString(),
+    error: "",
+    ok: null
+  };
+  renderVersionStatus();
+  try {
+    const response = await fetchWithTimeout(apiUrl("api/health"), { cache: "no-store" }, HEALTH_TIMEOUT_MS);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) throw new Error(payload.error || `HTTP ${response.status}`);
+    applyHealthVersionStatus(payload);
+    if (!silent) showCompactNotice(versionStatusMessage(), versionStatusTone() === "ok" ? "ok" : "warn");
+  } catch (error) {
+    appVersionStatus = {
+      ...appVersionStatus,
+      checkedAt: new Date().toISOString(),
+      ok: false,
+      error: error && error.message ? error.message : "Sin respuesta"
+    };
+    renderVersionStatus();
+    if (!silent) showCompactNotice(versionStatusMessage(), "warn");
+  }
+}
+
 function normalizeSearchText(value) {
   return String(value || "")
     .normalize("NFD")
@@ -3257,6 +3406,8 @@ function updateDynamicFilter(id, values, selectedValue, allLabel) {
 }
 
 function renderAll() {
+  renderVersionStatus();
+  renderThemeControls();
   renderMetrics();
   renderDashboardInsights();
   renderFlow();
@@ -3289,6 +3440,8 @@ function isOperationalMobileUser() {
 }
 
 function renderDashboardView() {
+  renderVersionStatus();
+  renderThemeControls();
   renderMetrics();
   renderDashboardInsights();
   renderFlow();
@@ -15457,6 +15610,13 @@ document.querySelectorAll(".nav-item").forEach((button) => {
 document.querySelectorAll("[data-open-view]").forEach((button) => {
   button.addEventListener("click", () => switchView(button.dataset.openView));
 });
+[byId("themeToggleBtn"), byId("mobileThemeToggleBtn")].filter(Boolean).forEach((button) => {
+  button.addEventListener("click", toggleThemeMode);
+});
+document.addEventListener("click", (event) => {
+  if (!event.target.closest("[data-version-status], [data-refresh-version-status]")) return;
+  refreshVersionStatus(false);
+});
 byId("userAdminForm").addEventListener("submit", submitManagedUserForm);
 byId("newManagedUserBtn").addEventListener("click", () => resetManagedUserForm());
 byId("clearManagedUserFormBtn").addEventListener("click", () => resetManagedUserForm());
@@ -17768,6 +17928,10 @@ if (resetDemoButton) {
     alert("Reinicio demo deshabilitado para proteger clientes, stock y pedidos cargados.");
   });
 }
+
+applyThemeMode(loadThemeMode(), false);
+renderThemeControls();
+renderVersionStatus();
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
