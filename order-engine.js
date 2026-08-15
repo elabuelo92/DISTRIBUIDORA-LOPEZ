@@ -199,11 +199,13 @@
     const productCodeValue = String(source.productCode || source.codigo_producto || source.code || "").trim();
     const productNameValue = String(source.productName || source.producto || source.name || "").trim();
     const rubro = String(source.rubro || source.category || source.categoria || (source.isDefault ? "*" : "") || "").trim();
+    const username = String(source.username || source.user || source.usuario || "").trim();
+    const userLabel = String(source.userLabel || source.userName || source.nombre_usuario || "").trim();
     return {
       id: String(source.id || commissionRuleId()).trim(),
       role,
-      username: String(source.username || source.user || source.usuario || "").trim(),
-      userLabel: String(source.userLabel || source.userName || source.nombre_usuario || "").trim(),
+      username,
+      userLabel,
       rubro: rubro || "*",
       productCode: productCodeValue,
       productName: productNameValue,
@@ -213,7 +215,7 @@
       status,
       active: status !== "Inactiva" && source.active !== false,
       priority: numeric(source.priority ?? source.prioridad, source.isDefault ? 0 : 10 + index),
-      isDefault: Boolean(source.isDefault || source.default || (!productCodeValue && !productNameValue && (!rubro || rubro === "*"))),
+      isDefault: Boolean(!username && !userLabel && (source.isDefault || source.default || (!productCodeValue && !productNameValue && (!rubro || rubro === "*")))),
       note: String(source.note || source.observations || source.observaciones || "").trim(),
       updatedAt: source.updatedAt || "",
       updatedBy: String(source.updatedBy || source.usuario_modifico || "").trim()
@@ -310,7 +312,7 @@
       .map((rule) => ({ rule, bucket: commissionRuleBucket(rule, context) }))
       .filter((item) => item.bucket >= 0)
       .sort((a, b) => b.bucket - a.bucket || numeric(b.rule.priority) - numeric(a.rule.priority) || b.rule.percent - a.rule.percent)[0]?.rule
-      || settings.rules.find((rule) => rule.role === context.role && rule.isDefault)
+      || settings.rules.find((rule) => rule.role === context.role && rule.isDefault && !normalizeText(rule.username) && !normalizeText(rule.userLabel))
       || normalizeCommissionRule({ role: context.role, rubro: "*", percent: context.role === "driver" ? 4 : 3, isDefault: true });
   }
 

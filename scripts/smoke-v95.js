@@ -80,6 +80,12 @@ assert.equal(today.commissions.seller.lines[1].percent, 5);
 assert.equal(today.commissions.seller.total, 90);
 assert.equal(JSON.stringify(state.orders.find((item) => item.code === "PED-ANTERIOR").commissions), oldBefore);
 assert.equal(state.commissionAudit[0].action, "COMISION_PEDIDO_RECALCULADA");
+const anotherSellerOrder = order("PED-OTRO", "2026-08-14T16:00:00-03:00");
+anotherSellerOrder.seller = "Otro vendedor";
+anotherSellerOrder.sellerUsername = "otro";
+const anotherSellerCommission = engine.calculateOrderCommissions(state, anotherSellerOrder);
+assert.equal(anotherSellerCommission.seller.lines[0].percent, 1);
+assert.equal(anotherSellerCommission.seller.lines[1].percent, 3);
 
 const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
 const resolverSource = appSource.match(/function resolveOrderEditProduct[\s\S]*?\n}/)?.[0] || "";
