@@ -294,6 +294,7 @@
 
     if (hasUser && (ruleCode || ruleProduct) && productMatches) return 5;
     if (hasUser && rubroMatches) return 4;
+    if (hasUser && (rule.isDefault || ruleRubro === "*" || !ruleRubro)) return 3.5;
     if (!hasUser && (ruleCode || ruleProduct) && productMatches) return 3;
     if (!hasUser && rubroMatches) return 2;
     if (!hasUser && (rule.isDefault || ruleRubro === "*" || !ruleRubro)) return 1;
@@ -352,7 +353,7 @@
       const isCigarette = isCigaretteLine(item, product);
       const context = {
         role,
-        username: options.username || "",
+        username: options.username || (role === "seller" ? order.sellerUsername : order.driverUsername) || "",
         userName,
         productCode: productKey.code,
         productName: productKey.name,
@@ -461,6 +462,65 @@
       seller.commission = orders.reduce((sum, order) => sum + positive(order.commissions && order.commissions.seller && order.commissions.seller.total), 0);
     });
     return sellers;
+  }
+
+  function recalculateCommissions(state, input = {}, actor = {}) {
+    migrateState(state);
+    const motive = String(input.motive || input.motivo || "").trim();
+    if (!motive) throw new Error("Indicar el motivo del recalculo de comisiones.");
+    const from = new Date(validIso(input.dateFrom || input.desde || "2026-01-01T00:00:00.000Z"));
+    const to = new Date(validIso(input.dateTo || input.hasta || nowIso()));
+    if (from > to) throw new Error("El rango de fechas de comisiones no es valido.");
+    const sellerNames = new Set((Array.isArray(input.sellerNames) ? input.sellerNames : []).map(normalizeText).filter(Boolean));
+    const usernames = new Set((Array.isArray(input.usernames) ? input.usernames : []).map(normalizeText).filter(Boolean));
+    if (!sellerNames.size && !usernames.size) throw new Error("Seleccionar al menos un vendedor para recalcular.");
+
+    const affected = [];
+    let previousTotal = 0;
+    let nextTotal = 0;
+    (state.orders || []).forEach((order) => {
+      const at = new Date(validIso(order.createdAt || order.receivedAt));
+      if (at < from || at > to) return;
+      if (order.commissionLiquidated === true || order.commissionsLiquidated === true) return;
+      if (!sellerNames.has(normalizeText(order.seller)) && !usernames.has(normalizeText(order.sellerUsername))) return;
+      const before = clone(order.commissions || {});
+      const beforeValue = positive(before && before.seller && before.seller.total);
+      refreshOrderCommissions(state, order, { includeDriver: DRIVER_COMMISSION_STATUSES.has(order.status) });
+      const afterValue = positive(order.commissions && order.commissions.seller && order.commissions.seller.total);
+      previousTotal += beforeValue;
+      nextTotal += afterValue;
+      affected.push({
+        orderCode: order.code,
+        seller: order.seller,
+        sellerUsername: order.sellerUsername || "",
+        previousTotal: beforeValue,
+        nextTotal: afterValue,
+        previous: before,
+        current: clone(order.commissions)
+      });
+    });
+    refreshSellerMetrics(state);
+    const at = nowIso();
+    state.commissionAudit = Array.isArray(state.commissionAudit) ? state.commissionAudit : [];
+    affected.forEach((entry) => state.commissionAudit.unshift({
+      id: `COM-AUD-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      action: "COMISION_PEDIDO_RECALCULADA",
+      at,
+      user: String(actor.name || actor.user || "Administracion"),
+      username: String(actor.username || ""),
+      motive,
+      ...entry
+    }));
+    return {
+      count: affected.length,
+      orders: affected.map((entry) => entry.orderCode),
+      previousTotal,
+      nextTotal,
+      difference: nextTotal - previousTotal,
+      dateFrom: from.toISOString(),
+      dateTo: to.toISOString(),
+      motive
+    };
   }
 
   function summarizeCommissions(state, filters = {}) {
@@ -883,6 +943,7 @@
       code: String(order.code || `PED-${Date.now()}`),
       client: String(order.client || ""),
       seller: String(order.seller || ""),
+      sellerUsername: String(order.sellerUsername || order.seller_username || ""),
       items,
       products: items.length ? formatItems(items) : String(order.products || ""),
       amount: positive(order.amount) || items.reduce((sum, item) => sum + item.lineTotal, 0),
@@ -1059,6 +1120,7 @@
       code: String(input.code || nextOrderCode(state)),
       client: String(input.client || ""),
       seller: String(input.seller || ""),
+      sellerUsername: String(input.sellerUsername || input.seller_username || ""),
       items,
       products: formatItems(items),
       amount: items.reduce((sum, item) => sum + item.lineTotal, 0),
@@ -1848,6 +1910,7 @@
     calculateOrderCommissions,
     refreshOrderCommissions,
     refreshSellerMetrics,
+    recalculateCommissions,
     summarizeCommissions,
     saveCommissionRule,
     nextOrderCode,

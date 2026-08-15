@@ -179,9 +179,9 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-92";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "14/08/2026 11:57 ART";
-const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-14T11:57:16-03:00";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-94";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "15/08/2026 00:35 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-15T00:35:02-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
 
@@ -6358,23 +6358,13 @@ function orderInvoiceRows(order, settings) {
     const qty = numeric(item.requestedQty ?? item.qty ?? item.quantity, 0);
     const unitPrice = numeric(item.unitPrice || (qty ? numeric(item.lineTotal, 0) / qty : 0), 0);
     const lineTotal = numeric(item.lineTotal, qty * unitPrice);
-    const flags = assemblyItemFlags(item);
     const shortage = orderItemShortageInfo(item);
-    const background = shortage.missing > 0
-      ? "#fee2e2"
-      : (flags[0] ? settings.highlightColors[flags[0]] || DEFAULT_ASSEMBLY_PRINT_SETTINGS.highlightColors[flags[0]] : "");
-    const style = background ? ` style="background:${escapeHtml(background)}"` : "";
-    const badges = [
-      ...flags.map((flag) => `<span class="print-badge">${escapeHtml(assemblyFlagLabel(flag))}</span>`),
-      shortage.missing > 0 ? `<span class="print-badge print-badge-danger">Faltan ${escapeHtml(String(shortage.missing))}</span>` : ""
-    ].filter(Boolean).join("");
     return `
-      <tr class="${shortage.missing > 0 ? "shortage-print-row" : ""}"${style}>
+      <tr>
         ${settings.showInternalCode ? `<td class="code-col">${escapeHtml(item.productCode || item.codigo_producto || item.code || "-")}</td>` : ""}
         <td class="qty-col">${qty || escapeHtml(item.qty || "")}</td>
         <td>
-          <strong>${escapeHtml(item.name || item.descripcion || "Producto")}</strong>${badges}
-          ${shortage.missing > 0 ? `<small class="print-shortage-note">Solicitado ${escapeHtml(String(shortage.requested))} / reservado ${escapeHtml(String(shortage.reserved))} / faltante ${escapeHtml(String(shortage.missing))}</small>` : ""}
+          <strong>${escapeHtml(item.name || item.descripcion || "Producto")}${shortage.missing > 0 ? '<sup class="print-shortage-mark">*</sup>' : ""}</strong>
         </td>
         ${settings.showPrices ? `<td class="money-col">${unitPrice ? money.format(unitPrice) : "-"}</td>` : ""}
         ${settings.showAmounts ? `<td class="money-col">${lineTotal ? money.format(lineTotal) : "-"}</td>` : ""}
@@ -6395,9 +6385,7 @@ function orderInvoiceHtml(order) {
   const label = orderLabelFields(order);
   const info = orderAssemblyInfo(order);
   const items = assemblyOrderItems(order);
-  const shortageItems = items
-    .map((item) => ({ item, shortage: orderItemShortageInfo(item) }))
-    .filter((entry) => entry.shortage.missing > 0);
+  const hasShortages = items.some((item) => orderItemShortageInfo(item).missing > 0);
   const totalUnits = items.reduce((sum, item) => sum + numeric(item.requestedQty ?? item.qty ?? item.quantity, 0), 0);
   const bultos = Math.max(0, numeric(info.bultos || label.packages, 0));
   const when = orderCreatedDateParts(order);
@@ -6407,14 +6395,6 @@ function orderInvoiceHtml(order) {
     `cliente:${order.client}`,
     `id:${order.id || order.code}`
   ].join("|");
-  const displayStatus = order.status || "Sin comenzar";
-  const statusSteps = [
-    { label: "Sin comenzar", active: [ORDER_STATUS.PENDING, ORDER_STATUS.READY].includes(order.status) },
-    { label: "En armado", active: order.status === ORDER_STATUS.ASSEMBLY },
-    { label: "Armado completo", active: [ORDER_STATUS.LABELED, ORDER_STATUS.READY_DISPATCH, ORDER_STATUS.DISPATCHED].includes(order.status) },
-    { label: "Etiquetado", active: [ORDER_STATUS.LABELED, ORDER_STATUS.READY_DISPATCH, ORDER_STATUS.DISPATCHED].includes(order.status) },
-    { label: "Listo para despacho", active: [ORDER_STATUS.READY_DISPATCH, ORDER_STATUS.DISPATCHED].includes(order.status) }
-  ];
   return `
     <section class="invoice-page">
       <header class="invoice-header">
@@ -6428,38 +6408,18 @@ function orderInvoiceHtml(order) {
         <div class="invoice-code">
           <span>PEDIDO N&ordm;</span>
           <strong>${escapeHtml(printOrderNumber(order))}</strong>
-          <small>${escapeHtml(order.code || "")}</small>
         </div>
         <div class="invoice-packages">
           <span>BOLSAS</span>
           <strong>${escapeHtml(String(bultos || 0))}</strong>
         </div>
       </header>
-      <section class="invoice-progress">
-        <strong>Estado del pedido: ${escapeHtml(displayStatus)}</strong>
-        <div>
-          ${statusSteps.map((step) => `<span class="${step.active ? "checked" : ""}">${step.active ? "☑" : "☐"} ${escapeHtml(step.label)}</span>`).join("")}
-        </div>
-      </section>
-      ${shortageItems.length ? `
-        <section class="invoice-shortages">
-          <strong>Atencion: pedido impreso con faltantes</strong>
-          <p>La impresion queda habilitada para guiar al deposito. No autoriza despacho hasta completar reserva/abastecimiento.</p>
-          <ul>
-            ${shortageItems.map(({ item, shortage }) => `<li><b>${escapeHtml(item.name || item.descripcion || "Producto")}</b>: solicitado ${escapeHtml(String(shortage.requested))}, reservado ${escapeHtml(String(shortage.reserved))}, faltan ${escapeHtml(String(shortage.missing))}</li>`).join("")}
-          </ul>
-        </section>
-      ` : ""}
       <div class="invoice-grid">
         <p><strong>Cliente:</strong> ${escapeHtml(order.client)}</p>
         <p><strong>Fecha:</strong> ${escapeHtml(when.date)}</p>
-        <p><strong>Hora:</strong> ${escapeHtml(when.time)}</p>
         <p><strong>Direccion:</strong> ${escapeHtml(label.address || orderAddressText(order) || "Sin direccion")}</p>
-        <p><strong>Localidad:</strong> ${escapeHtml(client.localidad || order.localidad || "Cordoba")}</p>
         <p><strong>Zona/Ruta:</strong> ${escapeHtml(label.zone || orderZoneText(order))}</p>
         <p><strong>Vendedor:</strong> ${escapeHtml(order.seller || "-")}</p>
-        <p><strong>Condicion:</strong> ${escapeHtml(orderSaleCondition(order, client))}</p>
-        <p><strong>CUIT/DNI:</strong> ${escapeHtml(client.cuit || "S/D")}</p>
       </div>
       <table>
         <thead>
@@ -6475,17 +6435,18 @@ function orderInvoiceHtml(order) {
         <tbody>${orderInvoiceRows(order, settings)}</tbody>
       </table>
       <section class="invoice-summary">
-        <div><span>Total articulos</span><strong>${items.length}</strong></div>
-        <div><span>Total unidades</span><strong>${totalUnits}</strong></div>
-        <div><span>Total bultos</span><strong>${bultos || 0}</strong></div>
-        ${settings.showAmounts ? `<div><span>Total pedido</span><strong>${money.format(order.amount || 0)}</strong></div>` : ""}
+        <span>Articulos <strong>${items.length}</strong></span>
+        <span>Unidades <strong>${totalUnits}</strong></span>
+        <span>Bultos <strong>${bultos || 0}</strong></span>
+        ${settings.showAmounts ? `<span>Total <strong>${money.format(order.amount || 0)}</strong></span>` : ""}
       </section>
+      ${hasShortages ? '<p class="invoice-shortage-legend"><b>*</b> Producto con faltante.</p>' : ""}
       <footer>
         <div>
-          ${settings.showObservations ? `
+          ${settings.showObservations && (label.observations || order.observations || order.observaciones) ? `
             <strong>Observaciones del pedido</strong>
-            <p>${escapeHtml(label.observations || order.observations || order.observaciones || "-")}</p>
-          ` : "<strong>Observaciones ocultas por configuracion</strong>"}
+            <p>${escapeHtml(label.observations || order.observations || order.observaciones)}</p>
+          ` : ""}
           <p class="developer-print-foot">Documento generado automaticamente por el Sistema de Gestion desarrollado por ${escapeHtml(DEVELOPER_BRAND.name)}.</p>
         </div>
         ${settings.showQr ? `
@@ -6597,49 +6558,37 @@ function printOrderInvoice(orderOrOrders) {
         <meta charset="utf-8">
         <title>Factura armado ${escapeHtml(orders.map((order) => order.code).join("-"))}</title>
         <style>
-          @page { size: A4; margin: 12mm; }
+          @page { size: A4; margin: 7mm; }
           * { box-sizing: border-box; }
           body { margin: 0; color: #111827; font-family: Arial, sans-serif; font-size: ${settings.fontSize}px; }
-          .invoice-page { page-break-after: always; display: grid; gap: 10px; }
+          .invoice-page { page-break-after: always; display: grid; gap: 4px; }
           .invoice-page:last-child { page-break-after: auto; }
-          header, footer { display: flex; justify-content: space-between; gap: 12px; border: 2px solid #111827; padding: 10px; }
-          h1 { margin: 0; font-size: 22px; }
-          p { margin: 3px 0; font-size: ${Math.max(10, settings.fontSize - 1)}px; }
-          .invoice-brand { display: flex; align-items: center; gap: 10px; }
-          .invoice-brand img { width: 54px; height: 54px; object-fit: contain; border: 1px solid #d1d5db; border-radius: 6px; }
-          .invoice-code, .invoice-packages { text-align: right; min-width: 116px; }
+          header { display: flex; justify-content: space-between; gap: 8px; border: 1px solid #111827; padding: 5px 7px; }
+          footer { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid #9ca3af; padding-top: 4px; }
+          h1 { margin: 0; font-size: 18px; }
+          p { margin: 2px 0; font-size: ${Math.max(9, settings.fontSize - 2)}px; }
+          .invoice-brand { display: flex; align-items: center; gap: 7px; }
+          .invoice-brand img { width: 38px; height: 38px; object-fit: contain; }
+          .invoice-code, .invoice-packages { text-align: right; min-width: 92px; }
           .invoice-code span, .invoice-packages span { display: block; font-size: 11px; text-transform: uppercase; color: #4b5563; }
-          .invoice-code strong { display: block; font-size: 30px; line-height: 1; letter-spacing: 0; }
-          .invoice-code small { color: #4b5563; font-weight: 700; }
-          .invoice-packages { border: 3px solid #111827; padding: 6px 10px; }
-          .invoice-packages strong { display: block; font-size: 34px; line-height: 1; }
-          .invoice-progress { border: 1px solid #9ca3af; padding: 8px; display: grid; gap: 5px; }
-          .invoice-progress div { display: flex; flex-wrap: wrap; gap: 8px 14px; }
-          .invoice-progress span { font-size: 11px; font-weight: 700; color: #374151; }
-          .invoice-progress .checked { color: #047857; }
-          .invoice-shortages { border: 2px solid #b91c1c; background: #fff1f2; padding: 8px; }
-          .invoice-shortages strong { display: block; color: #991b1b; text-transform: uppercase; }
-          .invoice-shortages ul { margin: 6px 0 0; padding-left: 18px; }
-          .invoice-shortages li { margin: 2px 0; font-size: ${Math.max(10, settings.fontSize - 1)}px; }
-          .invoice-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px 14px; border: 1px solid #9ca3af; padding: 8px; }
+          .invoice-code strong { display: block; font-size: 24px; line-height: 1; letter-spacing: 0; }
+          .invoice-packages { border: 1px solid #111827; padding: 3px 7px; }
+          .invoice-packages strong { display: block; font-size: 25px; line-height: 1; }
+          .invoice-grid { display: grid; grid-template-columns: 2fr 1fr 2fr; gap: 2px 10px; border-bottom: 1px solid #9ca3af; padding: 3px 1px; }
           table { width: 100%; border-collapse: collapse; }
-          th, td { border: 1px solid #9ca3af; padding: 7px; text-align: left; font-size: ${settings.fontSize}px; vertical-align: top; }
-          th { background: #eef2f7; text-transform: uppercase; font-size: 11px; }
+          th, td { border-bottom: 1px solid #9ca3af; padding: 3px 4px; text-align: left; font-size: ${settings.fontSize}px; vertical-align: top; }
+          th { text-transform: uppercase; font-size: 9px; }
           .code-col { width: 92px; }
           .qty-col { width: 72px; text-align: center; font-weight: 900; }
           .money-col { width: 108px; text-align: right; white-space: nowrap; }
-          .control-col { width: 92px; height: 30px; background: #fff; }
-          .print-badge { display: inline-block; margin-left: 6px; padding: 2px 5px; border: 1px solid #111827; border-radius: 3px; font-size: 9px; text-transform: uppercase; }
-          .print-badge-danger { border-color: #b91c1c; color: #991b1b; background: #fff; font-weight: 900; }
-          .shortage-print-row td { border-color: #b91c1c; }
-          .print-shortage-note { display: block; margin-top: 4px; color: #991b1b; font-weight: 900; text-transform: uppercase; }
-          .invoice-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-          .invoice-summary div { border: 1px solid #9ca3af; padding: 8px; }
-          .invoice-summary span { display: block; color: #4b5563; font-size: 10px; text-transform: uppercase; }
-          .invoice-summary strong { font-size: 18px; }
+          .control-col { width: 58px; height: 22px; background: #fff; }
+          .print-shortage-mark { color: #b91c1c; font-size: 14px; margin-left: 2px; }
+          .invoice-shortage-legend { color: #991b1b; font-size: 9px; text-align: right; }
+          .invoice-summary { display: flex; justify-content: flex-end; gap: 14px; border-top: 1px solid #111827; padding-top: 3px; font-size: 10px; text-transform: uppercase; }
+          .invoice-summary strong { margin-left: 3px; font-size: 12px; }
           footer { align-items: flex-start; }
           .invoice-qr { display: grid; justify-items: center; gap: 4px; min-width: 120px; }
-          .invoice-qr-svg { width: 104px; height: 104px; border: 1px solid #111827; padding: 4px; background: white; }
+          .invoice-qr-svg { width: 68px; height: 68px; border: 1px solid #111827; padding: 2px; background: white; }
           .invoice-qr small { max-width: 150px; text-align: center; font-size: 9px; overflow-wrap: anywhere; }
           .developer-print-foot { margin-top: 8px; color: #4b5563; font-size: 10px; }
         </style>
@@ -6988,9 +6937,7 @@ function trackAdminOrderNotifications(nextState) {
     return;
   }
 
-  const newOrders = nextOrders.filter((order) => !adminKnownOrderCodes.has(order.code) && isMobileSellerOrder(order));
   nextOrders.forEach((order) => adminKnownOrderCodes.add(order.code));
-  newOrders.reverse().forEach(showAdminOrderNotification);
 }
 
 function showAdminOrderNotification(order) {
@@ -7120,11 +7067,10 @@ function trackIncomingNotifications(nextState) {
     notificationTrackerReady = true;
     return;
   }
-  const fresh = visible.filter((notification) => notification.id && !knownNotificationIds.has(notification.id));
   visible.forEach((notification) => {
     if (notification.id) knownNotificationIds.add(notification.id);
   });
-  fresh.reverse().forEach(showSystemNotification);
+  renderNotificationCenter();
 }
 
 function showSystemNotification(notification) {
@@ -10538,6 +10484,71 @@ function renderSupplyPlanner(shortages = OrderEngine.buildShortageList(state)) {
   `).join("") : '<tr><td class="stock-empty" colspan="5">No hay compras pendientes por pedidos en abastecimiento.</td></tr>';
 }
 
+function supplyPlannerPrintRows() {
+  return OrderEngine.buildShortageList(state)
+    .filter((item) => numeric(item.purchaseQty, 0) > 0)
+    .map((item) => {
+      const product = (state.products || []).find((entry) => sameText(entry.codigo_producto || entry.code, item.productCode))
+        || (state.products || []).find((entry) => sameText(entry.name || entry.descripcion, item.name))
+        || {};
+      return {
+        units: numeric(item.purchaseQty, 0),
+        product: item.name,
+        cost: Math.max(0, numeric(product.costo ?? product.cost, 0)),
+        list2: productPriceForListNumber(product, 2)
+      };
+    });
+}
+
+function printSupplyPlanner() {
+  if (!isAdminUser()) {
+    showCompactNotice("Solo administracion puede imprimir compras pendientes.", "warn");
+    return;
+  }
+  const rows = supplyPlannerPrintRows();
+  if (!rows.length) {
+    showCompactNotice("No hay productos pendientes de compra.", "info");
+    return;
+  }
+  const generatedAt = new Date().toLocaleString("es-AR");
+  const html = `<!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Productos pendientes de compra</title>
+        <style>
+          @page { size: A4; margin: 10mm; }
+          * { box-sizing: border-box; }
+          body { margin: 0; color: #111; font-family: Arial, sans-serif; font-size: 11pt; }
+          header { display: flex; justify-content: space-between; align-items: end; border-bottom: 1px solid #111; padding-bottom: 5mm; margin-bottom: 5mm; }
+          h1 { margin: 0; font-size: 18pt; }
+          p { margin: 0; color: #444; font-size: 9pt; }
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border-bottom: 1px solid #bbb; padding: 3mm 2mm; text-align: left; }
+          th { font-size: 9pt; text-transform: uppercase; }
+          .units { width: 22mm; text-align: center; font-weight: 800; }
+          .money { width: 32mm; text-align: right; white-space: nowrap; }
+        </style>
+      </head>
+      <body>
+        <header><div><h1>Productos pendientes de compra</h1><p>Distribuidora Lopez</p></div><p>${escapeHtml(generatedAt)}</p></header>
+        <table>
+          <thead><tr><th class="units">Unidad</th><th>Producto</th><th class="money">Costo</th><th class="money">Lista 2</th></tr></thead>
+          <tbody>${rows.map((row) => `<tr><td class="units">${escapeHtml(String(row.units))}</td><td>${escapeHtml(row.product)}</td><td class="money">${money.format(row.cost)}</td><td class="money">${money.format(row.list2)}</td></tr>`).join("")}</tbody>
+        </table>
+        <script>window.onload = function () { window.focus(); window.print(); };</script>
+      </body>
+    </html>`;
+  const printWindow = window.open("", "_blank", "width=860,height=720");
+  if (!printWindow) {
+    showCompactNotice("El navegador bloqueo la impresion. Habilitar popups.", "danger");
+    return;
+  }
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+}
+
 function openSupplyPlannerDialog() {
   renderSupplyPlanner();
   const dialog = byId("supplyPlannerDialog");
@@ -13946,9 +13957,10 @@ function productOptionHtml(selectedCode, selectedName) {
 }
 
 function resolveOrderEditProduct(value) {
-  return state.products.find((product) => product.codigo_producto === value)
-    || state.products.find((product) => product.name === value)
-    || state.products[0]
+  const lookup = String(value || "").trim();
+  if (!lookup) return null;
+  return state.products.find((product) => String(product.codigo_producto || "").trim() === lookup)
+    || state.products.find((product) => normalizeSearchText(product.name) === normalizeSearchText(lookup))
     || null;
 }
 
@@ -14031,8 +14043,11 @@ function syncOrderEditDraftFromDom() {
     const priceField = document.querySelector(`[data-order-edit-price="${index}"]`);
     const discountField = document.querySelector(`[data-order-edit-discount="${index}"]`);
     const product = resolveOrderEditProduct(productField ? productField.value : item.productCode || item.name);
-    const changedProduct = product && item.productCode && product.codigo_producto !== item.productCode;
-    const unitPrice = changedProduct ? productPriceForUser(product) : Math.max(0, numeric(priceField ? priceField.value : item.unitPrice, item.unitPrice || 0));
+    const previousProductKey = String(item.productCode || item.name || "").trim();
+    const selectedProductKey = String(product && (product.codigo_producto || product.name) || "").trim();
+    const changedProduct = Boolean(product && selectedProductKey !== previousProductKey);
+    const assignedList = assignedPriceListForUser(currentUser);
+    const unitPrice = changedProduct ? productPriceForListNumber(product, assignedList.number) : Math.max(0, numeric(priceField ? priceField.value : item.unitPrice, item.unitPrice || 0));
     const discountPct = Math.min(100, Math.max(0, numeric(discountField ? discountField.value : item.discountPct, 0)));
     return {
       productCode: product ? product.codigo_producto : item.productCode,
@@ -14042,8 +14057,8 @@ function syncOrderEditDraftFromDom() {
       originalUnitPrice: item.originalUnitPrice || item.unitPrice || unitPrice,
       discountPct,
       lineTotal: Math.max(0, Math.max(1, numeric(qtyField ? qtyField.value : item.qty, 1)) * unitPrice * (1 - discountPct / 100)),
-      priceListId: changedProduct && product ? product.priceListId : item.priceListId,
-      priceListName: changedProduct && product ? product.priceListName : item.priceListName
+      priceListId: changedProduct && product ? assignedList.id : item.priceListId,
+      priceListName: changedProduct && product ? assignedList.name : item.priceListName
     };
   });
   renderOrderEditSummary();
@@ -16281,6 +16296,7 @@ byId("manualStockBtn").addEventListener("click", () => {
   byId("stockEntryDialog").showModal();
 });
 byId("openSupplyPlannerBtn").addEventListener("click", openSupplyPlannerDialog);
+byId("printSupplyPlannerBtn").addEventListener("click", printSupplyPlanner);
 
 byId("orderForm").addEventListener("input", renderOrderAccountPreview);
 

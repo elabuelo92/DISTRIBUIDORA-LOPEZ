@@ -16,7 +16,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-92";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-94";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -358,6 +358,67 @@ function normalizeManagedUserInput(input, previous, sessionUser) {
   if (password) Object.assign(next, hashPassword(password));
   if (!next.salt || !next.passwordHash) throw new Error("El usuario no tiene una clave valida.");
   return next;
+}
+
+function propagateSellerIdentity(state, previousUser, nextUser) {
+  if (!state || !previousUser || !nextUser || nextUser.role !== "seller") return null;
+  const previousName = String(previousUser.sellerName || previousUser.name || "").trim();
+  const nextName = String(nextUser.sellerName || nextUser.name || "").trim();
+  const previousUsername = String(previousUser.username || "").trim().toLowerCase();
+  const nextUsername = String(nextUser.username || "").trim().toLowerCase();
+  if (!previousName || !nextName || (previousName === nextName && previousUsername === nextUsername)) return null;
+  const counts = { sellers: 0, orders: 0, clients: 0, rules: 0, visits: 0, priceLists: 0 };
+
+  (state.sellers || []).forEach((seller) => {
+    if (String(seller.name || "").trim() !== previousName) return;
+    seller.name = nextName;
+    seller.username = nextUsername;
+    counts.sellers += 1;
+  });
+  (state.orders || []).forEach((order) => {
+    const sameSeller = String(order.seller || "").trim() === previousName;
+    const sameUsername = String(order.sellerUsername || "").trim().toLowerCase() === previousUsername;
+    if (!sameSeller && !sameUsername) return;
+    order.seller = nextName;
+    order.sellerUsername = nextUsername;
+    if (order.commissions && order.commissions.seller) order.commissions.seller.user = nextName;
+    counts.orders += 1;
+  });
+  (state.clients || []).forEach((client) => {
+    let changed = false;
+    ["seller", "vendedor_asignado", "assignedSeller"].forEach((field) => {
+      if (String(client[field] || "").trim() === previousName) {
+        client[field] = nextName;
+        changed = true;
+      }
+    });
+    if (changed) counts.clients += 1;
+  });
+  (state.noPurchaseVisits || []).forEach((visit) => {
+    if (String(visit.seller || visit.vendedor || "").trim() !== previousName) return;
+    if (Object.prototype.hasOwnProperty.call(visit, "seller")) visit.seller = nextName;
+    if (Object.prototype.hasOwnProperty.call(visit, "vendedor")) visit.vendedor = nextName;
+    counts.visits += 1;
+  });
+  const rules = state.commissionSettings && Array.isArray(state.commissionSettings.rules) ? state.commissionSettings.rules : [];
+  rules.forEach((rule) => {
+    const sameLabel = String(rule.userLabel || "").trim() === previousName;
+    const sameUsername = String(rule.username || "").trim().toLowerCase() === previousUsername;
+    if (!sameLabel && !sameUsername) return;
+    rule.userLabel = nextName;
+    rule.username = nextUsername;
+    counts.rules += 1;
+  });
+  (state.priceListAssignments || []).forEach((assignment) => {
+    const sameLabel = String(assignment.sellerName || assignment.seller || "").trim() === previousName;
+    const sameUsername = String(assignment.username || "").trim().toLowerCase() === previousUsername;
+    if (!sameLabel && !sameUsername) return;
+    if (Object.prototype.hasOwnProperty.call(assignment, "sellerName")) assignment.sellerName = nextName;
+    if (Object.prototype.hasOwnProperty.call(assignment, "seller")) assignment.seller = nextName;
+    assignment.username = nextUsername;
+    counts.priceLists += 1;
+  });
+  return { previousName, nextName, previousUsername, nextUsername, counts };
 }
 
 function hasPermissionFlag(user, key) {
@@ -3673,7 +3734,7 @@ const server = http.createServer(async (req, res) => {
         if (next.active === false) {
           activeSessionsForUsername(next.username).forEach((item) => closeSession(item.token, "disabled-by-admin", sessionUser.name));
         }
-        appendAuditToStateFile(req, sessionUser, input, {
+        const userAudit = auditEntry(req, sessionUser, input, {
           action: previous ? "USUARIO_ACTUALIZADO" : "USUARIO_CREADO",
           entityType: "usuario",
           entityId: next.username,
@@ -3682,11 +3743,46 @@ const server = http.createServer(async (req, res) => {
           newValue: publicManagedUser(next),
           note: String(input.motive || input.motivo || "Gestion web de usuarios").trim()
         });
+        let sellerMigration = null;
+        if (previous && previous.role === "seller" && next.role === "seller") {
+          const currentPayload = readStateFileCached();
+          const currentState = currentPayload.state || {};
+          orderEngine.migrateState(currentState);
+          sellerMigration = propagateSellerIdentity(currentState, previous, next);
+          appendGlobalAudit(currentState, userAudit);
+          eventEngine.emitFromAuditEntries(currentState, userAudit);
+          if (sellerMigration) {
+            const migrationAudit = auditEntry(req, sessionUser, input, {
+              action: "VENDEDOR_IDENTIDAD_PROPAGADA",
+              entityType: "vendedor",
+              entityId: next.username,
+              entityLabel: next.sellerName || next.name,
+              previousValue: sellerMigration.previousName,
+              newValue: sellerMigration,
+              note: String(input.motive || input.motivo || "Cambio de identidad visible del vendedor").trim()
+            });
+            appendGlobalAudit(currentState, migrationAudit);
+            eventEngine.emitFromAuditEntries(currentState, migrationAudit);
+            orderEngine.refreshSellerMetrics(currentState);
+          }
+          writeState(currentState);
+        } else {
+          appendAuditToStateFile(req, sessionUser, input, {
+            action: previous ? "USUARIO_ACTUALIZADO" : "USUARIO_CREADO",
+            entityType: "usuario",
+            entityId: next.username,
+            entityLabel: next.name,
+            previousValue: publicManagedUser(previous),
+            newValue: publicManagedUser(next),
+            note: String(input.motive || input.motivo || "Gestion web de usuarios").trim()
+          });
+        }
         sendJson(res, 200, {
           ok: true,
           user: publicManagedUser(next),
           users: readUsers().map(publicManagedUser),
-          backup: backup ? path.basename(backup) : ""
+          backup: backup ? path.basename(backup) : "",
+          sellerMigration
         });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar el usuario." });
@@ -4376,6 +4472,44 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/commissions/recalculate" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Recalcular comisiones esta permitido solo para administradores." });
+        return;
+      }
+      const body = await readBody(req);
+      const input = JSON.parse(body || "{}");
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      try {
+        const result = orderEngine.recalculateCommissions(currentState, input, sessionUser);
+        writeStateResponse(res, currentState, result, auditEntry(req, sessionUser, input, {
+          action: "COMISIONES_RECALCULADAS",
+          entityType: "comision",
+          entityId: result.orders.join(","),
+          entityLabel: `${result.count} pedidos`,
+          previousValue: { total: result.previousTotal },
+          newValue: { total: result.nextTotal, difference: result.difference, orders: result.orders },
+          note: result.motive
+        }), notificationEntry(req, sessionUser, input, {
+          action: "COMISIONES_RECALCULADAS",
+          category: "Comisiones",
+          title: "Comisiones recalculadas",
+          text: `${result.count} pedidos ajustados. Diferencia ${result.difference}.`,
+          tone: "info",
+          entityType: "comision",
+          entityId: result.orders.join(","),
+          entityLabel: `${result.count} pedidos`,
+          audience: ["admin"]
+        }), sessionUser);
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudieron recalcular las comisiones." });
+      }
+      return;
+    }
+
     const clientEditMatch = requestUrl.pathname.match(/^\/api\/clients\/([^/]+)\/edit$/);
     if (clientEditMatch && req.method === "POST") {
       const sessionUser = requireUser(req, res);
@@ -4547,6 +4681,7 @@ const server = http.createServer(async (req, res) => {
           ...pricedInput,
           items: Array.isArray(pricedInput.items) && pricedInput.items.length ? pricedInput.items : quotedItems,
           seller,
+          sellerUsername: sessionUser.role === "seller" ? sessionUser.username : String(input.sellerUsername || ""),
           source: sessionUser.role === "seller" ? "mobile" : (input.source || "dashboard"),
           origin: sessionUser.role === "seller" ? "preventa" : (input.origin || "dashboard")
         }, sessionUser.name);
