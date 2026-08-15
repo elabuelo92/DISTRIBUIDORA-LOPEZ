@@ -179,9 +179,9 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-95";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "15/08/2026 00:58 ART";
-const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-15T00:58:34-03:00";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-96";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "15/08/2026 01:21 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-15T01:21:52-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
 
@@ -345,6 +345,9 @@ let orderSellerFilter = "all";
 let orderUrgencyFilter = "all";
 let orderQuickFilter = "all";
 let orderSortKey = "created_desc";
+let orderDatePreset = "today";
+let orderDateFrom = "";
+let orderDateTo = "";
 let orderPage = 1;
 const ORDERS_PAGE_SIZE = 25;
 let currentFilteredOrders = [];
@@ -7208,11 +7211,72 @@ function localDateKey(value) {
   });
 }
 
-function orderIsFromToday(order) {
+function orderBusinessDateKey(order) {
+  if (!order) return "";
+  const source = order.createdAt || order.receivedAt || order.dateIso || order.date || order.updatedAt;
+  return source ? localDateKey(source) : "";
+}
+
+function setOrdersDatePreset(preset) {
   const today = localDateKey();
-  return [order && order.createdAt, order && order.receivedAt, order && order.updatedAt]
-    .filter(Boolean)
-    .some((value) => localDateKey(value) === today);
+  orderDatePreset = preset || "today";
+  if (orderDatePreset === "all") {
+    orderDateFrom = "";
+    orderDateTo = "";
+  } else if (orderDatePreset === "yesterday") {
+    const yesterday = localDateKey(Date.now() - 86400000);
+    orderDateFrom = yesterday;
+    orderDateTo = yesterday;
+  } else if (orderDatePreset === "last7") {
+    orderDateFrom = localDateKey(Date.now() - (6 * 86400000));
+    orderDateTo = today;
+  } else if (orderDatePreset === "month") {
+    orderDateFrom = `${today.slice(0, 7)}-01`;
+    orderDateTo = today;
+  } else if (orderDatePreset === "custom") {
+    orderDateFrom = orderDateFrom || today;
+    orderDateTo = orderDateTo || orderDateFrom;
+  } else {
+    orderDatePreset = "today";
+    orderDateFrom = today;
+    orderDateTo = today;
+  }
+  const presetNode = byId("ordersDatePreset");
+  const fromNode = byId("ordersDateFrom");
+  const toNode = byId("ordersDateTo");
+  if (presetNode) presetNode.value = orderDatePreset;
+  if (fromNode) fromNode.value = orderDateFrom;
+  if (toNode) toNode.value = orderDateTo;
+}
+
+function ensureOrdersDateFilter() {
+  if (!orderDateFrom && !orderDateTo && orderDatePreset !== "all") setOrdersDatePreset(orderDatePreset);
+}
+
+function orderMatchesDateFilter(order) {
+  if (orderDatePreset === "all") return true;
+  const dateKey = orderBusinessDateKey(order);
+  if (!dateKey) return false;
+  if (orderDateFrom && dateKey < orderDateFrom) return false;
+  if (orderDateTo && dateKey > orderDateTo) return false;
+  return true;
+}
+
+function displayDateKey(value) {
+  const [year, month, day] = String(value || "").split("-");
+  return year && month && day ? `${day}/${month}/${year}` : "";
+}
+
+function renderOrdersDateSummary(total) {
+  const node = byId("ordersDateSummary");
+  if (!node) return;
+  let period = "todo el historial";
+  if (orderDateFrom && orderDateTo && orderDateFrom === orderDateTo) {
+    period = `el ${displayDateKey(orderDateFrom)}`;
+  } else if (orderDateFrom || orderDateTo) {
+    period = `desde ${displayDateKey(orderDateFrom) || "el inicio"} hasta ${displayDateKey(orderDateTo) || "hoy"}`;
+  }
+  node.innerHTML = `<strong>${total}</strong> pedidos de ${escapeHtml(period)}. Los registros historicos permanecen disponibles y no se eliminan al cambiar el dia.`;
 }
 
 function renderOrdersPager(total, visibleCount) {
@@ -7238,6 +7302,7 @@ function renderOrdersPager(total, visibleCount) {
 }
 
 function filteredOrdersForCurrentFilters() {
+  ensureOrdersDateFilter();
   const globalTerms = [];
   const localTerms = searchTerms(orderSearchTerm);
   return state.orders.filter((order) => {
@@ -7248,7 +7313,7 @@ function filteredOrdersForCurrentFilters() {
     const matchesStatus = orderStatusFilter === "all" || order.status === orderStatusFilter;
     const matchesSeller = orderSellerFilter === "all" || order.seller === orderSellerFilter;
     const matchesUrgency = orderUrgencyFilter === "all" || orderUrgencyKey(order) === orderUrgencyFilter;
-    return orderIsFromToday(order) && matchesGlobal && matchesLocal && matchesQuick && matchesStatus && matchesSeller && matchesUrgency;
+    return orderMatchesDateFilter(order) && matchesGlobal && matchesLocal && matchesQuick && matchesStatus && matchesSeller && matchesUrgency;
   }).sort((a, b) => compareOrdersBySort(a, b, orderSortKey));
 }
 
@@ -7630,6 +7695,7 @@ function renderOrders() {
   ], orderSellerFilter, "Todos los vendedores");
   const orders = filteredOrdersForCurrentFilters();
   currentFilteredOrders = orders;
+  renderOrdersDateSummary(orders.length);
 
   const pageCount = Math.max(1, Math.ceil(orders.length / ORDERS_PAGE_SIZE));
   if (orderPage > pageCount) orderPage = pageCount;
@@ -15697,6 +15763,23 @@ byId("ordersSearch").addEventListener("input", (event) => {
   orderPage = 1;
   debouncedRenderOrders();
 });
+byId("ordersDatePreset").addEventListener("change", (event) => {
+  setOrdersDatePreset(event.target.value);
+  orderPage = 1;
+  renderOrders();
+});
+["ordersDateFrom", "ordersDateTo"].forEach((id) => byId(id).addEventListener("change", () => {
+  orderDateFrom = byId("ordersDateFrom").value;
+  orderDateTo = byId("ordersDateTo").value;
+  if (orderDateFrom && orderDateTo && orderDateFrom > orderDateTo) {
+    if (id === "ordersDateFrom") orderDateTo = orderDateFrom;
+    else orderDateFrom = orderDateTo;
+  }
+  orderDatePreset = "custom";
+  setOrdersDatePreset("custom");
+  orderPage = 1;
+  renderOrders();
+}));
 byId("ordersQuickFilter").addEventListener("change", (event) => {
   orderQuickFilter = event.target.value;
   orderPage = 1;
@@ -15729,6 +15812,7 @@ byId("clearOrdersFilters").addEventListener("click", () => {
   orderUrgencyFilter = "all";
   orderQuickFilter = "all";
   orderSortKey = "created_desc";
+  setOrdersDatePreset("today");
   orderPage = 1;
   byId("ordersSearch").value = "";
   byId("ordersQuickFilter").value = "all";

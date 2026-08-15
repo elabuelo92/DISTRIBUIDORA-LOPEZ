@@ -1727,6 +1727,19 @@ h2 {
   outline: 0;
 }
 
+.orders-date-summary {
+  margin: -4px 0 14px;
+  padding: 9px 12px;
+  border-left: 3px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 7%, var(--surface));
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.orders-date-summary strong {
+  color: var(--ink);
+}
+
 .list-pager {
   display: flex;
   flex-wrap: wrap;

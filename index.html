@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-95-r20260815">
+    <link rel="manifest" href="manifest.json?v=8790-96-r20260815">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-95-r20260815">
+    <link rel="stylesheet" href="styles.css?v=8790-96-r20260815">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -157,8 +157,8 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-95</strong>
-              <small data-version-build>Actualizada 15/08/2026 00:58</small>
+              <strong data-version-value>8790-96</strong>
+              <small data-version-build>Actualizada 15/08/2026 01:21</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
             <button class="ghost-btn app-back-btn" id="appBackBtn" type="button">Volver</button>
@@ -627,6 +627,25 @@
                   <span>Buscar pedido</span>
                   <input id="ordersSearch" type="search" autocomplete="off" placeholder="Pedido, cliente, direccion, zona, vendedor o estado">
                 </label>
+                <label class="data-search-box">
+                  <span>Periodo</span>
+                  <select id="ordersDatePreset" aria-label="Seleccionar periodo de pedidos">
+                    <option value="today">Hoy</option>
+                    <option value="yesterday">Ayer</option>
+                    <option value="last7">Ultimos 7 dias</option>
+                    <option value="month">Este mes</option>
+                    <option value="custom">Personalizado</option>
+                    <option value="all">Todo el historial</option>
+                  </select>
+                </label>
+                <label class="data-search-box">
+                  <span>Desde</span>
+                  <input id="ordersDateFrom" type="date" aria-label="Fecha inicial de pedidos">
+                </label>
+                <label class="data-search-box">
+                  <span>Hasta</span>
+                  <input id="ordersDateTo" type="date" aria-label="Fecha final de pedidos">
+                </label>
                 <select id="ordersQuickFilter" aria-label="Filtrar pedidos por proceso operativo">
                   <option value="all">Todos los procesos</option>
                   <option value="pending">Pendientes</option>
@@ -673,6 +692,7 @@
                 </select>
                 <button class="ghost-btn" id="clearOrdersFilters" type="button">Limpiar</button>
               </div>
+              <div class="orders-date-summary" id="ordersDateSummary" aria-live="polite"></div>
               <div class="bulk-actions-panel" id="ordersBulkPanel">
                 <div class="bulk-actions-head">
                   <strong id="ordersSelectedCount">Pedidos seleccionados: 0</strong>
@@ -2347,7 +2367,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-95</span>
+          <span id="appFooterVersion">Version del sistema: 8790-96</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -3916,13 +3936,13 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-95-r20260815"></script>
-    <script src="maps-config.js?v=8790-95-r20260815"></script>
-    <script src="order-engine.js?v=8790-95-r20260815"></script>
-    <script src="account-engine.js?v=8790-95-r20260815"></script>
-    <script src="delivery-engine.js?v=8790-95-r20260815"></script>
-    <script src="legal-engine.js?v=8790-95-r20260815"></script>
-    <script src="app.js?v=8790-95-r20260815"></script>
+    <script src="config.js?v=8790-96-r20260815"></script>
+    <script src="maps-config.js?v=8790-96-r20260815"></script>
+    <script src="order-engine.js?v=8790-96-r20260815"></script>
+    <script src="account-engine.js?v=8790-96-r20260815"></script>
+    <script src="delivery-engine.js?v=8790-96-r20260815"></script>
+    <script src="legal-engine.js?v=8790-96-r20260815"></script>
+    <script src="app.js?v=8790-96-r20260815"></script>
   </body>
 </html>
 
