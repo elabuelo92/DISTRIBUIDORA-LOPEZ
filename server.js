@@ -6997,6 +6997,21 @@ const server = http.createServer(async (req, res) => {
           }
         }
         const currentVersion = currentPayload.version || readStateVersionFast();
+        if (requestUrl.searchParams.get("deferState") === "clients" && (!clientVersion || clientVersion < currentVersion)) {
+          session.lastSyncAt = new Date().toISOString();
+          sendJson(res, 200, {
+            ok: true,
+            version: currentVersion,
+            state: null,
+            unchanged: false,
+            deferred: true,
+            presence: {
+              sessions: publicSessions(),
+              settings: readSessionConfig()
+            }
+          });
+          return;
+        }
         if (clientVersion && currentVersion && clientVersion >= currentVersion) {
           session.lastSyncAt = new Date().toISOString();
           sendJson(res, 200, {

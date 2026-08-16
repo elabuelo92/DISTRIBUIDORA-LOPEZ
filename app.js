@@ -18182,7 +18182,8 @@ async function pullStateFromServer() {
   }
   syncPullInFlight = true;
   try {
-    const response = await fetchWithTimeout(apiUrl(`api/state?version=${encodeURIComponent(syncVersion || 0)}`), { cache: "no-store" }, SERVER_TIMEOUT_MS);
+    const deferState = activeViewId() === "clientes" ? "&deferState=clients" : "";
+    const response = await fetchWithTimeout(apiUrl(`api/state?version=${encodeURIComponent(syncVersion || 0)}${deferState}`), { cache: "no-store" }, SERVER_TIMEOUT_MS);
     if (response.status === 401) {
       stopRealtimeChannels();
       currentUser = null;
@@ -18206,6 +18207,7 @@ async function pullStateFromServer() {
       lastSuccess: new Date().toISOString(),
       lastError: ""
     });
+    if (payload.deferred && !payload.state) return;
     if (payload.unchanged && !payload.state) {
       if (payload.version) syncVersion = Math.max(previousSyncVersion, Number(payload.version) || 0);
       const now = Date.now();

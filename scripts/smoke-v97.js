@@ -129,11 +129,18 @@ async function waitForHealth(baseUrl) {
   assert.equal(search.total, 1);
   assert.equal(search.records[0].codigo_cliente, "CLI-012");
 
+  const deferredStateResponse = await fetch(`${baseUrl}/api/state?version=0&deferState=clients`, { headers: { Cookie: cookie } });
+  const deferredState = await deferredStateResponse.json();
+  assert.equal(deferredStateResponse.status, 200);
+  assert.equal(deferredState.deferred, true);
+  assert.equal(deferredState.state, null);
+
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
   assert.match(appSource, /CLIENTS_PAGE_SIZE = 50/);
   assert.match(appSource, /CLIENTS_REQUEST_TIMEOUT_MS = 8000/);
   assert.match(appSource, /clientLoadRequest && clientLoadRequest\.query === query/);
   assert.match(appSource, /activeViewId\(\) !== "clientes"/);
+  assert.match(appSource, /deferState=clients/);
   assert.match(appSource, /debounce\(\(\) => \{[\s\S]*?renderClients\(\{ force: true \}\);[\s\S]*?\}, 400\)/);
 
   console.log(JSON.stringify({

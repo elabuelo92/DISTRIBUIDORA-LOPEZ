@@ -48,7 +48,10 @@ if (!username || !password) {
   await page.locator("#loginPassword").fill(password);
   await page.locator('#loginForm button[type="submit"]').click();
   await page.locator("#appShell").waitFor({ state: "visible", timeout: 30000 });
-  await page.waitForTimeout(500);
+  const appVisibleAt = Date.now();
+  await page.waitForFunction(() => document.querySelector("#syncStatus")?.dataset.tone === "ok", null, { timeout: 20000 });
+  const bootstrapSyncMs = Date.now() - appVisibleAt;
+  await page.waitForTimeout(250);
   requests.length = 0;
 
   const navigationStartedAt = Date.now();
@@ -69,6 +72,7 @@ if (!username || !password) {
   console.log(JSON.stringify({
     ok: true,
     baseUrl,
+    bootstrapSyncMs,
     viewVisibleMs,
     firstDataMs,
     renderedRows: rowCount,
@@ -79,6 +83,7 @@ if (!username || !password) {
     clientLogs
   }, null, 2));
 
+  await page.evaluate(() => fetch("api/logout", { method: "POST" }).catch(() => null));
   await context.close();
   await browser.close();
 })().catch((error) => {

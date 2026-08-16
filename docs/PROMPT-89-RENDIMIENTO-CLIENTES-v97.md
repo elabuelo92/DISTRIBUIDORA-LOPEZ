@@ -34,6 +34,7 @@ Bloqueo del hilo principal por renderizado sincrono de todo el padron y por calc
 10. Se agrego cache de las ultimas paginas durante 15 segundos con actualizacion silenciosa cuando corresponde.
 11. No se precarga Clientes al iniciar sesion o renderizar otro modulo.
 12. Se agregaron trazas temporales `Clientes.navigationStart`, `componentMounted`, `apiRequestStart`, `apiResponseReceived` y `renderComplete`.
+13. Mientras Clientes esta activo, el polling general difiere la descarga del estado operativo completo y mantiene solamente version, sesion y presencia. La sincronizacion completa se reanuda al salir de la vista.
 
 ## Validacion automatizada local
 
@@ -53,11 +54,21 @@ No aplica a la arquitectura actual del modulo. Los datos operativos residen en `
 
 ## Medicion productiva posterior
 
-Completar despues del despliegue controlado:
+Primera medicion v97 inmediatamente despues del login, antes de aislar el polling general:
+
+- Vista Clientes visible: 490 ms.
+- Primeras 50 filas: 5.216 ms.
+- Requests especificos a `/api/clients`: 1.
+- Procesamiento del endpoint: 5,2 ms.
+- Espera de red observada: 3.418 ms.
+- Causa de la espera restante: dos descargas generales de `/api/state` compitieron con el listado.
+
+Medicion final controlada, separando la sincronizacion inicial de la navegacion:
 
 - Version:
 - Commit:
 - Clientes productivos:
+- Sincronizacion inicial:
 - Tiempo hasta vista visible:
 - Tiempo hasta primeras filas:
 - Requests a `/api/clients`:
@@ -70,4 +81,3 @@ Completar despues del despliegue controlado:
 
 - `node scripts/smoke-v97.js`
 - `node scripts/measure-clients-performance.js` con `DL_TEST_BASE_URL`, `DL_TEST_USER` y `DL_TEST_PASSWORD`.
-
