@@ -179,9 +179,9 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-96";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "15/08/2026 01:21 ART";
-const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-15T01:21:52-03:00";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-97";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "15/08/2026 23:42 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-15T23:42:53-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
 
@@ -364,6 +364,13 @@ let clientStatusFilter = "all";
 let clientSellerFilter = "all";
 let clientZoneFilter = "all";
 let clientAccountFilter = "all";
+let clientPage = 1;
+const CLIENTS_PAGE_SIZE = 50;
+const CLIENTS_CACHE_TTL_MS = 15000;
+const CLIENTS_REQUEST_TIMEOUT_MS = 8000;
+const clientPageCache = new Map();
+let clientLoadRequest = null;
+let clientLoadSequence = 0;
 let accountSearchTerm = "";
 let accountTypeFilter = "all";
 let accountMethodFilter = "all";
@@ -9323,53 +9330,90 @@ function renderBankReconciliationList(globalTerms, localTerms) {
   `).join("") : '<div class="empty-note">Sin transferencias pendientes de conciliacion.</div>';
 }
 
-function renderClients() {
-  const globalTerms = [];
-  const localTerms = searchTerms(clientSearchTerm);
-  clientSellerFilter = updateDynamicFilter("clientSellerFilter", state.clients.map((client) => client.seller), clientSellerFilter, "Todos los vendedores");
-  clientZoneFilter = updateDynamicFilter("clientZoneFilter", state.clients.map((client) => client.zone || client.ruta), clientZoneFilter, "Todas las zonas");
-  const clients = state.clients.filter((client) => {
-    const text = [
-      client.codigo_cliente,
-      client.name,
-      client.razon_social,
-      client.cuit,
-      client.telefono,
-      client.email,
-      client.domicilio,
-      client.localidad,
-      client.zone,
-      client.ruta,
-      client.seller,
-      client.tipo_cliente,
-      client.status,
-      client.forma_pago,
-      client.condicion_comercial
-    ].join(" ");
-    const matchesGlobal = !globalTerms.length || matchesSearch(text, globalTerms);
-    const matchesLocal = !localTerms.length || matchesSearch(text, localTerms);
-    const matchesStatus = clientStatusFilter === "all" || client.status === clientStatusFilter;
-    const matchesSeller = clientSellerFilter === "all" || client.seller === clientSellerFilter;
-    const zone = client.zone || client.ruta || "";
-    const matchesZone = clientZoneFilter === "all" || zone === clientZoneFilter;
-    const balance = numeric(client.balance, 0);
-    const limit = numeric(client.limit, 0);
-    const matchesAccount = clientAccountFilter === "all"
-      || (clientAccountFilter === "debt" && balance > 0)
-      || (clientAccountFilter === "overlimit" && limit > 0 && balance > limit)
-      || (clientAccountFilter === "clear" && balance <= 0);
-    return matchesGlobal && matchesLocal && matchesStatus && matchesSeller && matchesZone && matchesAccount;
+function clientListQuery() {
+  const params = new URLSearchParams({
+    page: String(clientPage),
+    limit: String(CLIENTS_PAGE_SIZE),
+    search: clientSearchTerm,
+    status: clientStatusFilter,
+    seller: clientSellerFilter,
+    zone: clientZoneFilter,
+    account: clientAccountFilter
   });
+  return params.toString();
+}
 
+function clientPerformanceMark(label, detail = {}) {
+  const at = Math.round(performance.now() * 10) / 10;
+  console.info(`[Performance] Clientes.${label}`, { at, ...detail });
+  return at;
+}
+
+function renderClientsLoading() {
+  const table = byId("clientsTable");
+  const pager = byId("clientsPager");
+  if (table) table.innerHTML = `
+    <tr class="clients-loading-row">
+      <td colspan="8">
+        <div class="clients-local-loader" role="status">
+          <span class="clients-spinner" aria-hidden="true"></span>
+          <span><strong>Cargando clientes...</strong><small>La navegacion y el menu siguen disponibles.</small></span>
+        </div>
+      </td>
+    </tr>`;
+  if (pager) pager.innerHTML = '<span>Consultando la primera pagina del padron...</span>';
+}
+
+function renderClientsError(message) {
+  const table = byId("clientsTable");
+  const pager = byId("clientsPager");
+  if (table) table.innerHTML = `
+    <tr><td class="stock-empty" colspan="8">
+      <strong>No fue posible cargar los clientes.</strong>
+      <small>${escapeHtml(message || "La consulta supero el tiempo disponible.")}</small>
+      <button class="secondary-btn clients-retry-btn" type="button" data-clients-retry>Reintentar</button>
+    </td></tr>`;
+  if (pager) pager.innerHTML = '<span>La pantalla permanece operativa. Reintentar cuando la conexion este disponible.</span>';
+}
+
+function updateClientFilterOptions(payload) {
+  const filters = payload && payload.filters || {};
+  clientSellerFilter = updateDynamicFilter("clientSellerFilter", filters.sellers || [], clientSellerFilter, "Todos los vendedores");
+  clientZoneFilter = updateDynamicFilter("clientZoneFilter", filters.zones || [], clientZoneFilter, "Todas las zonas");
+}
+
+function renderClientsPager(payload, renderMs, fromCache) {
+  const pager = byId("clientsPager");
+  if (!pager) return;
+  const total = Number(payload.total || 0);
+  const page = Number(payload.page || 1);
+  const totalPages = Math.max(1, Number(payload.totalPages || 1));
+  const from = total ? ((page - 1) * Number(payload.limit || CLIENTS_PAGE_SIZE)) + 1 : 0;
+  const to = Math.min(total, from + (payload.records || []).length - 1);
+  const serverMs = numeric(payload.performance && payload.performance.queryMs, 0);
+  pager.innerHTML = `
+    <span>Mostrando ${from}-${Math.max(from, to)} de ${total} clientes. Servidor ${serverMs} ms · render ${renderMs} ms${fromCache ? " · cache" : ""}</span>
+    <div>
+      <button class="mini-btn" type="button" data-clients-page="${Math.max(1, page - 1)}" ${page <= 1 ? "disabled" : ""}>Anterior</button>
+      <span>Pagina ${page} de ${totalPages}</span>
+      <button class="mini-btn" type="button" data-clients-page="${Math.min(totalPages, page + 1)}" ${page >= totalPages ? "disabled" : ""}>Siguiente</button>
+    </div>`;
+}
+
+function renderClientPage(payload, fromCache = false) {
+  const startedAt = performance.now();
+  updateClientFilterOptions(payload);
+  clientPage = Number(payload.page || clientPage || 1);
+  const clients = Array.isArray(payload.records) ? payload.records : [];
   byId("clientsTable").innerHTML = clients.length ? clients.map((client) => {
-    const account = clientAccountSummary(client.name, 0);
-    const mixedEntity = mixedEntityForClient(client);
+    const account = client.account || { currentBalance: 0, creditLimit: 0, totalDebt: 0, status: "Al dia" };
+    const mixedEntityKeyValue = client.mixedEntityKey || "";
     return `
     <tr>
       <td>
         <strong>${escapeHtml(client.name)}</strong>
         <small>${escapeHtml(client.codigo_cliente || "Sin codigo")} - ${escapeHtml(client.razon_social || client.name)}</small>
-        ${mixedEntity ? '<small><span class="tag info">Tambien proveedor</span></small>' : ""}
+        ${mixedEntityKeyValue ? '<small><span class="tag info">Tambien proveedor</span></small>' : ""}
       </td>
       <td>
         <strong>${escapeHtml(client.cuit || "CUIT pendiente")}</strong>
@@ -9401,11 +9445,80 @@ function renderClients() {
       </td>
       <td>
         <button class="mini-btn" type="button" data-client-edit="${escapeHtml(client.codigo_cliente || client.name)}">Editar</button>
-        ${mixedEntity ? `<button class="mini-btn primary-mini" type="button" data-mixed-entity="${escapeHtml(mixedEntity.key)}">Ficha mixta</button>` : ""}
+        ${mixedEntityKeyValue ? `<button class="mini-btn primary-mini" type="button" data-mixed-entity="${escapeHtml(mixedEntityKeyValue)}">Ficha mixta</button>` : ""}
       </td>
     </tr>
   `;
   }).join("") : '<tr><td class="stock-empty" colspan="8">No hay clientes para los filtros seleccionados.</td></tr>';
+  const renderMs = Math.round((performance.now() - startedAt) * 10) / 10;
+  renderClientsPager(payload, renderMs, fromCache);
+  clientPerformanceMark("renderComplete", {
+    records: clients.length,
+    total: payload.total,
+    renderMs,
+    serverMs: payload.performance && payload.performance.queryMs,
+    fromCache
+  });
+}
+
+async function loadClientsPage(options = {}) {
+  const query = clientListQuery();
+  if (clientLoadRequest && clientLoadRequest.query === query) return clientLoadRequest.promise;
+  if (clientLoadRequest && clientLoadRequest.controller) clientLoadRequest.controller.abort();
+  const controller = new AbortController();
+  const sequence = ++clientLoadSequence;
+  const requestStartedAt = performance.now();
+  clientPerformanceMark("apiRequestStart", { query });
+  const timer = window.setTimeout(() => controller.abort(), CLIENTS_REQUEST_TIMEOUT_MS);
+  const promise = fetch(apiUrl(`api/clients?${query}`), { cache: "no-store", signal: controller.signal })
+    .then(async (response) => {
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => ({}));
+        throw new Error(errorPayload.error || `Error HTTP ${response.status}`);
+      }
+      return response.json();
+    })
+    .then((payload) => {
+      const elapsedMs = Math.round((performance.now() - requestStartedAt) * 10) / 10;
+      clientPageCache.set(query, { payload, fetchedAt: Date.now(), stateVersion: payload.stateVersion });
+      if (clientPageCache.size > 20) clientPageCache.delete(clientPageCache.keys().next().value);
+      clientPerformanceMark("apiResponseReceived", {
+        elapsedMs,
+        serverMs: payload.performance && payload.performance.queryMs,
+        records: payload.records && payload.records.length,
+        total: payload.total
+      });
+      if (sequence === clientLoadSequence && activeViewId() === "clientes" && query === clientListQuery()) renderClientPage(payload, false);
+      return payload;
+    })
+    .catch((error) => {
+      if (error && error.name === "AbortError" && sequence !== clientLoadSequence) return null;
+      if (sequence === clientLoadSequence && activeViewId() === "clientes") {
+        renderClientsError(error && error.name === "AbortError" ? "La consulta excedio 8 segundos." : error.message);
+      }
+      return null;
+    })
+    .finally(() => {
+      window.clearTimeout(timer);
+      if (clientLoadRequest && clientLoadRequest.sequence === sequence) clientLoadRequest = null;
+    });
+  clientLoadRequest = { query, controller, sequence, promise };
+  return promise;
+}
+
+function renderClients(options = {}) {
+  if (activeViewId() !== "clientes" && options.preload !== true) return;
+  const navigationStartedAt = clientPerformanceMark("navigationStart", { page: clientPage });
+  const query = clientListQuery();
+  const cached = clientPageCache.get(query);
+  if (cached) renderClientPage(cached.payload, true);
+  else renderClientsLoading();
+  clientPerformanceMark("componentMounted", { elapsedMs: Math.round((performance.now() - navigationStartedAt) * 10) / 10, cached: Boolean(cached) });
+  const stale = !cached
+    || options.force === true
+    || Date.now() - cached.fetchedAt > CLIENTS_CACHE_TTL_MS
+    || (syncVersion && Number(cached.stateVersion || 0) < Number(syncVersion));
+  if (stale) window.requestAnimationFrame(() => loadClientsPage({ background: Boolean(cached) }));
 }
 
 function renderAccounts() {
@@ -15722,7 +15835,10 @@ const debouncedRenderAssemblyDepot = debounce(() => {
     search.setSelectionRange(end, end);
   }
 }, 180);
-const debouncedRenderClients = debounce(renderClients, 180);
+const debouncedRenderClients = debounce(() => {
+  clientPage = 1;
+  renderClients({ force: true });
+}, 400);
 const debouncedRenderAccounts = debounce(renderAccounts, 180);
 const debouncedRenderStock = debounce(renderStock, 180);
 const debouncedRenderPriceLists = debounce(renderPriceLists, 180);
@@ -15926,19 +16042,23 @@ byId("clientsSearch").addEventListener("input", (event) => {
 });
 byId("clientFilter").addEventListener("change", (event) => {
   clientStatusFilter = event.target.value;
-  renderClients();
+  clientPage = 1;
+  renderClients({ force: true });
 });
 byId("clientSellerFilter").addEventListener("change", (event) => {
   clientSellerFilter = event.target.value;
-  renderClients();
+  clientPage = 1;
+  renderClients({ force: true });
 });
 byId("clientZoneFilter").addEventListener("change", (event) => {
   clientZoneFilter = event.target.value;
-  renderClients();
+  clientPage = 1;
+  renderClients({ force: true });
 });
 byId("clientAccountFilter").addEventListener("change", (event) => {
   clientAccountFilter = event.target.value;
-  renderClients();
+  clientPage = 1;
+  renderClients({ force: true });
 });
 byId("clearClientFilters").addEventListener("click", () => {
   clientSearchTerm = "";
@@ -15946,12 +16066,28 @@ byId("clearClientFilters").addEventListener("click", () => {
   clientSellerFilter = "all";
   clientZoneFilter = "all";
   clientAccountFilter = "all";
+  clientPage = 1;
   byId("clientsSearch").value = "";
   byId("clientFilter").value = "all";
   byId("clientSellerFilter").value = "all";
   byId("clientZoneFilter").value = "all";
   byId("clientAccountFilter").value = "all";
+  renderClients({ force: true });
+});
+byId("clientsPager").addEventListener("click", (event) => {
+  const retry = event.target.closest("[data-clients-retry]");
+  if (retry) {
+    renderClients({ force: true });
+    return;
+  }
+  const pageButton = event.target.closest("[data-clients-page]");
+  if (!pageButton || pageButton.disabled) return;
+  clientPage = Math.max(1, Number(pageButton.dataset.clientsPage || 1));
   renderClients();
+});
+byId("clientsTable").addEventListener("click", (event) => {
+  if (!event.target.closest("[data-clients-retry]")) return;
+  renderClients({ force: true });
 });
 byId("accountsSearch").addEventListener("input", (event) => {
   accountSearchTerm = event.target.value;

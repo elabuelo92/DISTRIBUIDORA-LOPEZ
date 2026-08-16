@@ -16,7 +16,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-96";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-97";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -2304,6 +2304,130 @@ function stateForUser(state, user) {
   return clean;
 }
 
+function clientListEntityKey(record) {
+  const taxId = taxIdKey(record && record.cuit);
+  if (taxId.length >= 7) return `cuit:${taxId}`;
+  const name = normalizeSearchText(record && (record.razon_social || record.name || record.nombre_comercial));
+  return name ? `nombre:${name}` : "";
+}
+
+function clientListSearchText(client) {
+  return normalizeSearchText([
+    client.codigo_cliente,
+    client.name,
+    client.nombre_comercial,
+    client.razon_social,
+    client.cuit,
+    client.telefono,
+    client.email,
+    client.domicilio,
+    client.localidad,
+    client.zone,
+    client.zona,
+    client.ruta,
+    client.seller,
+    client.vendedor,
+    client.status,
+    client.estado
+  ].filter(Boolean).join(" "));
+}
+
+function clientListRecord(state, client, supplierKeys) {
+  const account = accountEngine.accountSummary(state, client, 0);
+  const entityKey = clientListEntityKey(client);
+  return {
+    codigo_cliente: client.codigo_cliente || client.code || "",
+    name: client.name || client.nombre_comercial || client.razon_social || "Cliente",
+    razon_social: client.razon_social || "",
+    cuit: client.cuit || "",
+    condicion_fiscal: client.condicion_fiscal || "",
+    telefono: client.telefono || client.phone || "",
+    email: client.email || "",
+    domicilio: client.domicilio || client.address || "",
+    localidad: client.localidad || "",
+    zone: client.zone || client.zona || "",
+    ruta: client.ruta || client.route || "",
+    seller: client.seller || client.vendedor || "",
+    horario_atencion: client.horario_atencion || client.hours || "",
+    latitud: client.latitud ?? client.latitude ?? null,
+    longitud: client.longitud ?? client.longitude ?? null,
+    status: client.status || client.estado || "Activo",
+    tipo_cliente: client.tipo_cliente || "",
+    condicion_comercial: client.condicion_comercial || "",
+    forma_pago: client.forma_pago || client.paymentMethod || "",
+    dia_visita: client.dia_visita || "",
+    frecuencia_visita: client.frecuencia_visita || "",
+    account: account && account.ok ? {
+      currentBalance: account.currentBalance,
+      creditLimit: account.creditLimit,
+      overdueDebt: account.overdueDebt,
+      totalDebt: account.totalDebt,
+      pendingOrderExposure: account.pendingOrderExposure,
+      status: account.status
+    } : null,
+    mixedEntityKey: entityKey && supplierKeys.has(entityKey) ? entityKey : ""
+  };
+}
+
+function paginatedClientsPayload(state, searchParams, stateVersion) {
+  const startedAt = performance.now();
+  const page = Math.max(1, Number.parseInt(searchParams.get("page") || "1", 10) || 1);
+  const limit = Math.min(100, Math.max(20, Number.parseInt(searchParams.get("limit") || "50", 10) || 50));
+  const search = normalizeSearchText(searchParams.get("search") || "");
+  const terms = search.split(/\s+/).filter(Boolean);
+  const status = String(searchParams.get("status") || "all");
+  const seller = String(searchParams.get("seller") || "all");
+  const zone = String(searchParams.get("zone") || "all");
+  const accountFilter = String(searchParams.get("account") || "all");
+  const source = Array.isArray(state && state.clients) ? state.clients : [];
+  const suppliers = Array.isArray(state && state.suppliers) ? state.suppliers : [];
+  const supplierKeys = new Set(suppliers.map(clientListEntityKey).filter(Boolean));
+  const sellers = new Set();
+  const zones = new Set();
+
+  const filtered = source.filter((client) => {
+    const clientSeller = String(client.seller || client.vendedor || "");
+    const clientZone = String(client.zone || client.zona || client.ruta || "");
+    if (clientSeller) sellers.add(clientSeller);
+    if (clientZone) zones.add(clientZone);
+    if (terms.length && !terms.every((term) => clientListSearchText(client).includes(term))) return false;
+    if (status !== "all" && String(client.status || client.estado || "Activo") !== status) return false;
+    if (seller !== "all" && clientSeller !== seller) return false;
+    if (zone !== "all" && clientZone !== zone) return false;
+    const balance = Number(client.balance ?? client.saldo_actual ?? client.saldo_inicial ?? 0) || 0;
+    const creditLimit = Number(client.limit ?? client.limite_credito ?? 0) || 0;
+    if (accountFilter === "debt" && balance <= 0) return false;
+    if (accountFilter === "overlimit" && !(creditLimit > 0 && balance > creditLimit)) return false;
+    if (accountFilter === "clear" && balance > 0) return false;
+    return true;
+  }).sort((a, b) => String(a.name || a.nombre_comercial || "").localeCompare(String(b.name || b.nombre_comercial || ""), "es-AR"));
+
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const safePage = Math.min(page, totalPages);
+  const offset = (safePage - 1) * limit;
+  const records = filtered.slice(offset, offset + limit).map((client) => clientListRecord(state, client, supplierKeys));
+  const queryMs = Math.round((performance.now() - startedAt) * 10) / 10;
+  return {
+    ok: true,
+    records,
+    page: safePage,
+    limit,
+    total,
+    totalPages,
+    stateVersion: Number(stateVersion || 0),
+    filters: {
+      sellers: Array.from(sellers).sort((a, b) => a.localeCompare(b, "es-AR")),
+      zones: Array.from(zones).sort((a, b) => a.localeCompare(b, "es-AR"))
+    },
+    performance: {
+      queryMs,
+      sourceRecords: source.length,
+      returnedRecords: records.length
+    }
+  };
+}
+
 function collectionSize(state, key) {
   return state && Array.isArray(state[key]) ? state[key].length : 0;
 }
@@ -4507,6 +4631,22 @@ const server = http.createServer(async (req, res) => {
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudieron recalcular las comisiones." });
       }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/clients" && req.method === "GET") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Consultar el padron completo requiere usuario administrador." });
+        return;
+      }
+      const currentPayload = readStateFileCached();
+      const payload = paginatedClientsPayload(currentPayload.state || {}, requestUrl.searchParams, currentPayload.version);
+      sendJson(res, 200, payload, {
+        "Server-Timing": `clients;dur=${payload.performance.queryMs}`,
+        "X-DL-Clients-Query-Ms": String(payload.performance.queryMs)
+      });
       return;
     }
 

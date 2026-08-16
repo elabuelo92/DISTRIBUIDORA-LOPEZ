@@ -20,7 +20,7 @@ assert.match(appSource, /function setOrdersDatePreset\(preset\)/);
 assert.match(appSource, /return orderMatchesDateFilter\(order\)/);
 assert.doesNotMatch(appSource, /return orderIsFromToday\(order\)/);
 assert.match(appSource, /setOrdersDatePreset\("today"\)/);
-assert.match(configSource, /VERSION: "8790-96"/);
+assert.match(configSource, /VERSION: "8790-(?:96|97)"/);
 
 const businessDateFunction = appSource.match(/function orderBusinessDateKey\(order\) \{[\s\S]*?\n\}/)?.[0] || "";
 assert.match(businessDateFunction, /order\.createdAt \|\| order\.receivedAt/);
