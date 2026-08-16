@@ -65,17 +65,21 @@ Primera medicion v97 inmediatamente despues del login, antes de aislar el pollin
 
 Medicion final controlada, separando la sincronizacion inicial de la navegacion:
 
-- Version:
-- Commit:
-- Clientes productivos:
-- Sincronizacion inicial:
-- Tiempo hasta vista visible:
-- Tiempo hasta primeras filas:
-- Requests a `/api/clients`:
-- Tiempo total del endpoint:
-- Tiempo de procesamiento:
-- Filas renderizadas:
-- Estado de licencia e integridad:
+- Version: 8790-97.
+- Commit funcional: `e20142d`.
+- Clientes productivos: 802.
+- Sincronizacion inicial general: 5.212 ms (medida por separado; no bloquea la navegacion posterior).
+- Tiempo hasta vista visible: 112 ms.
+- Tiempo hasta primeras filas: 237 ms.
+- Requests a `/api/clients`: 1.
+- Requests a `/api/state` durante la carga: 0.
+- Tiempo total del endpoint desde el navegador: 61,2 ms.
+- Tiempo de procesamiento en servidor: 3,8 ms.
+- Tiempo de renderizado: 9,7 ms.
+- Filas renderizadas: 50.
+- Estado de licencia e integridad: `LICENSE_OK` / `INTEGRITY_OK`.
+
+Resultado: el cambio visual queda por debajo del objetivo de 500 ms y los primeros datos por debajo del objetivo de 1-2 segundos.
 
 ## Herramientas de prueba
 
