@@ -1,6 +1,6 @@
 ﻿# Guia - Carga de Stock y Cartera de Productos
 
-Fecha de ultima validacion: 2026-08-11  
+Fecha de ultima validacion: 2026-08-17
 Sistema: SERVIDOR_UNICO_8790  
 URL operativa: https://lopez.gruporochaapp.com
 
@@ -43,29 +43,28 @@ codigo_producto;codigo_barras;descripcion;cantidad_fisica;deposito;observacion
 
 El sistema genera backup, registra auditoria y deja movimientos en el Libro de Stock.
 
-## Metodo 2 - Reemplazar cartera completa, costos y listas
+## Metodo 2 - Homologar cartera completa, costos y listas
 
 Usar cuando cambia el Excel completo de productos, costos, stock y listas.
 
-1. Guardar el Excel en una carpeta conocida.
-2. Abrir PowerShell en la PC administrativa o servidor.
-3. Ejecutar:
+1. Ingresar como administrador.
+2. Ir a `Precios`.
+3. En `Cartera integral`, presionar `Importar / Actualizar cartera`.
+4. Seleccionar el archivo `.xlsx`.
+5. Presionar `Validar y previsualizar`.
+6. Revisar las filas `ACTUALIZAR`, `SIN_CAMBIOS` y `REQUIERE_HOMOLOGACION`.
+7. Para cada fila sin coincidencia segura, elegir expresamente `Alta nueva` u `Omitir fila`.
+8. Revisar los productos actuales ausentes del Excel. Solo marcar para inactivar los confirmados; nunca se eliminan.
+9. Escribir el motivo administrativo y marcar la confirmacion.
+10. Presionar `Aplicar cambios`.
+11. Revisar el resumen, el backup generado, `Stock e Inventario`, `Precios` y una preventa de prueba.
 
-```powershell
-cd C:\DistribuidoraLopez\SERVIDOR_UNICO_8790
-powershell.exe -ExecutionPolicy Bypass -File .\scripts\import-product-portfolio.ps1 -ExcelPath "C:\ruta\archivo.xlsx" -PythonExe "C:\Users\Distribuidora Lopez\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
-```
-
-4. Confirmar que la salida indique `ok: true`.
-5. Abrir el sistema.
-6. Revisar `Stock e Inventario`.
-7. Revisar `Precios`.
-8. Probar un pedido preventa con un vendedor.
+El boton `Descargar plantilla actual` genera el formato homologado de 17 columnas. El viejo importador por PowerShell/JSON quedo deshabilitado porque reemplazaba toda la cartera sin resolver coincidencias.
 
 ## Diferencia importante
 
 - `Cargar inventario inicial` modifica cantidades de stock.
-- `import-product-portfolio.ps1` reemplaza cartera completa y listas de precios.
+- `Importar / Actualizar cartera` homologa y actualiza productos sin borrado fisico.
 
 No usar el inventario inicial para cambiar precios.
 

@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-97-r20260815">
+    <link rel="manifest" href="manifest.json?v=8790-98-r20260817">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-97-r20260815">
+    <link rel="stylesheet" href="styles.css?v=8790-98-r20260817">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -157,8 +157,8 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-97</strong>
-              <small data-version-build>Actualizada 15/08/2026 23:42</small>
+              <strong data-version-value>8790-98</strong>
+              <small data-version-build>Actualizada 17/08/2026 18:41</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
             <button class="ghost-btn app-back-btn" id="appBackBtn" type="button">Volver</button>
@@ -691,6 +691,13 @@
                   <option value="status">Estado</option>
                 </select>
                 <button class="ghost-btn" id="clearOrdersFilters" type="button">Limpiar</button>
+                <select id="ordersExportType" aria-label="Tipo de exportacion Excel">
+                  <option value="sales">Ventas</option>
+                  <option value="picking">Consolidado productos / picking</option>
+                  <option value="commissions">Comisiones</option>
+                  <option value="detail">Detalle completo</option>
+                </select>
+                <button class="secondary-btn admin-only" id="exportOrdersExcelBtn" type="button">Exportar Excel</button>
               </div>
               <div class="orders-date-summary" id="ordersDateSummary" aria-live="polite"></div>
               <div class="bulk-actions-panel" id="ordersBulkPanel">
@@ -1290,6 +1297,11 @@
               </div>
               <div class="portfolio-admin-grid" id="productPortfolioPanel"></div>
               <div class="data-filter-bar compact-filter-bar">
+                <button class="primary-btn" id="openPortfolioImportBtn" type="button">Importar / Actualizar cartera</button>
+                <button class="secondary-btn" id="downloadPortfolioTemplateBtn" type="button">Descargar plantilla actual</button>
+                <span class="empty-note">Primero valida y homologa; ningun cambio se aplica sin confirmacion.</span>
+              </div>
+              <div class="data-filter-bar compact-filter-bar">
                 <label class="data-search-box">
                   <span>Usuario vendedor</span>
                   <input id="portfolioAssignUser" value="kevin" autocomplete="off">
@@ -1869,7 +1881,7 @@
                   <p>Pedidos con mercaderia pendiente por producto, cliente, vendedor, zona y estado</p>
                 </div>
                 <div class="table-actions">
-                  <button class="secondary-btn admin-only" id="exportShortagesCsvBtn" type="button">Exportar CSV</button>
+                  <button class="secondary-btn admin-only" id="exportShortagesCsvBtn" type="button">Exportar Excel</button>
                   <button class="secondary-btn admin-only" id="exportShortagesPdfBtn" type="button">Exportar PDF</button>
                 </div>
               </div>
@@ -1907,7 +1919,20 @@
                 <select id="shortageStatusFilter" aria-label="Filtrar faltantes por estado">
                   <option value="all">Todos los estados</option>
                 </select>
+                <select id="shortageSupplierFilter" aria-label="Filtrar faltantes por proveedor">
+                  <option value="all">Todos los proveedores</option>
+                </select>
+                <select id="shortageSubrubricFilter" aria-label="Filtrar faltantes por subrubro">
+                  <option value="all">Todos los subrubros</option>
+                </select>
+                <select id="shortagePurchaseStatusFilter" aria-label="Filtrar por estado de compra">
+                  <option value="all">Todos los estados de compra</option>
+                  <option value="Sin comprar">Sin comprar</option>
+                  <option value="Compra parcial">Compra parcial</option>
+                  <option value="Comprado">Comprado</option>
+                </select>
                 <button class="ghost-btn" id="clearShortageFiltersBtn" type="button">Limpiar</button>
+                <button class="secondary-btn" id="shortagesTodayBtn" type="button">Hoy</button>
               </div>
               <div class="delivery-planner-summary" id="shortageStatsSummary"></div>
               <div class="responsive-table">
@@ -1915,15 +1940,43 @@
                   <thead>
                     <tr>
                       <th>Producto</th>
-                      <th>Solicitado</th>
-                      <th>Entregado/reservado</th>
-                      <th>Diferencia</th>
+                      <th>Stock disponible</th>
+                      <th>Comprometido</th>
+                      <th>Faltante / sugerido</th>
                       <th>Cliente</th>
-                      <th>Vendedor</th>
+                      <th>Proveedor / vendedor</th>
                       <th>Fecha / Estado</th>
                     </tr>
                   </thead>
                   <tbody id="shortageStatsTable"></tbody>
+                </table>
+              </div>
+            </section>
+            <section class="panel wide">
+              <div class="panel-header">
+                <div>
+                  <h2>Productos vendidos por ruta</h2>
+                  <p>Consolidado por dia, vendedor y zona para planificacion comercial y reposicion</p>
+                </div>
+                <div class="table-actions">
+                  <button class="secondary-btn admin-only" id="exportRouteSalesExcelBtn" type="button">Exportar Excel</button>
+                  <button class="secondary-btn admin-only" id="exportRouteSalesPdfBtn" type="button">Exportar PDF</button>
+                </div>
+              </div>
+              <div class="data-filter-bar">
+                <label>Desde<input id="routeSalesDateFrom" type="date"></label>
+                <label>Hasta<input id="routeSalesDateTo" type="date"></label>
+                <select id="routeSalesSellerFilter"><option value="all">Todos los vendedores</option></select>
+                <select id="routeSalesZoneFilter"><option value="all">Todas las rutas / zonas</option></select>
+                <select id="routeSalesCategoryFilter"><option value="all">Todas las categorias</option></select>
+                <input id="routeSalesProductSearch" type="search" placeholder="Producto o codigo" autocomplete="off">
+                <button class="ghost-btn" id="clearRouteSalesFiltersBtn" type="button">Limpiar</button>
+              </div>
+              <div class="delivery-planner-summary" id="routeSalesSummary"></div>
+              <div class="responsive-table">
+                <table>
+                  <thead><tr><th>Fecha</th><th>Ruta / Zona</th><th>Vendedor</th><th>Producto</th><th>Unidades</th><th>Importe</th><th>Pedidos</th></tr></thead>
+                  <tbody id="routeSalesTable"></tbody>
                 </table>
               </div>
             </section>
@@ -2368,7 +2421,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-97</span>
+          <span id="appFooterVersion">Version del sistema: 8790-98</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -3937,13 +3990,41 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-97-r20260815"></script>
-    <script src="maps-config.js?v=8790-97-r20260815"></script>
-    <script src="order-engine.js?v=8790-97-r20260815"></script>
-    <script src="account-engine.js?v=8790-97-r20260815"></script>
-    <script src="delivery-engine.js?v=8790-97-r20260815"></script>
-    <script src="legal-engine.js?v=8790-97-r20260815"></script>
-    <script src="app.js?v=8790-97-r20260815"></script>
+    <dialog id="portfolioImportDialog">
+      <form id="portfolioImportForm" class="modal-card portfolio-import-card">
+        <div class="modal-header">
+          <div><p class="eyebrow">Cartera de productos</p><h2>Importar / Actualizar cartera</h2></div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <p class="empty-note">El sistema cruza ID, codigo de barras, codigo de proveedor y descripcion exacta. Nunca homologa por parecido.</p>
+        <label>Archivo Excel<input id="portfolioImportFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required></label>
+        <div class="portfolio-preview-summary" id="portfolioPreviewSummary"></div>
+        <div class="responsive-table portfolio-preview-table-wrap" id="portfolioPreviewWrap" hidden>
+          <table><thead><tr><th>Fila</th><th>Producto</th><th>Coincidencia</th><th>Accion</th><th>Cambios</th></tr></thead><tbody id="portfolioPreviewTable"></tbody></table>
+        </div>
+        <details id="portfolioMissingDetails" hidden>
+          <summary>Productos actuales ausentes del archivo: <strong id="portfolioMissingCount">0</strong></summary>
+          <p class="empty-note">Solo se inactivan los seleccionados; nunca se eliminan.</p>
+          <div class="portfolio-missing-list" id="portfolioMissingList"></div>
+        </details>
+        <label>Motivo administrativo<textarea id="portfolioImportMotive" rows="2" placeholder="Ej.: Actualizacion de cartera 17/08" required></textarea></label>
+        <label class="inline-check"><input id="portfolioImportConfirmed" type="checkbox"> Confirmo que revise altas, actualizaciones e inactivaciones.</label>
+        <p class="login-message" id="portfolioImportMessage"></p>
+        <menu>
+          <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
+          <button class="secondary-btn" id="portfolioPreviewBtn" type="button">Validar y previsualizar</button>
+          <button class="primary-btn" id="portfolioApplyBtn" type="submit" disabled>Aplicar cambios</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <script src="config.js?v=8790-98-r20260817"></script>
+    <script src="maps-config.js?v=8790-98-r20260817"></script>
+    <script src="order-engine.js?v=8790-98-r20260817"></script>
+    <script src="account-engine.js?v=8790-98-r20260817"></script>
+    <script src="delivery-engine.js?v=8790-98-r20260817"></script>
+    <script src="legal-engine.js?v=8790-98-r20260817"></script>
+    <script src="app.js?v=8790-98-r20260817"></script>
   </body>
 </html>
 

@@ -164,6 +164,13 @@ git reset --hard origin/main
 
 No tocar `/opt/distribuidora-lopez/data` salvo que exista una migracion documentada.
 
+Si `package.json` o `pnpm-lock.yaml` cambiaron, instalar dependencias antes de reiniciar:
+
+```bash
+cd /opt/distribuidora-lopez/app
+npm install --omit=dev
+```
+
 ### 5. Verificar sintaxis
 
 ```bash
@@ -185,7 +192,7 @@ USERS_FILE=/opt/distribuidora-lopez/data/users.json \
 DL_LICENSE_FILE=/opt/distribuidora-lopez/data/license.json \
 DL_INTEGRITY_FILE=/opt/distribuidora-lopez/data/integrity-manifest.json \
 DL_INSTALLATION_NAME=SERVIDOR_UNICO_8790 \
-DL_VERSION=8790-89 \
+DL_VERSION=8790-98 \
 node scripts/license-admin.js manifest
 
 DATA_DIR=/opt/distribuidora-lopez/data \
@@ -194,7 +201,7 @@ USERS_FILE=/opt/distribuidora-lopez/data/users.json \
 DL_LICENSE_FILE=/opt/distribuidora-lopez/data/license.json \
 DL_INTEGRITY_FILE=/opt/distribuidora-lopez/data/integrity-manifest.json \
 DL_INSTALLATION_NAME=SERVIDOR_UNICO_8790 \
-DL_VERSION=8790-89 \
+DL_VERSION=8790-98 \
 node scripts/license-admin.js status
 ```
 

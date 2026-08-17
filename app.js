@@ -179,9 +179,9 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-97";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "15/08/2026 23:42 ART";
-const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-15T23:42:53-03:00";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-98";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "17/08/2026 18:41 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-17T18:41:07-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
 
@@ -295,6 +295,7 @@ let mobileSeller = "Sofia Benitez";
 let mobileClient = "Autoservicio La Esquina";
 let mobileCart = {};
 let mobileProduct = "";
+let productPortfolioPreview = null;
 let mobileWorkday = defaultMobileWorkday();
 let mobilePreventaTab = "order";
 let mobileNewClientLocation = null;
@@ -349,6 +350,12 @@ let orderDatePreset = "today";
 let orderDateFrom = "";
 let orderDateTo = "";
 let orderPage = 1;
+let routeSalesDateFrom = "";
+let routeSalesDateTo = "";
+let routeSalesSellerFilter = "all";
+let routeSalesZoneFilter = "all";
+let routeSalesCategoryFilter = "all";
+let routeSalesProductTerm = "";
 const ORDERS_PAGE_SIZE = 25;
 let currentFilteredOrders = [];
 let currentPageOrders = [];
@@ -433,6 +440,9 @@ let shortageClientTerm = "";
 let shortageSellerFilter = "all";
 let shortageZoneFilter = "all";
 let shortageStatusFilter = "all";
+let shortageSupplierFilter = "all";
+let shortageSubrubricFilter = "all";
+let shortagePurchaseStatusFilter = "all";
 let auditSearchTerm = "";
 let auditEntityFilter = "all";
 let auditActionFilter = "all";
@@ -3503,6 +3513,7 @@ function renderActiveView(viewId = activeViewId()) {
     case "estadisticas":
       renderAnalytics();
       renderRoutes();
+      renderRouteSalesReport();
       break;
     case "diagnostico":
       renderDiagnostics();
@@ -4472,19 +4483,8 @@ function renderMobileProductOptions() {
   const list = byId("mobileProductOptions");
   const search = byId("mobileProductSearch");
   if (!list) return;
-  const terms = normalizeSearchText(search ? search.value : "").split(/\s+/).filter(Boolean);
-  const filteredProducts = state.products.filter((product) => {
-    if (!terms.length) return true;
-    return matchesSearch([
-      product.name,
-      product.codigo_producto,
-      product.codigo_barras,
-      product.rubro,
-      product.marca,
-      product.familia,
-      product.segmento
-    ].join(" "), terms);
-  });
+  const query = search ? search.value : "";
+  const filteredProducts = rankedProductSearch(state.products, query);
   const visibleProducts = filteredProducts.slice(0, 60);
   if (!visibleProducts.length) {
     list.innerHTML = '<div class="mobile-picker-empty">Sin articulos para esa busqueda.</div>';
@@ -4503,6 +4503,28 @@ function renderMobileProductOptions() {
   }).join("") + (filteredProducts.length > visibleProducts.length
     ? `<div class="mobile-picker-more">Mostrando 60 de ${filteredProducts.length}. Seguir escribiendo para afinar.</div>`
     : "");
+}
+
+function rankedProductSearch(products, query) {
+  const normalizedQuery = normalizeSearchText(query);
+  const terms = normalizedQuery.split(/\s+/).filter(Boolean);
+  const rank = (product) => {
+    const name = normalizeSearchText(product.name || product.descripcion);
+    const code = normalizeSearchText(product.codigo_producto || product.code);
+    const barcode = normalizeSearchText(product.codigo_barras);
+    const haystack = normalizeSearchText([name, code, barcode, product.marca, product.rubro, product.subrubro, product.familia, product.segmento].join(" "));
+    if (!terms.length) return 4;
+    if (name === normalizedQuery || code === normalizedQuery || barcode === normalizedQuery) return 0;
+    if (name.startsWith(normalizedQuery) || code.startsWith(normalizedQuery) || barcode.startsWith(normalizedQuery)) return 1;
+    if (terms.every((term) => haystack.includes(term))) return 2;
+    return Number.POSITIVE_INFINITY;
+  };
+  return (products || [])
+    .filter((product) => String(product.activo || "SI").toUpperCase() !== "NO")
+    .map((product) => ({ product, rank: rank(product) }))
+    .filter((entry) => Number.isFinite(entry.rank))
+    .sort((a, b) => a.rank - b.rank || String(a.product.name || "").localeCompare(String(b.product.name || ""), "es", { sensitivity: "base" }))
+    .map((entry) => entry.product);
 }
 
 function renderMobileProductInfo() {
@@ -6425,9 +6447,9 @@ function orderInvoiceHtml(order) {
         </div>
       </header>
       <div class="invoice-grid">
-        <p><strong>Cliente:</strong> ${escapeHtml(order.client)}</p>
+        <p class="invoice-client"><strong>Cliente:</strong> ${escapeHtml(order.client)}</p>
         <p><strong>Fecha:</strong> ${escapeHtml(when.date)}</p>
-        <p><strong>Direccion:</strong> ${escapeHtml(label.address || orderAddressText(order) || "Sin direccion")}</p>
+        <p class="invoice-address"><strong>Direccion:</strong> ${escapeHtml(label.address || orderAddressText(order) || "Sin direccion")}</p>
         <p><strong>Zona/Ruta:</strong> ${escapeHtml(label.zone || orderZoneText(order))}</p>
         <p><strong>Vendedor:</strong> ${escapeHtml(order.seller || "-")}</p>
       </div>
@@ -6453,9 +6475,9 @@ function orderInvoiceHtml(order) {
       ${hasShortages ? '<p class="invoice-shortage-legend"><b>*</b> Producto con faltante.</p>' : ""}
       <footer>
         <div>
-          ${settings.showObservations && (label.observations || order.observations || order.observaciones) ? `
+          ${(label.observations || order.observations || order.observaciones) ? `
             <strong>Observaciones del pedido</strong>
-            <p>${escapeHtml(label.observations || order.observations || order.observaciones)}</p>
+            <p class="invoice-observations">${escapeHtml(label.observations || order.observations || order.observaciones)}</p>
           ` : ""}
           <p class="developer-print-foot">Documento generado automaticamente por el Sistema de Gestion desarrollado por ${escapeHtml(DEVELOPER_BRAND.name)}.</p>
         </div>
@@ -6585,11 +6607,13 @@ function printOrderInvoice(orderOrOrders) {
           .invoice-packages { border: 1px solid #111827; padding: 3px 7px; }
           .invoice-packages strong { display: block; font-size: 25px; line-height: 1; }
           .invoice-grid { display: grid; grid-template-columns: 2fr 1fr 2fr; gap: 2px 10px; border-bottom: 1px solid #9ca3af; padding: 3px 1px; }
+          .invoice-client, .invoice-address { font-size: ${Math.max(12, settings.fontSize + 1)}px; }
+          .invoice-observations { white-space: pre-line; }
           table { width: 100%; border-collapse: collapse; }
           th, td { border-bottom: 1px solid #9ca3af; padding: 3px 4px; text-align: left; font-size: ${settings.fontSize}px; vertical-align: top; }
           th { text-transform: uppercase; font-size: 9px; }
           .code-col { width: 92px; }
-          .qty-col { width: 72px; text-align: center; font-weight: 900; }
+          .qty-col { width: 72px; text-align: center; font-weight: 400; }
           .money-col { width: 108px; text-align: right; white-space: nowrap; }
           .control-col { width: 58px; height: 22px; background: #fff; }
           .print-shortage-mark { color: #b91c1c; font-size: 14px; margin-left: 2px; }
@@ -7486,6 +7510,64 @@ function exportSelectedOrdersCsv() {
     ].map(csvCell).join(","))
   ].join("\n");
   downloadBlob(`pedidos-seleccionados-${reportDateStamp()}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }));
+}
+
+async function downloadXlsxReport({ fileName, sheetName, headers, rows }) {
+  const response = await fetchWithTimeout(apiUrl("api/reports/xlsx"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify({ fileName, sheetName, headers, rows })
+  }, 30000);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || "No se pudo generar el Excel.");
+  const bytes = Uint8Array.from(atob(payload.base64), (char) => char.charCodeAt(0));
+  downloadBlob(payload.fileName || fileName, new Blob([bytes], { type: payload.mimeType }));
+}
+
+async function exportFilteredOrdersExcel() {
+  if (!isAdminUser()) return showCompactNotice("Solo administracion puede exportar pedidos.", "warn");
+  const orders = filteredOrdersForCurrentFilters();
+  const type = byId("ordersExportType").value;
+  let headers = [];
+  let rows = [];
+  let sheetName = "Pedidos";
+  if (type === "picking") {
+    const consolidated = new Map();
+    orders.forEach((order) => assemblyOrderItems(order).forEach((item) => {
+      const code = item.productCode || item.codigo_producto || "";
+      const key = `${normalizeSearchText(code)}|${normalizeSearchText(item.name)}`;
+      const current = consolidated.get(key) || { code, name: item.name, qty: 0, orders: new Set() };
+      current.qty += numeric(item.requestedQty ?? item.qty, 0);
+      current.orders.add(order.code);
+      consolidated.set(key, current);
+    }));
+    headers = ["Codigo", "Producto", "Cantidad total", "Pedidos"];
+    rows = [...consolidated.values()].sort((a, b) => String(a.name).localeCompare(String(b.name), "es")).map((item) => [item.code, item.name, item.qty, [...item.orders].join(", ")]);
+    sheetName = "Picking";
+  } else if (type === "commissions") {
+    headers = ["Pedido", "Fecha", "Vendedor", "Cliente", "Venta", "Comision"];
+    rows = orders.map((order) => [order.code, localDateInputValue(order.createdAt || order.receivedAt), order.seller, order.client, numeric(order.amount, 0), numeric(order.commission, 0)]);
+    sheetName = "Comisiones";
+  } else if (type === "detail") {
+    headers = ["Pedido", "Fecha", "Hora", "Cliente", "Vendedor", "Zona", "Ruta", "Estado", "Codigo", "Producto", "Cantidad", "Precio unitario", "Descuento %", "Total linea", "Observaciones"];
+    rows = orders.flatMap((order) => assemblyOrderItems(order).map((item) => [
+      order.code, localDateInputValue(order.createdAt || order.receivedAt), localTimeInputValue(order.createdAt || order.receivedAt), order.client, order.seller,
+      orderZoneText(order), orderRouteText(order), order.status, item.productCode || item.codigo_producto || "", item.name,
+      numeric(item.requestedQty ?? item.qty, 0), numeric(item.unitPrice, 0), numeric(item.discountPct, 0), numeric(item.lineTotal, 0), order.observations || order.observaciones || ""
+    ]));
+    sheetName = "Detalle";
+  } else {
+    headers = ["Pedido", "Fecha", "Hora", "Cliente", "Vendedor", "Zona", "Ruta", "Estado", "Prioridad", "Importe", "Productos"];
+    rows = orders.map((order) => [order.code, localDateInputValue(order.createdAt || order.receivedAt), localTimeInputValue(order.createdAt || order.receivedAt), order.client, order.seller, orderZoneText(order), orderRouteText(order), order.status, order.priority || "Normal", numeric(order.amount, 0), order.products || ""]);
+    sheetName = "Ventas";
+  }
+  try {
+    await downloadXlsxReport({ fileName: `pedidos-${type}-${reportDateStamp()}.xlsx`, sheetName, headers, rows });
+    showCompactNotice(`${rows.length} filas exportadas con los filtros activos.`, "ok");
+  } catch (error) {
+    showCompactNotice(error.message || "No se pudo exportar pedidos.", "danger");
+  }
 }
 
 function assemblyOrderRows(orders) {
@@ -10115,6 +10197,131 @@ function renderProductPortfolioPanel() {
       <small>${escapeHtml(item.text)}</small>
     </article>
   `).join("");
+}
+
+function setPortfolioImportMessage(message, tone = "danger") {
+  const node = byId("portfolioImportMessage");
+  if (!node) return;
+  node.textContent = message || "";
+  node.className = `login-message ${tone === "ok" ? "success" : tone === "info" ? "info" : ""}`;
+}
+
+function openPortfolioImportDialog() {
+  productPortfolioPreview = null;
+  byId("portfolioImportForm").reset();
+  byId("portfolioPreviewSummary").innerHTML = "";
+  byId("portfolioPreviewTable").innerHTML = "";
+  byId("portfolioPreviewWrap").hidden = true;
+  byId("portfolioMissingDetails").hidden = true;
+  byId("portfolioApplyBtn").disabled = true;
+  setPortfolioImportMessage("Seleccionar el Excel y validar antes de aplicar.", "info");
+  byId("portfolioImportDialog").showModal();
+}
+
+function renderPortfolioImportPreview(preview) {
+  productPortfolioPreview = preview;
+  const summary = preview.summary || {};
+  byId("portfolioPreviewSummary").innerHTML = [
+    ["Filas", summary.total || 0], ["Actualizar", summary.updates || 0], ["Sin cambios", summary.unchanged || 0],
+    ["Requieren homologacion", summary.unresolved || 0], ["Errores", summary.errors || 0], ["Ausentes actuales", summary.missing || 0]
+  ].map(([label, value]) => `<article><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></article>`).join("");
+  const table = byId("portfolioPreviewTable");
+  table.innerHTML = (preview.rows || []).map((row) => {
+    const unresolved = row.action === "REQUIERE_HOMOLOGACION";
+    const changeText = row.errors && row.errors.length
+      ? row.errors.join(" ")
+      : (row.changes || []).slice(0, 5).map((item) => `${item.field}: ${item.before || "-"} -> ${item.after || "-"}`).join(" | ") || "Sin diferencias";
+    return `<tr class="${row.errors && row.errors.length ? "portfolio-row-error" : unresolved ? "portfolio-row-warn" : ""}">
+      <td>${escapeHtml(String(row.row || ""))}</td>
+      <td><strong>${escapeHtml(row.incoming.description)}</strong><small>${escapeHtml(row.incoming.id || row.incoming.barcode || "Sin codigo")}</small></td>
+      <td>${escapeHtml(row.matchType || "Sin coincidencia")}${row.matchedProductName ? `<small>${escapeHtml(row.matchedProductName)}</small>` : ""}</td>
+      <td>${unresolved ? `<select data-portfolio-resolution="${escapeHtml(row.key)}"><option value="">Resolver...</option><option value="ALTA">Alta nueva</option><option value="OMITIR">Omitir fila</option></select>` : `<span class="tag ${row.action === "ACTUALIZAR" ? "warn" : "ok"}">${escapeHtml(row.action)}</span>`}</td>
+      <td><small>${escapeHtml(changeText)}</small></td>
+    </tr>`;
+  }).join("");
+  byId("portfolioPreviewWrap").hidden = false;
+  const missing = preview.missing || [];
+  byId("portfolioMissingCount").textContent = String(missing.length);
+  byId("portfolioMissingList").innerHTML = missing.map((item) => `
+    <label class="portfolio-missing-item"><input type="checkbox" data-portfolio-inactivate="${escapeHtml(item.id)}" ${item.active ? "" : "disabled"}> <span>${escapeHtml(item.name)}</span><small>${escapeHtml(item.id || "Sin ID")}${item.active ? "" : " - ya inactivo"}</small></label>
+  `).join("");
+  byId("portfolioMissingDetails").hidden = !missing.length;
+  byId("portfolioApplyBtn").disabled = Boolean(summary.errors);
+  setPortfolioImportMessage(summary.errors ? "Corregir los errores del archivo antes de aplicar." : "Vista previa lista. Resolver las filas sin homologacion y revisar inactivaciones.", summary.errors ? "danger" : "ok");
+}
+
+async function previewProductPortfolioFile() {
+  const file = byId("portfolioImportFile").files[0];
+  if (!file) {
+    setPortfolioImportMessage("Seleccionar un archivo XLSX.");
+    return;
+  }
+  const button = byId("portfolioPreviewBtn");
+  button.disabled = true;
+  button.textContent = "Validando...";
+  setPortfolioImportMessage("Leyendo, validando y homologando productos...", "info");
+  try {
+    const fileDataUrl = await fileToRawDataUrl(file, 14 * 1024 * 1024);
+    const response = await fetchWithTimeout(apiUrl("api/product-portfolio/preview"), {
+      method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
+      body: JSON.stringify({ fileName: file.name, fileDataUrl })
+    }, 30000);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "No se pudo validar la cartera.");
+    renderPortfolioImportPreview(payload.preview);
+  } catch (error) {
+    productPortfolioPreview = null;
+    setPortfolioImportMessage(error.message || "No se pudo validar la cartera.");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Validar y previsualizar";
+  }
+}
+
+async function applyProductPortfolioPreview(event) {
+  event.preventDefault();
+  if (!productPortfolioPreview) return setPortfolioImportMessage("Primero validar el archivo.");
+  const motive = byId("portfolioImportMotive").value.trim();
+  if (!motive) return setPortfolioImportMessage("Indicar el motivo administrativo.");
+  if (!byId("portfolioImportConfirmed").checked) return setPortfolioImportMessage("Confirmar que revisaste las diferencias.");
+  const resolutions = {};
+  let unresolved = 0;
+  document.querySelectorAll("[data-portfolio-resolution]").forEach((select) => {
+    if (!select.value) unresolved += 1;
+    else resolutions[select.dataset.portfolioResolution] = select.value;
+  });
+  if (unresolved) return setPortfolioImportMessage(`Resolver ${unresolved} filas sin homologacion.`);
+  const inactivateIds = [...document.querySelectorAll("[data-portfolio-inactivate]:checked")].map((input) => input.dataset.portfolioInactivate);
+  const submit = byId("portfolioApplyBtn");
+  submit.disabled = true;
+  submit.textContent = "Aplicando...";
+  setPortfolioImportMessage("Creando backup y aplicando la cartera en una unica transaccion...", "info");
+  try {
+    const payload = await postOperationalAction("api/product-portfolio/apply", {
+      token: productPortfolioPreview.token, resolutions, inactivateIds, motive, confirmed: true
+    });
+    const record = payload.record || {};
+    byId("portfolioImportDialog").close("default");
+    showCompactNotice(`Cartera aplicada: ${record.updated || 0} actualizados, ${record.created || 0} altas, ${record.inactivated || 0} inactivos.`, "ok");
+    renderPriceLists();
+  } catch (error) {
+    setPortfolioImportMessage(error.message || "No se pudo aplicar la cartera.");
+  } finally {
+    submit.disabled = false;
+    submit.textContent = "Aplicar cambios";
+  }
+}
+
+async function downloadPortfolioTemplate() {
+  try {
+    const response = await fetchWithTimeout(apiUrl("api/product-portfolio/template"), { cache: "no-store" }, 15000);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "No se pudo descargar la plantilla.");
+    const bytes = Uint8Array.from(atob(payload.base64), (char) => char.charCodeAt(0));
+    downloadBlob(payload.fileName || "plantilla-cartera-productos.xlsx", new Blob([bytes], { type: payload.mimeType }));
+  } catch (error) {
+    showCompactNotice(error.message || "No se pudo descargar la plantilla.", "danger");
+  }
 }
 
 function renderPriceListDirectory() {
@@ -12916,6 +13123,7 @@ function shortageDetailRows() {
     const date = localDateInputValue(order.createdAt || order.receivedAt);
     const time = localTimeInputValue(order.createdAt || order.receivedAt);
     return (order.items || []).map((item) => {
+      const product = findProductForLine(item.name || "");
       const requested = numeric(item.requestedQty, 0);
       const deliveredReal = numeric(item.deliveredQty, 0);
       const returned = numeric(item.returnedQty, 0);
@@ -12924,6 +13132,12 @@ function shortageDetailRows() {
       const pendingDelivery = numeric(item.pendingDeliveryQty, 0);
       const delivered = deliveredReal > 0 || returned > 0 ? deliveredReal : reserved;
       const difference = Math.max(0, missingSupply || pendingDelivery || (requested - delivered - returned));
+      const inTransit = product ? OrderEngine.inventory(product).inTransit : 0;
+      const purchaseStatus = inTransit >= difference && difference > 0
+        ? "Comprado"
+        : inTransit > 0
+          ? "Compra parcial"
+          : "Sin comprar";
       return {
         orderCode: order.code,
         product: item.name || "",
@@ -12937,6 +13151,15 @@ function shortageDetailRows() {
         date,
         time,
         priority: order.priority || "Normal"
+        ,code: item.productCode || product && product.codigo_producto || ""
+        ,supplier: product && (product.proveedor || product.supplier) || "Sin proveedor"
+        ,subrubric: product && (product.subrubro || product.rubro || product.familia) || "S/D"
+        ,currentStock: product ? OrderEngine.inventory(product).available : 0
+        ,committed: requested
+        ,suggested: Math.max(difference, product ? Math.max(0, numeric(product.min, 0) - OrderEngine.inventory(product).available) : difference)
+        ,cost: product ? numeric(product.cost ?? product.costo, 0) : 0
+        ,list2: product ? productPriceForListNumber(product, 2) : 0
+        ,purchaseStatus
       };
     }).filter((row) => row.difference > 0);
   }).sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
@@ -12954,7 +13177,10 @@ function filteredShortageRows() {
     .filter((row) => !clientTerms.length || matchesSearch(row.client, clientTerms))
     .filter((row) => shortageSellerFilter === "all" || row.seller === shortageSellerFilter)
     .filter((row) => shortageZoneFilter === "all" || row.zone === shortageZoneFilter)
-    .filter((row) => shortageStatusFilter === "all" || row.status === shortageStatusFilter);
+    .filter((row) => shortageStatusFilter === "all" || row.status === shortageStatusFilter)
+    .filter((row) => shortageSupplierFilter === "all" || row.supplier === shortageSupplierFilter)
+    .filter((row) => shortageSubrubricFilter === "all" || row.subrubric === shortageSubrubricFilter)
+    .filter((row) => shortagePurchaseStatusFilter === "all" || row.purchaseStatus === shortagePurchaseStatusFilter);
 }
 
 function renderShortageStats() {
@@ -12964,6 +13190,8 @@ function renderShortageStats() {
   shortageSellerFilter = updateDynamicFilter("shortageSellerFilter", rows.map((row) => row.seller), shortageSellerFilter, "Todos los vendedores");
   shortageZoneFilter = updateDynamicFilter("shortageZoneFilter", rows.map((row) => row.zone), shortageZoneFilter, "Todas las zonas");
   shortageStatusFilter = updateDynamicFilter("shortageStatusFilter", rows.map((row) => row.status), shortageStatusFilter, "Todos los estados");
+  shortageSupplierFilter = updateDynamicFilter("shortageSupplierFilter", rows.map((row) => row.supplier), shortageSupplierFilter, "Todos los proveedores");
+  shortageSubrubricFilter = updateDynamicFilter("shortageSubrubricFilter", rows.map((row) => row.subrubric), shortageSubrubricFilter, "Todos los subrubros");
   const filtered = filteredShortageRows();
   const summary = byId("shortageStatsSummary");
   if (summary) {
@@ -12979,41 +13207,49 @@ function renderShortageStats() {
   }
   table.innerHTML = filtered.length ? filtered.slice(0, 120).map((row) => `
     <tr>
-      <td><strong>${escapeHtml(row.product)}</strong><small>${escapeHtml(row.orderCode)}</small></td>
-      <td>${row.requested}</td>
-      <td>${row.delivered}</td>
-      <td><span class="tag danger">${row.difference}</span></td>
+      <td><strong>${escapeHtml(row.product)}</strong><small>${escapeHtml(`${row.code || "S/C"} - ${row.subrubric}`)}</small></td>
+      <td>${row.currentStock}</td>
+      <td>${row.committed}</td>
+      <td><span class="tag danger">${row.difference}</span><small>Sugerido ${row.suggested}</small></td>
       <td><strong>${escapeHtml(row.client)}</strong><small>${escapeHtml(row.zone)}</small></td>
-      <td>${escapeHtml(row.seller)}</td>
-      <td><small>${escapeHtml(`${row.date} ${row.time}`)}</small><span class="tag ${orderStatusClass(row.status)}">${escapeHtml(row.status)}</span></td>
+      <td><strong>${escapeHtml(row.supplier)}</strong><small>${escapeHtml(row.seller)}</small></td>
+      <td><small>${escapeHtml(`${row.date} ${row.time}`)}</small><span class="tag ${row.purchaseStatus === "Comprado" ? "success" : row.purchaseStatus === "Compra parcial" ? "warn" : "danger"}">${escapeHtml(row.purchaseStatus)}</span></td>
     </tr>
   `).join("") : '<tr><td class="stock-empty" colspan="7">No hay faltantes para los filtros seleccionados.</td></tr>';
 }
 
-function exportShortagesCsv() {
+async function exportShortagesCsv() {
   if (!isAdminUser()) {
     window.alert("Solo administracion puede exportar faltantes.");
     return;
   }
   const rows = filteredShortageRows();
-  const headers = ["pedido", "producto", "solicitado", "entregado_reservado", "diferencia", "cliente", "vendedor", "zona", "estado", "fecha", "hora"];
-  const csv = [
-    headers.join(","),
-    ...rows.map((row) => [
+  const headers = ["pedido", "codigo", "producto", "subrubro", "proveedor", "stock_actual", "comprometido", "faltante", "compra_sugerida", "costo", "lista_2", "cliente", "vendedor", "zona", "estado_pedido", "estado_compra", "fecha", "hora"];
+  const reportRows = rows.map((row) => [
       row.orderCode,
+      row.code,
       row.product,
-      row.requested,
-      row.delivered,
+      row.subrubric,
+      row.supplier,
+      row.currentStock,
+      row.committed,
       row.difference,
+      row.suggested,
+      row.cost,
+      row.list2,
       row.client,
       row.seller,
       row.zone,
       row.status,
+      row.purchaseStatus,
       row.date,
       row.time
-    ].map(csvCell).join(","))
-  ].join("\r\n");
-  downloadBlob(`faltantes-distribuidora-lopez-${reportDateStamp()}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    ]);
+  try {
+    await downloadXlsxReport({ fileName: `faltantes-a-comprar-${reportDateStamp()}.xlsx`, sheetName: "Faltantes a comprar", headers, rows: reportRows });
+  } catch (error) {
+    showCompactNotice(error.message || "No se pudo exportar faltantes.", "danger");
+  }
 }
 
 function exportShortagesPdf() {
@@ -13032,6 +13268,82 @@ function exportShortagesPdf() {
     ...rows.map((row) => `${row.orderCode} | ${row.product} | ${row.requested} | ${row.delivered} | ${row.difference} | ${row.client} | ${row.seller} | ${row.date} ${row.time}`)
   ];
   downloadBlob(`faltantes-distribuidora-lopez-${reportDateStamp()}.pdf`, makeSimplePdf("Distribuidora Lopez - Faltantes", lines));
+}
+
+function routeSalesRows() {
+  const grouped = new Map();
+  (state.orders || []).forEach((order) => {
+    const date = localDateInputValue(order.createdAt || order.receivedAt);
+    const client = findClientByName(order.client) || {};
+    const zone = orderRouteText(order) || orderZoneText(order) || client.ruta || client.zona || client.zone || "Sin ruta";
+    assemblyOrderItems(order).forEach((item) => {
+      const product = findProductForLine(item.name);
+      const code = item.productCode || item.codigo_producto || product && product.codigo_producto || "";
+      const name = item.name || product && product.name || "Producto";
+      const key = [date, zone, order.seller, code || name].map(normalizeSearchText).join("|");
+      const category = product && (product.rubro || product.categoria || product.familia) || "S/D";
+      const current = grouped.get(key) || { date, zone, seller: order.seller || "Sin vendedor", code, product: name, category, units: 0, amount: 0, orders: new Set() };
+      current.units += numeric(item.requestedQty ?? item.qty, 0);
+      current.amount += numeric(item.lineTotal, numeric(item.requestedQty ?? item.qty, 0) * numeric(item.unitPrice, 0));
+      current.orders.add(order.code);
+      grouped.set(key, current);
+    });
+  });
+  return [...grouped.values()].map((row) => ({ ...row, orderCount: row.orders.size }))
+    .sort((a, b) => `${b.date}|${a.zone}|${a.product}`.localeCompare(`${a.date}|${b.zone}|${b.product}`, "es"));
+}
+
+function filteredRouteSalesRows() {
+  const terms = searchTerms(routeSalesProductTerm);
+  return routeSalesRows()
+    .filter((row) => !routeSalesDateFrom || row.date >= routeSalesDateFrom)
+    .filter((row) => !routeSalesDateTo || row.date <= routeSalesDateTo)
+    .filter((row) => routeSalesSellerFilter === "all" || row.seller === routeSalesSellerFilter)
+    .filter((row) => routeSalesZoneFilter === "all" || row.zone === routeSalesZoneFilter)
+    .filter((row) => routeSalesCategoryFilter === "all" || row.category === routeSalesCategoryFilter)
+    .filter((row) => !terms.length || matchesSearch(`${row.code} ${row.product}`, terms));
+}
+
+function renderRouteSalesReport() {
+  const table = byId("routeSalesTable");
+  if (!table) return;
+  const all = routeSalesRows();
+  routeSalesSellerFilter = updateDynamicFilter("routeSalesSellerFilter", all.map((row) => row.seller), routeSalesSellerFilter, "Todos los vendedores");
+  routeSalesZoneFilter = updateDynamicFilter("routeSalesZoneFilter", all.map((row) => row.zone), routeSalesZoneFilter, "Todas las rutas / zonas");
+  routeSalesCategoryFilter = updateDynamicFilter("routeSalesCategoryFilter", all.map((row) => row.category), routeSalesCategoryFilter, "Todas las categorias");
+  const rows = filteredRouteSalesRows();
+  const units = rows.reduce((sum, row) => sum + row.units, 0);
+  const amount = rows.reduce((sum, row) => sum + row.amount, 0);
+  const orders = new Set(rows.flatMap((row) => [...row.orders])).size;
+  byId("routeSalesSummary").innerHTML = `<span>${rows.length} productos consolidados</span><span>${units} unidades</span><span>${orders} pedidos</span><span>${money.format(amount)}</span>`;
+  table.innerHTML = rows.length ? rows.slice(0, 250).map((row) => `<tr>
+    <td>${escapeHtml(displayDateKey(row.date))}</td><td>${escapeHtml(row.zone)}</td><td>${escapeHtml(row.seller)}</td>
+    <td><strong>${escapeHtml(row.product)}</strong><small>${escapeHtml(`${row.code || "Sin codigo"} - ${row.category}`)}</small></td>
+    <td>${row.units}</td><td>${money.format(row.amount)}</td><td>${row.orderCount}</td>
+  </tr>`).join("") : '<tr><td colspan="7" class="stock-empty">Sin ventas para los filtros seleccionados.</td></tr>';
+}
+
+async function exportRouteSalesExcel() {
+  const rows = filteredRouteSalesRows();
+  try {
+    await downloadXlsxReport({
+      fileName: `productos-vendidos-ruta-${reportDateStamp()}.xlsx`, sheetName: "Ventas por ruta",
+      headers: ["Fecha", "Ruta / Zona", "Vendedor", "Categoria", "Codigo", "Producto", "Unidades", "Importe", "Pedidos"],
+      rows: rows.map((row) => [row.date, row.zone, row.seller, row.category, row.code, row.product, row.units, row.amount, row.orderCount])
+    });
+  } catch (error) {
+    showCompactNotice(error.message || "No se pudo exportar el reporte.", "danger");
+  }
+}
+
+function exportRouteSalesPdf() {
+  const rows = filteredRouteSalesRows();
+  const lines = [
+    `Emision: ${new Date().toLocaleString("es-AR")}`, `Registros: ${rows.length}`, "",
+    "Fecha | Ruta | Vendedor | Producto | Unidades | Importe | Pedidos",
+    ...rows.map((row) => `${row.date} | ${row.zone} | ${row.seller} | ${row.product} | ${row.units} | ${money.format(row.amount)} | ${row.orderCount}`)
+  ];
+  downloadBlob(`productos-vendidos-ruta-${reportDateStamp()}.pdf`, makeSimplePdf("Productos vendidos por ruta", lines));
 }
 
 function renderAnalytics() {
@@ -14152,6 +14464,13 @@ function orderEditCurrentProductPrice(item) {
   return product ? productPriceForUser(product) : numeric(item && item.unitPrice, 0);
 }
 
+function orderEditPriceList(order) {
+  const line = order && Array.isArray(order.items) ? order.items.find((item) => item.priceListId || item.priceListName) : null;
+  const declaredNumber = priceListNumberFromValue(line && (line.priceListId || line.priceListName) || order && (order.priceListId || order.priceListName));
+  if (declaredNumber) return { id: priceListIdForNumber(declaredNumber), name: priceListNameForNumber(declaredNumber), number: declaredNumber };
+  return assignedPriceListForUser({ name: order && order.seller || "", sellerName: order && order.seller || "" });
+}
+
 function orderEditLineSubtotal(item) {
   const qty = Math.max(1, numeric(item && item.qty, 1));
   const unitPrice = Math.max(0, numeric(item && item.unitPrice, 0));
@@ -14180,7 +14499,9 @@ function renderOrderEditSummary() {
     { label: "Lista", value: lists || "S/D" },
     { label: "Condicion", value: order && order.paymentMethod || client && client.forma_pago || "S/D" },
     { label: "Saldo CC", value: account ? money.format(account.projectedBalance) : "S/D" }
-  ].map((item) => `<article><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(String(item.value))}</strong></article>`).join("");
+  ].map((item) => `<article><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(String(item.value))}</strong></article>`).join("") + orderEditDraftItems.filter((item) => item.changePreview).map((item) => `
+    <div class="order-edit-change-preview"><strong>Cambio de producto</strong><span>${escapeHtml(item.changePreview.previousName)} (${money.format(item.changePreview.previousPrice)}) -> ${escapeHtml(item.name)} (${money.format(item.unitPrice)})</span><b>Diferencia ${money.format((item.unitPrice - item.changePreview.previousPrice) * item.qty)}</b></div>
+  `).join("");
 }
 
 function renderOrderEditItems() {
@@ -14215,7 +14536,7 @@ function renderOrderEditItems() {
   renderOrderEditSummary();
 }
 
-function syncOrderEditDraftFromDom() {
+function syncOrderEditDraftFromDom(options = {}) {
   orderEditDraftItems = orderEditDraftItems.map((item, index) => {
     const productField = document.querySelector(`[data-order-edit-product="${index}"]`);
     const qtyField = document.querySelector(`[data-order-edit-qty="${index}"]`);
@@ -14224,8 +14545,12 @@ function syncOrderEditDraftFromDom() {
     const product = resolveOrderEditProduct(productField ? productField.value : item.productCode || item.name);
     const previousProductKey = String(item.productCode || item.name || "").trim();
     const selectedProductKey = String(product && (product.codigo_producto || product.name) || "").trim();
-    const changedProduct = Boolean(product && selectedProductKey !== previousProductKey);
-    const assignedList = assignedPriceListForUser(currentUser);
+    const changedProduct = Boolean(product && (
+      selectedProductKey !== previousProductKey
+      || index === options.forceProductIndex
+    ));
+    const order = state.orders.find((candidate) => candidate.code === orderEditTargetCode);
+    const assignedList = orderEditPriceList(order);
     const unitPrice = changedProduct ? productPriceForListNumber(product, assignedList.number) : Math.max(0, numeric(priceField ? priceField.value : item.unitPrice, item.unitPrice || 0));
     const discountPct = Math.min(100, Math.max(0, numeric(discountField ? discountField.value : item.discountPct, 0)));
     return {
@@ -14237,7 +14562,11 @@ function syncOrderEditDraftFromDom() {
       discountPct,
       lineTotal: Math.max(0, Math.max(1, numeric(qtyField ? qtyField.value : item.qty, 1)) * unitPrice * (1 - discountPct / 100)),
       priceListId: changedProduct && product ? assignedList.id : item.priceListId,
-      priceListName: changedProduct && product ? assignedList.name : item.priceListName
+      priceListName: changedProduct && product ? assignedList.name : item.priceListName,
+      changePreview: changedProduct ? {
+        previousName: item.changePreview ? item.changePreview.previousName : item.name,
+        previousPrice: item.changePreview ? item.changePreview.previousPrice : numeric(item.unitPrice, 0)
+      } : item.changePreview || null
     };
   });
   renderOrderEditSummary();
@@ -14261,9 +14590,11 @@ function openOrderEditDialog(code) {
     lineTotal: Math.max(0, numeric(item.lineTotal ?? item.total, 0)),
     priceListId: item.priceListId || "",
     priceListName: item.priceListName || "Lista vigente"
+    ,changePreview: null
   }));
   if (!orderEditDraftItems.length && state.products[0]) {
-    orderEditDraftItems = [{ productCode: state.products[0].codigo_producto, name: state.products[0].name, qty: 1, unitPrice: productPriceForUser(state.products[0]), discountPct: 0, priceListId: state.products[0].priceListId, priceListName: state.products[0].priceListName }];
+    const list = orderEditPriceList(order);
+    orderEditDraftItems = [{ productCode: state.products[0].codigo_producto, name: state.products[0].name, qty: 1, unitPrice: productPriceForListNumber(state.products[0], list.number), discountPct: 0, priceListId: list.id, priceListName: list.name, changePreview: null }];
   }
   byId("orderEditTitle").textContent = `${order.code} - ${order.client}`;
   byId("orderEditObservation").value = order.observations || order.observaciones || "";
@@ -15293,6 +15624,17 @@ function fileToCompressedDataUrl(file) {
   });
 }
 
+function fileToRawDataUrl(file, maxBytes = 16 * 1024 * 1024) {
+  if (!file) return Promise.resolve("");
+  if (file.size > maxBytes) return Promise.reject(new Error("El archivo supera el limite permitido."));
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("No se pudo leer el archivo."));
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+}
+
 function fileToEvidenceDataUrl(file) {
   if (!file) return Promise.resolve("");
   const type = String(file.type || "").toLowerCase();
@@ -15840,8 +16182,8 @@ const debouncedRenderClients = debounce(() => {
   renderClients({ force: true });
 }, 400);
 const debouncedRenderAccounts = debounce(renderAccounts, 180);
-const debouncedRenderStock = debounce(renderStock, 180);
-const debouncedRenderPriceLists = debounce(renderPriceLists, 180);
+const debouncedRenderStock = debounce(renderStock, 600);
+const debouncedRenderPriceLists = debounce(renderPriceLists, 600);
 const debouncedRenderPhysicalStockControl = debounce(renderPhysicalStockControl, 180);
 const debouncedRenderSuppliers = debounce(renderSuppliers, 180);
 const debouncedRenderAdmin = debounce(renderAdmin, 180);
@@ -16286,6 +16628,14 @@ byId("shortageStatusFilter").addEventListener("change", (event) => {
   shortageStatusFilter = event.target.value;
   renderShortageStats();
 });
+["shortageSupplierFilter", "shortageSubrubricFilter", "shortagePurchaseStatusFilter"].forEach((id) => {
+  byId(id).addEventListener("change", (event) => {
+    if (id === "shortageSupplierFilter") shortageSupplierFilter = event.target.value;
+    if (id === "shortageSubrubricFilter") shortageSubrubricFilter = event.target.value;
+    if (id === "shortagePurchaseStatusFilter") shortagePurchaseStatusFilter = event.target.value;
+    renderShortageStats();
+  });
+});
 byId("clearShortageFiltersBtn").addEventListener("click", () => {
   shortageDateFrom = "";
   shortageDateTo = "";
@@ -16296,12 +16646,18 @@ byId("clearShortageFiltersBtn").addEventListener("click", () => {
   shortageSellerFilter = "all";
   shortageZoneFilter = "all";
   shortageStatusFilter = "all";
+  shortageSupplierFilter = "all";
+  shortageSubrubricFilter = "all";
+  shortagePurchaseStatusFilter = "all";
   ["shortageDateFrom", "shortageDateTo", "shortageTimeFrom", "shortageTimeTo", "shortageProductSearch", "shortageClientSearch"].forEach((id) => {
     byId(id).value = "";
   });
   byId("shortageSellerFilter").value = "all";
   byId("shortageZoneFilter").value = "all";
   byId("shortageStatusFilter").value = "all";
+  byId("shortageSupplierFilter").value = "all";
+  byId("shortageSubrubricFilter").value = "all";
+  byId("shortagePurchaseStatusFilter").value = "all";
   renderShortageStats();
 });
 byId("exportShortagesCsvBtn").addEventListener("click", exportShortagesCsv);
@@ -16467,7 +16823,7 @@ byId("mobileProductPickerBtn").addEventListener("click", () => {
   renderMobileProductOptions();
   setMobilePickerOpen("product", panel ? panel.hidden : true);
 });
-byId("mobileProductSearch").addEventListener("input", () => renderMobileProductOptions());
+byId("mobileProductSearch").addEventListener("input", debounce(() => renderMobileProductOptions(), 600));
 byId("mobileProductOptions").addEventListener("click", (event) => {
   const button = event.target.closest("[data-mobile-product-option]");
   if (!button) return;
@@ -16793,18 +17149,57 @@ byId("orderEditAddItemBtn").addEventListener("click", () => {
   syncOrderEditDraftFromDom();
   const product = state.products[0];
   if (!product) return;
-  orderEditDraftItems.push({ productCode: product.codigo_producto || "", name: product.name, qty: 1, unitPrice: productPriceForUser(product), originalUnitPrice: productPriceForUser(product), discountPct: 0, priceListId: product.priceListId, priceListName: product.priceListName || "Lista vigente" });
+  const order = state.orders.find((item) => item.code === orderEditTargetCode);
+  const list = orderEditPriceList(order);
+  const unitPrice = productPriceForListNumber(product, list.number);
+  orderEditDraftItems.push({ productCode: product.codigo_producto || "", name: product.name, qty: 1, unitPrice, originalUnitPrice: unitPrice, discountPct: 0, priceListId: list.id, priceListName: list.name, changePreview: null });
   renderOrderEditItems();
 });
 
-byId("orderEditItemsList").addEventListener("change", () => {
-  syncOrderEditDraftFromDom();
+byId("orderEditItemsList").addEventListener("change", (event) => {
+  const productSelect = event.target.closest("[data-order-edit-product]");
+  syncOrderEditDraftFromDom({
+    forceProductIndex: productSelect ? Number(productSelect.dataset.orderEditProduct) : -1
+  });
   renderOrderEditItems();
 });
 
-byId("orderEditItemsList").addEventListener("input", () => {
+byId("orderEditItemsList").addEventListener("input", (event) => {
+  if (event.target.matches("select[data-order-edit-product]")) return;
   syncOrderEditDraftFromDom();
   renderOrderEditSummary();
+});
+
+byId("openPortfolioImportBtn").addEventListener("click", openPortfolioImportDialog);
+byId("downloadPortfolioTemplateBtn").addEventListener("click", downloadPortfolioTemplate);
+byId("portfolioPreviewBtn").addEventListener("click", previewProductPortfolioFile);
+byId("portfolioImportForm").addEventListener("submit", applyProductPortfolioPreview);
+byId("exportOrdersExcelBtn").addEventListener("click", exportFilteredOrdersExcel);
+byId("shortagesTodayBtn").addEventListener("click", () => {
+  const today = localDateInputValue(new Date().toISOString());
+  shortageDateFrom = today;
+  shortageDateTo = today;
+  byId("shortageDateFrom").value = today;
+  byId("shortageDateTo").value = today;
+  renderShortageStats();
+});
+byId("exportRouteSalesExcelBtn").addEventListener("click", exportRouteSalesExcel);
+byId("exportRouteSalesPdfBtn").addEventListener("click", exportRouteSalesPdf);
+byId("routeSalesDateFrom").addEventListener("change", (event) => { routeSalesDateFrom = event.target.value; renderRouteSalesReport(); });
+byId("routeSalesDateTo").addEventListener("change", (event) => { routeSalesDateTo = event.target.value; renderRouteSalesReport(); });
+byId("routeSalesSellerFilter").addEventListener("change", (event) => { routeSalesSellerFilter = event.target.value; renderRouteSalesReport(); });
+byId("routeSalesZoneFilter").addEventListener("change", (event) => { routeSalesZoneFilter = event.target.value; renderRouteSalesReport(); });
+byId("routeSalesCategoryFilter").addEventListener("change", (event) => { routeSalesCategoryFilter = event.target.value; renderRouteSalesReport(); });
+byId("routeSalesProductSearch").addEventListener("input", debounce((event) => { routeSalesProductTerm = event.target.value; renderRouteSalesReport(); }, 600));
+byId("clearRouteSalesFiltersBtn").addEventListener("click", () => {
+  routeSalesDateFrom = "";
+  routeSalesDateTo = "";
+  routeSalesSellerFilter = "all";
+  routeSalesZoneFilter = "all";
+  routeSalesCategoryFilter = "all";
+  routeSalesProductTerm = "";
+  ["routeSalesDateFrom", "routeSalesDateTo", "routeSalesProductSearch"].forEach((id) => { byId(id).value = ""; });
+  renderRouteSalesReport();
 });
 byId("orderEditForm").addEventListener("submit", submitOrderEdit);
 byId("orderLabelForm").addEventListener("submit", submitOrderLabel);

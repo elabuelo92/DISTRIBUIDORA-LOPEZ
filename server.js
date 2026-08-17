@@ -3,6 +3,7 @@ const http = require("http");
 const path = require("path");
 const crypto = require("crypto");
 const zlib = require("zlib");
+const ExcelJS = require("exceljs");
 const { spawn } = require("child_process");
 const orderEngine = require("./order-engine");
 const deliveryEngine = require("./delivery-engine");
@@ -16,7 +17,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-97";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-98";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -38,6 +39,7 @@ const DEFAULT_WORKDAY_END_HOUR = Math.max(1, Math.min(24, Number(process.env.DL_
 const PRESENCE_OFFLINE_MS = Number(process.env.DL_PRESENCE_OFFLINE_MS || 45000);
 const sessions = new Map();
 const recentPresenceHistory = [];
+const productPortfolioPreviews = new Map();
 const securityEngine = licenseEngine.createEngine({
   root: ROOT,
   dataDir: DATA_DIR,
@@ -3137,6 +3139,284 @@ function normalizeImportedProductRecord(raw, index = 0) {
   };
 }
 
+const PORTFOLIO_TEMPLATE_COLUMNS = [
+  "Accion", "ID_Sistema", "Descripcion", "Stock", "Costo", "Lista_1", "Lista_2_Preventa",
+  "Lista_3", "Lista_4", "Lista_5", "Unidad_Medida", "Codigo_Proveedor", "Subrubro",
+  "Categoria", "Codigo_Barras", "Activo", "Observaciones_Importacion"
+];
+
+function normalizedPortfolioHeader(value) {
+  return normalizeSearchText(value).replace(/\s+/g, "_");
+}
+
+const PORTFOLIO_HEADER_ALIASES = new Map([
+  ["accion", "Accion"], ["id_sistema", "ID_Sistema"], ["id", "ID_Sistema"],
+  ["descripcion", "Descripcion"], ["descripcion_producto", "Descripcion"], ["producto", "Descripcion"],
+  ["stock", "Stock"], ["stock_actual", "Stock"], ["cantidad", "Stock"],
+  ["costo", "Costo"], ["$_costo", "Costo"], ["precio_costo", "Costo"],
+  ["lista_1", "Lista_1"], ["lista_2", "Lista_2_Preventa"], ["lista_2_preventa", "Lista_2_Preventa"],
+  ["lista_3", "Lista_3"], ["lista_4", "Lista_4"], ["lista_5", "Lista_5"],
+  ["unid_med", "Unidad_Medida"], ["unidad_medida", "Unidad_Medida"], ["unidad", "Unidad_Medida"],
+  ["codigo_proveedor", "Codigo_Proveedor"], ["subrubro", "Subrubro"], ["categoria", "Categoria"],
+  ["codigo_barra", "Codigo_Barras"], ["codigo_barras", "Codigo_Barras"], ["barcode", "Codigo_Barras"],
+  ["activo", "Activo"], ["observaciones_importacion", "Observaciones_Importacion"]
+]);
+
+function portfolioCellValue(cell) {
+  if (cell == null) return "";
+  if (typeof cell === "object") {
+    if (cell.result != null) return cell.result;
+    if (cell.text != null) return cell.text;
+    if (Array.isArray(cell.richText)) return cell.richText.map((part) => part.text || "").join("");
+  }
+  return cell;
+}
+
+function dataUrlBuffer(value, maxBytes = MAX_BODY) {
+  const match = String(value || "").match(/^data:([^;,]+)?(?:;base64)?,([\s\S]+)$/);
+  if (!match) throw new Error("Archivo XLSX invalido o incompleto.");
+  const buffer = Buffer.from(match[2], "base64");
+  if (!buffer.length || buffer.length > maxBytes) throw new Error("El archivo XLSX supera el limite permitido.");
+  return buffer;
+}
+
+async function readPortfolioWorkbook(fileDataUrl) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(dataUrlBuffer(fileDataUrl));
+  const worksheet = workbook.worksheets.find((sheet) => sheet.actualRowCount > 0);
+  if (!worksheet) throw new Error("El Excel no contiene hojas con datos.");
+  let headerRowNumber = 0;
+  let headerMap = new Map();
+  worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (headerRowNumber) return;
+    const candidate = new Map();
+    row.eachCell({ includeEmpty: true }, (cell, columnNumber) => {
+      const alias = PORTFOLIO_HEADER_ALIASES.get(normalizedPortfolioHeader(portfolioCellValue(cell.value)));
+      if (alias) candidate.set(columnNumber, alias);
+    });
+    if (candidate.has("x")) return;
+    if ([...candidate.values()].includes("Descripcion") && candidate.size >= 5) {
+      headerRowNumber = rowNumber;
+      headerMap = candidate;
+    }
+  });
+  if (!headerRowNumber) throw new Error("No se encontro una fila de encabezados valida. Descargar y usar la plantilla vigente.");
+  const rows = [];
+  worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber <= headerRowNumber) return;
+    const record = {};
+    headerMap.forEach((field, columnNumber) => {
+      record[field] = portfolioCellValue(row.getCell(columnNumber).value);
+    });
+    const description = String(record.Descripcion || "").trim();
+    if (!description || normalizeSearchText(description).startsWith("valoracion stock")) return;
+    record.__row = rowNumber;
+    rows.push(record);
+  });
+  if (!rows.length) throw new Error("El Excel no contiene productos para procesar.");
+  return { rows, sheetName: worksheet.name, headerRowNumber };
+}
+
+function portfolioComparableProduct(raw) {
+  return {
+    id: String(raw.ID_Sistema || raw.id || raw.codigo_producto || "").trim(),
+    description: String(raw.Descripcion || raw.name || raw.descripcion || "").trim(),
+    stock: Math.max(0, numeric(raw.Stock ?? raw.stock, 0)),
+    cost: Math.max(0, numeric(raw.Costo ?? raw.cost, 0)),
+    prices: [1, 2, 3, 4, 5].map((number) => Math.max(0, numeric(raw[number === 2 ? "Lista_2_Preventa" : `Lista_${number}`] ?? raw[`precio_lista_${number}`], 0))),
+    unit: String(raw.Unidad_Medida || raw.unidad_venta || raw.unidad || "unidad").trim() || "unidad",
+    supplierCode: String(raw.Codigo_Proveedor || raw.codigo_proveedor || "").trim(),
+    subrubric: String(raw.Subrubro || raw.subrubro || raw.rubro || "S/D").trim() || "S/D",
+    category: String(raw.Categoria || raw.categoria || raw.familia || "S/D").trim() || "S/D",
+    barcode: String(raw.Codigo_Barras || raw.codigo_barras || "").trim(),
+    active: !String(raw.Activo || raw.activo || "SI").trim().toUpperCase().startsWith("NO"),
+    notes: String(raw.Observaciones_Importacion || "").trim(),
+    row: numeric(raw.__row, 0)
+  };
+}
+
+function portfolioProductIdentity(product) {
+  return String(product.id || product.codigo_producto || product.code || "").trim();
+}
+
+function previewProductPortfolio(state, rawRows, meta = {}) {
+  const products = Array.isArray(state.products) ? state.products : [];
+  const byId = new Map(products.map((product) => [normalizeSearchText(portfolioProductIdentity(product)), product]).filter(([key]) => key));
+  const byBarcode = new Map(products.map((product) => [normalizeSearchText(product.codigo_barras), product]).filter(([key]) => key));
+  const bySupplierCode = new Map(products.map((product) => [normalizeSearchText(product.codigo_proveedor), product]).filter(([key]) => key));
+  const byName = new Map(products.map((product) => [normalizeSearchText(product.name || product.descripcion), product]).filter(([key]) => key));
+  const matchedIds = new Set();
+  const duplicateKeys = new Set();
+  const incomingKeys = new Set();
+  const rows = rawRows.map((raw) => {
+    const incoming = portfolioComparableProduct(raw);
+    const incomingKey = normalizeSearchText(incoming.id || incoming.barcode || incoming.supplierCode || incoming.description);
+    if (incomingKeys.has(incomingKey)) duplicateKeys.add(incomingKey);
+    incomingKeys.add(incomingKey);
+    let match = null;
+    let matchType = "";
+    if (incoming.id && byId.has(normalizeSearchText(incoming.id))) { match = byId.get(normalizeSearchText(incoming.id)); matchType = "ID sistema"; }
+    else if (incoming.barcode && byBarcode.has(normalizeSearchText(incoming.barcode))) { match = byBarcode.get(normalizeSearchText(incoming.barcode)); matchType = "Codigo de barras"; }
+    else if (incoming.supplierCode && bySupplierCode.has(normalizeSearchText(incoming.supplierCode))) { match = bySupplierCode.get(normalizeSearchText(incoming.supplierCode)); matchType = "Codigo proveedor"; }
+    else if (incoming.description && byName.has(normalizeSearchText(incoming.description))) { match = byName.get(normalizeSearchText(incoming.description)); matchType = "Descripcion exacta"; }
+    if (match) matchedIds.add(portfolioProductIdentity(match) || match.name);
+    const previous = match ? portfolioComparableProduct(match) : null;
+    const fields = previous ? [
+      ["Descripcion", previous.description, incoming.description], ["Stock", previous.stock, incoming.stock],
+      ["Costo", previous.cost, incoming.cost], ["Lista 1", previous.prices[0], incoming.prices[0]],
+      ["Lista 2", previous.prices[1], incoming.prices[1]], ["Lista 3", previous.prices[2], incoming.prices[2]],
+      ["Lista 4", previous.prices[3], incoming.prices[3]], ["Lista 5", previous.prices[4], incoming.prices[4]],
+      ["Unidad", previous.unit, incoming.unit], ["Codigo proveedor", previous.supplierCode, incoming.supplierCode],
+      ["Subrubro", previous.subrubric, incoming.subrubric], ["Categoria", previous.category, incoming.category],
+      ["Codigo barras", previous.barcode, incoming.barcode], ["Activo", previous.active, incoming.active]
+    ].filter(([, before, after]) => String(before) !== String(after)).map(([field, before, after]) => ({ field, before, after })) : [];
+    return {
+      row: incoming.row,
+      key: incomingKey || `fila-${incoming.row}`,
+      incoming,
+      matchedProductId: match ? portfolioProductIdentity(match) : "",
+      matchedProductName: match ? match.name : "",
+      matchType,
+      action: match ? (fields.length ? "ACTUALIZAR" : "SIN_CAMBIOS") : "REQUIERE_HOMOLOGACION",
+      changes: fields,
+      errors: duplicateKeys.has(incomingKey) ? ["Identificador o descripcion duplicada dentro del archivo."] : []
+    };
+  });
+  const missing = products.filter((product) => !matchedIds.has(portfolioProductIdentity(product) || product.name)).map((product) => ({
+    id: portfolioProductIdentity(product), name: product.name, active: String(product.activo || "SI").toUpperCase() !== "NO"
+  }));
+  const token = crypto.randomBytes(18).toString("hex");
+  const preview = {
+    token,
+    createdAt: new Date().toISOString(),
+    fileName: String(meta.fileName || "cartera.xlsx").slice(0, 180),
+    sheetName: meta.sheetName || "",
+    rows,
+    missing,
+    summary: {
+      total: rows.length,
+      updates: rows.filter((row) => row.action === "ACTUALIZAR").length,
+      unchanged: rows.filter((row) => row.action === "SIN_CAMBIOS").length,
+      unresolved: rows.filter((row) => row.action === "REQUIERE_HOMOLOGACION").length,
+      errors: rows.filter((row) => row.errors.length).length,
+      missing: missing.length
+    }
+  };
+  productPortfolioPreviews.set(token, preview);
+  while (productPortfolioPreviews.size > 20) productPortfolioPreviews.delete(productPortfolioPreviews.keys().next().value);
+  return preview;
+}
+
+function applyHomologatedPortfolioImport(state, preview, input, user) {
+  const resolutions = input.resolutions && typeof input.resolutions === "object" ? input.resolutions : {};
+  const inactivateIds = new Set(Array.isArray(input.inactivateIds) ? input.inactivateIds.map(String) : []);
+  const products = Array.isArray(state.products) ? state.products : [];
+  const backup = createMaintenanceBackup("importar-cartera-homologada", state);
+  const applied = [];
+  preview.rows.forEach((row) => {
+    if (row.errors.length) return;
+    const resolution = String(resolutions[row.key] || row.action).toUpperCase();
+    if (["OMITIR", "SIN_CAMBIOS", "REQUIERE_HOMOLOGACION"].includes(resolution)) return;
+    const incoming = row.incoming;
+    let index = row.matchedProductId ? products.findIndex((product) => portfolioProductIdentity(product) === row.matchedProductId) : -1;
+    if (resolution === "ACTUALIZAR" && index < 0) throw new Error(`No se encontro el producto a actualizar en fila ${row.row}.`);
+    if (resolution === "ALTA" && index >= 0) throw new Error(`La fila ${row.row} ya esta homologada y no puede duplicarse.`);
+    const previous = index >= 0 ? products[index] : null;
+    const nextId = previous ? portfolioProductIdentity(previous) : incoming.id || `PRD-${Date.now()}-${row.row}`;
+    const next = normalizeImportedProductRecord({
+      ...(previous || {}), codigo_producto: nextId, descripcion: incoming.description, stock: incoming.stock,
+      costo: incoming.cost, lista_1: incoming.prices[0], lista_2: incoming.prices[1], lista_3: incoming.prices[2],
+      lista_4: incoming.prices[3], lista_5: incoming.prices[4], unidad: incoming.unit,
+      codigo_proveedor: incoming.supplierCode, subrubro: incoming.subrubric, categoria: incoming.category,
+      codigo_barras: incoming.barcode, activo: incoming.active ? "SI" : "NO", origen: "importacion-cartera-homologada"
+    }, row.row - 1);
+    next.rubro = incoming.subrubric;
+    next.familia = incoming.category;
+    next.subrubro = incoming.subrubric;
+    next.categoria = incoming.category;
+    next.codigo_proveedor = incoming.supplierCode;
+    next.updatedBy = user.name;
+    if (index >= 0) products[index] = next; else products.push(next);
+    applied.push({ action: index >= 0 ? "ACTUALIZAR" : "ALTA", id: nextId, name: next.name, previous, next });
+  });
+  const inactivated = [];
+  products.forEach((product, index) => {
+    const id = portfolioProductIdentity(product);
+    if (!inactivateIds.has(id)) return;
+    const previous = { ...product };
+    products[index] = { ...product, activo: "NO", updatedAt: new Date().toISOString(), updatedBy: user.name };
+    inactivated.push({ action: "INACTIVAR", id, name: product.name, previous, next: products[index] });
+  });
+  state.products = products;
+  ensurePriceListsState(state);
+  const record = {
+    id: `PORT-${Date.now()}`, at: new Date().toISOString(), user: user.name, username: user.username || "",
+    action: "IMPORTACION_CARTERA_HOMOLOGADA", source: preview.fileName, previousCount: products.length - applied.filter((item) => item.action === "ALTA").length,
+    newCount: products.length, updated: applied.filter((item) => item.action === "ACTUALIZAR").length,
+    created: applied.filter((item) => item.action === "ALTA").length, inactivated: inactivated.length,
+    unresolved: preview.summary.unresolved - applied.filter((item) => item.action === "ALTA").length, backup
+  };
+  state.productPortfolioAudit = Array.isArray(state.productPortfolioAudit) ? state.productPortfolioAudit : [];
+  const detailAudit = [...applied, ...inactivated].map((item, index) => ({
+    id: `${record.id}-${String(index + 1).padStart(4, "0")}`,
+    at: record.at,
+    user: user.name,
+    username: user.username || "",
+    action: item.action,
+    productId: item.id,
+    product: item.name,
+    previousValue: item.previous,
+    newValue: item.next,
+    motive: String(input.motive || input.motivo || "Importacion homologada").trim(),
+    source: preview.fileName
+  }));
+  state.productPortfolioAudit.unshift(record, ...detailAudit);
+  state.productPortfolioAudit = state.productPortfolioAudit.slice(0, 10000);
+  orderEngine.migrateState(state);
+  return { record, backup, applied, inactivated };
+}
+
+async function portfolioTemplateBase64() {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Grupo Rocha Solutions";
+  const sheet = workbook.addWorksheet("Cartera");
+  sheet.addRow(PORTFOLIO_TEMPLATE_COLUMNS);
+  sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F766E" } };
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  sheet.autoFilter = { from: "A1", to: "Q1" };
+  sheet.columns = PORTFOLIO_TEMPLATE_COLUMNS.map((header) => ({ header, key: header, width: Math.max(14, Math.min(34, header.length + 4)) }));
+  sheet.addRow(["ACTUALIZAR", "COD-001", "Producto ejemplo", 10, 100, 130, 140, 150, 160, 170, "unidad", "", "Rubro", "Categoria", "", "SI", "Fila de ejemplo: eliminar antes de importar"]);
+  return Buffer.from(await workbook.xlsx.writeBuffer()).toString("base64");
+}
+
+async function reportWorkbookBase64(input, user) {
+  const headers = Array.isArray(input.headers) ? input.headers.map((value) => String(value || "").slice(0, 80)) : [];
+  const rows = Array.isArray(input.rows) ? input.rows.slice(0, 50000) : [];
+  if (!headers.length || headers.length > 40) throw new Error("El reporte no tiene columnas validas.");
+  if (rows.some((row) => !Array.isArray(row) || row.length !== headers.length)) throw new Error("El reporte contiene filas invalidas.");
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Grupo Rocha Solutions";
+  workbook.lastModifiedBy = user.name || user.username || "Administracion";
+  workbook.created = new Date();
+  const sheetName = String(input.sheetName || "Reporte").replace(/[\\/*?:\[\]]/g, " ").slice(0, 31) || "Reporte";
+  const sheet = workbook.addWorksheet(sheetName);
+  sheet.addRow(headers);
+  rows.forEach((row) => sheet.addRow(row.map((value) => value == null ? "" : value)));
+  sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F766E" } };
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: headers.length } };
+  sheet.columns.forEach((column, index) => {
+    const values = [headers[index], ...rows.slice(0, 500).map((row) => row[index])];
+    column.width = Math.max(12, Math.min(48, values.reduce((max, value) => Math.max(max, String(value == null ? "" : value).length), 0) + 2));
+  });
+  sheet.eachRow((row, number) => {
+    if (number > 1 && number % 2 === 0) row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F4" } };
+  });
+  return Buffer.from(await workbook.xlsx.writeBuffer()).toString("base64");
+}
+
 function applyProductPortfolioImport(state, products, user, input = {}) {
   if (!Array.isArray(products) || !products.length) throw new Error("La importacion no contiene productos.");
   const normalized = products.map(normalizeImportedProductRecord);
@@ -4409,9 +4689,117 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/product-portfolio/template" && req.method === "GET") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Descargar plantilla requiere Administrador." });
+        return;
+      }
+      sendJson(res, 200, {
+        ok: true,
+        fileName: "plantilla-cartera-productos.xlsx",
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        base64: await portfolioTemplateBase64()
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/reports/xlsx" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Exportar reportes requiere Administrador." });
+        return;
+      }
+      try {
+        const input = JSON.parse(await readBody(req) || "{}");
+        const base64 = await reportWorkbookBase64(input, sessionUser);
+        sendJson(res, 200, {
+          ok: true,
+          fileName: String(input.fileName || "reporte.xlsx").replace(/[^a-z0-9._-]/gi, "-").slice(0, 160),
+          mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          base64
+        });
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo generar el Excel." });
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/product-portfolio/preview" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Previsualizar cartera requiere Administrador." });
+        return;
+      }
+      try {
+        const input = JSON.parse(await readBody(req) || "{}");
+        const workbook = await readPortfolioWorkbook(input.fileDataUrl);
+        const currentState = readStateFileCached().state || {};
+        const preview = previewProductPortfolio(currentState, workbook.rows, {
+          fileName: input.fileName,
+          sheetName: workbook.sheetName
+        });
+        sendJson(res, 200, { ok: true, preview });
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo validar la cartera." });
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/product-portfolio/apply" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Aplicar cartera requiere Administrador." });
+        return;
+      }
+      try {
+        const input = JSON.parse(await readBody(req) || "{}");
+        if (input.confirmed !== true) throw new Error("La importacion requiere confirmacion administrativa.");
+        const motive = String(input.motive || input.motivo || "").trim();
+        if (!motive) throw new Error("Indicar el motivo de importacion.");
+        const preview = productPortfolioPreviews.get(String(input.token || ""));
+        if (!preview) throw new Error("La vista previa vencio. Volver a validar el archivo.");
+        if (Date.now() - new Date(preview.createdAt).getTime() > 30 * 60 * 1000) throw new Error("La vista previa vencio. Volver a validar el archivo.");
+        const unresolved = preview.rows.filter((row) => row.action === "REQUIERE_HOMOLOGACION" && !["ALTA", "OMITIR"].includes(String(input.resolutions && input.resolutions[row.key] || "").toUpperCase()));
+        if (unresolved.length) throw new Error(`Resolver ${unresolved.length} productos sin homologacion antes de aplicar.`);
+        const currentState = readStateFileCached().state || {};
+        const result = applyHomologatedPortfolioImport(currentState, preview, input, sessionUser);
+        productPortfolioPreviews.delete(preview.token);
+        writeStateResponse(res, currentState, result, auditEntry(req, sessionUser, input, {
+          action: "IMPORTACION_CARTERA_HOMOLOGADA",
+          entityType: "producto",
+          entityId: result.record.id,
+          entityLabel: preview.fileName,
+          previousValue: { products: result.record.previousCount },
+          newValue: { products: result.record.newCount, updated: result.record.updated, created: result.record.created, inactivated: result.record.inactivated },
+          note: motive
+        }), notificationEntry(req, sessionUser, input, {
+          action: "IMPORTACION_CARTERA_HOMOLOGADA",
+          category: "Productos",
+          title: "Cartera homologada aplicada",
+          text: `${result.record.updated} actualizados, ${result.record.created} altas y ${result.record.inactivated} inactivos.`,
+          tone: "ok",
+          entityType: "producto",
+          entityId: result.record.id,
+          entityLabel: preview.fileName,
+          audience: ["admin"]
+        }), sessionUser);
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo aplicar la cartera." });
+      }
+      return;
+    }
+
     if (requestUrl.pathname === "/api/product-portfolio/import-json" && req.method === "POST") {
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
+      sendJson(res, 410, { ok: false, error: "Importador reemplazado por el flujo homologado con vista previa en /api/product-portfolio/preview." });
+      return;
+      /* compatibilidad historica deshabilitada: nunca volver a reemplazar toda la cartera */
       if (sessionUser.role !== "admin") {
         sendJson(res, 403, { ok: false, error: "Importar cartera requiere Administrador." });
         return;
@@ -5513,6 +5901,10 @@ const server = http.createServer(async (req, res) => {
         if (!supplier) {
           throw new Error("Proveedor no encontrado. Crear proveedor primero con + Nuevo proveedor.");
         }
+        const duplicateRemit = (Array.isArray(currentState.supplierMovements) ? currentState.supplierMovements : []).find((movement) =>
+          sameText(movement.supplier, supplier.name) && sameText(movement.remitNumber, remitNumber)
+        );
+        if (duplicateRemit) throw new Error(`El remito ${remitNumber} de ${supplier.name} ya fue registrado.`);
         let lines = normalizeSupplierRemitItems(currentState, { ...input, supplier: supplier.name });
         if (receiverMode) {
           lines = lines.map((line) => ({
