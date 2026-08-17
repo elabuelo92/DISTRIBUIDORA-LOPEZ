@@ -180,8 +180,8 @@ const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
 const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-98";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "17/08/2026 18:41 ART";
-const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-17T18:41:07-03:00";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "17/08/2026 19:35 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-17T19:35:00-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
 
@@ -355,6 +355,7 @@ let routeSalesDateTo = "";
 let routeSalesSellerFilter = "all";
 let routeSalesZoneFilter = "all";
 let routeSalesCategoryFilter = "all";
+let routeSalesGrouping = "product-route";
 let routeSalesProductTerm = "";
 const ORDERS_PAGE_SIZE = 25;
 let currentFilteredOrders = [];
@@ -442,7 +443,7 @@ let shortageZoneFilter = "all";
 let shortageStatusFilter = "all";
 let shortageSupplierFilter = "all";
 let shortageSubrubricFilter = "all";
-let shortagePurchaseStatusFilter = "all";
+let shortageStockStatusFilter = "all";
 let auditSearchTerm = "";
 let auditEntityFilter = "all";
 let auditActionFilter = "all";
@@ -13138,6 +13139,15 @@ function shortageDetailRows() {
         : inTransit > 0
           ? "Compra parcial"
           : "Sin comprar";
+      const minimum = product ? numeric(product.min ?? product.stock_minimo, 0) : 0;
+      const currentStock = product ? OrderEngine.inventory(product).available : 0;
+      const stockStatus = currentStock <= 0
+        ? "Sin stock"
+        : minimum > 0 && currentStock <= minimum
+          ? "Stock critico"
+          : minimum > 0 && currentStock <= Math.max(minimum + 5, minimum * 1.25)
+            ? "Stock bajo"
+            : "Disponible";
       return {
         orderCode: order.code,
         product: item.name || "",
@@ -13154,12 +13164,13 @@ function shortageDetailRows() {
         ,code: item.productCode || product && product.codigo_producto || ""
         ,supplier: product && (product.proveedor || product.supplier) || "Sin proveedor"
         ,subrubric: product && (product.subrubro || product.rubro || product.familia) || "S/D"
-        ,currentStock: product ? OrderEngine.inventory(product).available : 0
+        ,currentStock
         ,committed: requested
         ,suggested: Math.max(difference, product ? Math.max(0, numeric(product.min, 0) - OrderEngine.inventory(product).available) : difference)
         ,cost: product ? numeric(product.cost ?? product.costo, 0) : 0
         ,list2: product ? productPriceForListNumber(product, 2) : 0
         ,purchaseStatus
+        ,stockStatus
       };
     }).filter((row) => row.difference > 0);
   }).sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
@@ -13180,7 +13191,7 @@ function filteredShortageRows() {
     .filter((row) => shortageStatusFilter === "all" || row.status === shortageStatusFilter)
     .filter((row) => shortageSupplierFilter === "all" || row.supplier === shortageSupplierFilter)
     .filter((row) => shortageSubrubricFilter === "all" || row.subrubric === shortageSubrubricFilter)
-    .filter((row) => shortagePurchaseStatusFilter === "all" || row.purchaseStatus === shortagePurchaseStatusFilter);
+    .filter((row) => shortageStockStatusFilter === "all" || row.stockStatus === shortageStockStatusFilter);
 }
 
 function renderShortageStats() {
@@ -13207,13 +13218,13 @@ function renderShortageStats() {
   }
   table.innerHTML = filtered.length ? filtered.slice(0, 120).map((row) => `
     <tr>
-      <td><strong>${escapeHtml(row.product)}</strong><small>${escapeHtml(`${row.code || "S/C"} - ${row.subrubric}`)}</small></td>
+      <td><button class="link-btn shortage-product-link" type="button" data-shortage-product="${escapeHtml(row.code || row.product)}"><strong>${escapeHtml(row.product)}</strong></button><small>${escapeHtml(`${row.code || "S/C"} - ${row.subrubric}`)}</small></td>
       <td>${row.currentStock}</td>
       <td>${row.committed}</td>
       <td><span class="tag danger">${row.difference}</span><small>Sugerido ${row.suggested}</small></td>
       <td><strong>${escapeHtml(row.client)}</strong><small>${escapeHtml(row.zone)}</small></td>
       <td><strong>${escapeHtml(row.supplier)}</strong><small>${escapeHtml(row.seller)}</small></td>
-      <td><small>${escapeHtml(`${row.date} ${row.time}`)}</small><span class="tag ${row.purchaseStatus === "Comprado" ? "success" : row.purchaseStatus === "Compra parcial" ? "warn" : "danger"}">${escapeHtml(row.purchaseStatus)}</span></td>
+      <td><small>${escapeHtml(`${row.date} ${row.time}`)}</small><span class="tag ${row.stockStatus === "Disponible" ? "success" : row.stockStatus === "Stock bajo" ? "warn" : "danger"}">${escapeHtml(row.stockStatus)}</span></td>
     </tr>
   `).join("") : '<tr><td class="stock-empty" colspan="7">No hay faltantes para los filtros seleccionados.</td></tr>';
 }
@@ -13224,7 +13235,7 @@ async function exportShortagesCsv() {
     return;
   }
   const rows = filteredShortageRows();
-  const headers = ["pedido", "codigo", "producto", "subrubro", "proveedor", "stock_actual", "comprometido", "faltante", "compra_sugerida", "costo", "lista_2", "cliente", "vendedor", "zona", "estado_pedido", "estado_compra", "fecha", "hora"];
+  const headers = ["pedido", "codigo", "producto", "subrubro", "proveedor", "stock_actual", "comprometido", "faltante", "compra_sugerida", "costo", "lista_2", "cliente", "vendedor", "zona", "estado_pedido", "estado_stock", "estado_compra", "fecha", "hora"];
   const reportRows = rows.map((row) => [
       row.orderCode,
       row.code,
@@ -13241,6 +13252,7 @@ async function exportShortagesCsv() {
       row.seller,
       row.zone,
       row.status,
+      row.stockStatus,
       row.purchaseStatus,
       row.date,
       row.time
@@ -13270,6 +13282,22 @@ function exportShortagesPdf() {
   downloadBlob(`faltantes-distribuidora-lopez-${reportDateStamp()}.pdf`, makeSimplePdf("Distribuidora Lopez - Faltantes", lines));
 }
 
+function showShortageProductTrace(productKey) {
+  const key = normalizeSearchText(productKey);
+  const rows = shortageDetailRows().filter((row) => (
+    normalizeSearchText(row.code) === key || normalizeSearchText(row.product) === key
+  ));
+  if (!rows.length) {
+    window.alert("No se encontraron pedidos asociados al faltante.");
+    return;
+  }
+  const productName = rows[0].product;
+  const detail = rows.slice(0, 30).map((row) => (
+    `${row.orderCode} - ${row.client} - faltan ${row.difference} - ${row.status} - ${row.date}`
+  ));
+  window.alert(`${productName}\n\nPedidos que generan el faltante:\n${detail.join("\n")}${rows.length > 30 ? `\n... y ${rows.length - 30} mas.` : ""}`);
+}
+
 function routeSalesRows() {
   const grouped = new Map();
   (state.orders || []).forEach((order) => {
@@ -13295,13 +13323,39 @@ function routeSalesRows() {
 
 function filteredRouteSalesRows() {
   const terms = searchTerms(routeSalesProductTerm);
-  return routeSalesRows()
+  const detailed = routeSalesRows()
     .filter((row) => !routeSalesDateFrom || row.date >= routeSalesDateFrom)
     .filter((row) => !routeSalesDateTo || row.date <= routeSalesDateTo)
     .filter((row) => routeSalesSellerFilter === "all" || row.seller === routeSalesSellerFilter)
     .filter((row) => routeSalesZoneFilter === "all" || row.zone === routeSalesZoneFilter)
     .filter((row) => routeSalesCategoryFilter === "all" || row.category === routeSalesCategoryFilter)
     .filter((row) => !terms.length || matchesSearch(`${row.code} ${row.product}`, terms));
+  const grouped = new Map();
+  detailed.forEach((row) => {
+    const dimension = routeSalesGrouping === "product-seller"
+      ? row.seller
+      : routeSalesGrouping === "product-route"
+        ? row.zone
+        : routeSalesGrouping === "product-day"
+          ? row.date
+          : "all";
+    const key = `${normalizeSearchText(row.code || row.product)}|${normalizeSearchText(dimension)}`;
+    const current = grouped.get(key) || {
+      ...row,
+      date: routeSalesGrouping === "product-day" ? row.date : "Periodo",
+      zone: routeSalesGrouping === "product-route" ? row.zone : "Todas",
+      seller: routeSalesGrouping === "product-seller" ? row.seller : "Todos",
+      units: 0,
+      amount: 0,
+      orders: new Set()
+    };
+    current.units += row.units;
+    current.amount += row.amount;
+    row.orders.forEach((code) => current.orders.add(code));
+    grouped.set(key, current);
+  });
+  return [...grouped.values()].map((row) => ({ ...row, orderCount: row.orders.size }))
+    .sort((a, b) => `${a.product}|${a.date}|${a.zone}|${a.seller}`.localeCompare(`${b.product}|${b.date}|${b.zone}|${b.seller}`, "es"));
 }
 
 function renderRouteSalesReport() {
@@ -13310,12 +13364,13 @@ function renderRouteSalesReport() {
   const all = routeSalesRows();
   routeSalesSellerFilter = updateDynamicFilter("routeSalesSellerFilter", all.map((row) => row.seller), routeSalesSellerFilter, "Todos los vendedores");
   routeSalesZoneFilter = updateDynamicFilter("routeSalesZoneFilter", all.map((row) => row.zone), routeSalesZoneFilter, "Todas las rutas / zonas");
-  routeSalesCategoryFilter = updateDynamicFilter("routeSalesCategoryFilter", all.map((row) => row.category), routeSalesCategoryFilter, "Todas las categorias");
+  routeSalesCategoryFilter = updateDynamicFilter("routeSalesCategoryFilter", all.map((row) => row.category), routeSalesCategoryFilter, "Todos los subrubros");
   const rows = filteredRouteSalesRows();
   const units = rows.reduce((sum, row) => sum + row.units, 0);
   const amount = rows.reduce((sum, row) => sum + row.amount, 0);
   const orders = new Set(rows.flatMap((row) => [...row.orders])).size;
-  byId("routeSalesSummary").innerHTML = `<span>${rows.length} productos consolidados</span><span>${units} unidades</span><span>${orders} pedidos</span><span>${money.format(amount)}</span>`;
+  const differentProducts = new Set(rows.map((row) => row.code || normalizeSearchText(row.product))).size;
+  byId("routeSalesSummary").innerHTML = `<span>${differentProducts} productos diferentes</span><span>${units} unidades</span><span>${orders} pedidos</span><span>${money.format(amount)}</span>`;
   table.innerHTML = rows.length ? rows.slice(0, 250).map((row) => `<tr>
     <td>${escapeHtml(displayDateKey(row.date))}</td><td>${escapeHtml(row.zone)}</td><td>${escapeHtml(row.seller)}</td>
     <td><strong>${escapeHtml(row.product)}</strong><small>${escapeHtml(`${row.code || "Sin codigo"} - ${row.category}`)}</small></td>
@@ -16628,11 +16683,11 @@ byId("shortageStatusFilter").addEventListener("change", (event) => {
   shortageStatusFilter = event.target.value;
   renderShortageStats();
 });
-["shortageSupplierFilter", "shortageSubrubricFilter", "shortagePurchaseStatusFilter"].forEach((id) => {
+["shortageSupplierFilter", "shortageSubrubricFilter", "shortageStockStatusFilter"].forEach((id) => {
   byId(id).addEventListener("change", (event) => {
     if (id === "shortageSupplierFilter") shortageSupplierFilter = event.target.value;
     if (id === "shortageSubrubricFilter") shortageSubrubricFilter = event.target.value;
-    if (id === "shortagePurchaseStatusFilter") shortagePurchaseStatusFilter = event.target.value;
+    if (id === "shortageStockStatusFilter") shortageStockStatusFilter = event.target.value;
     renderShortageStats();
   });
 });
@@ -16648,7 +16703,7 @@ byId("clearShortageFiltersBtn").addEventListener("click", () => {
   shortageStatusFilter = "all";
   shortageSupplierFilter = "all";
   shortageSubrubricFilter = "all";
-  shortagePurchaseStatusFilter = "all";
+  shortageStockStatusFilter = "all";
   ["shortageDateFrom", "shortageDateTo", "shortageTimeFrom", "shortageTimeTo", "shortageProductSearch", "shortageClientSearch"].forEach((id) => {
     byId(id).value = "";
   });
@@ -16657,7 +16712,7 @@ byId("clearShortageFiltersBtn").addEventListener("click", () => {
   byId("shortageStatusFilter").value = "all";
   byId("shortageSupplierFilter").value = "all";
   byId("shortageSubrubricFilter").value = "all";
-  byId("shortagePurchaseStatusFilter").value = "all";
+  byId("shortageStockStatusFilter").value = "all";
   renderShortageStats();
 });
 byId("exportShortagesCsvBtn").addEventListener("click", exportShortagesCsv);
@@ -17190,6 +17245,7 @@ byId("routeSalesDateTo").addEventListener("change", (event) => { routeSalesDateT
 byId("routeSalesSellerFilter").addEventListener("change", (event) => { routeSalesSellerFilter = event.target.value; renderRouteSalesReport(); });
 byId("routeSalesZoneFilter").addEventListener("change", (event) => { routeSalesZoneFilter = event.target.value; renderRouteSalesReport(); });
 byId("routeSalesCategoryFilter").addEventListener("change", (event) => { routeSalesCategoryFilter = event.target.value; renderRouteSalesReport(); });
+byId("routeSalesGrouping").addEventListener("change", (event) => { routeSalesGrouping = event.target.value; renderRouteSalesReport(); });
 byId("routeSalesProductSearch").addEventListener("input", debounce((event) => { routeSalesProductTerm = event.target.value; renderRouteSalesReport(); }, 600));
 byId("clearRouteSalesFiltersBtn").addEventListener("click", () => {
   routeSalesDateFrom = "";
@@ -17197,9 +17253,18 @@ byId("clearRouteSalesFiltersBtn").addEventListener("click", () => {
   routeSalesSellerFilter = "all";
   routeSalesZoneFilter = "all";
   routeSalesCategoryFilter = "all";
+  routeSalesGrouping = "product-route";
   routeSalesProductTerm = "";
   ["routeSalesDateFrom", "routeSalesDateTo", "routeSalesProductSearch"].forEach((id) => { byId(id).value = ""; });
+  byId("routeSalesGrouping").value = routeSalesGrouping;
   renderRouteSalesReport();
+});
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-shortage-product]");
+  if (button) showShortageProductTrace(button.dataset.shortageProduct);
+});
+byId("portfolioInactivateAllBtn").addEventListener("click", () => {
+  document.querySelectorAll("[data-portfolio-inactivate]:not(:disabled)").forEach((input) => { input.checked = true; });
 });
 byId("orderEditForm").addEventListener("submit", submitOrderEdit);
 byId("orderLabelForm").addEventListener("submit", submitOrderLabel);

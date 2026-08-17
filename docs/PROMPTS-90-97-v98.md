@@ -13,10 +13,10 @@ Version: 8790-98
 - Edicion de pedidos con precio de la lista historica del vendedor y comparacion visual antes de guardar.
 - Observaciones impresas siempre que existan, respetando saltos de linea.
 - Cliente y direccion con mayor jerarquia; cantidad sin negrita; faltantes con asterisco rojo discreto.
-- Faltantes a comprar con stock, comprometido, proveedor, subrubro, estado de compra y compra sugerida.
+- Faltantes a comprar con stock, comprometido, proveedor, subrubro, semaforo de stock, compra sugerida y apertura de pedidos asociados.
 - Exportacion XLSX real de faltantes, pedidos y productos vendidos por ruta.
 - Pedidos: exportacion segun filtros en formatos Ventas, Picking, Comisiones y Detalle.
-- Reporte de productos vendidos por fecha, ruta/zona, vendedor, categoria y producto, con Excel y PDF.
+- Reporte de productos vendidos por fecha, ruta/zona, vendedor, subrubro y producto, agrupable por producto, vendedor, ruta o dia, con Excel y PDF.
 - Remitos: cierre del dialogo tras exito y bloqueo de proveedor + numero de remito duplicado.
 - Busqueda de productos con 600 ms de debounce y prioridad exacta, prefijo y contenido.
 - Resultados alfabeticos, filas adaptables, descripcion hasta dos lineas y precio/stock visibles.

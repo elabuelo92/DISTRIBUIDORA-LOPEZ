@@ -97,8 +97,9 @@ async function jsonRequest(url, cookie, options = {}) {
   assert.match(appSource, /forceProductIndex/);
   assert.match(appSource, /debounce\(\(\) => renderMobileProductOptions\(\), 600\)/);
   assert.match(appSource, /byId\("supplierRemitDialog"\)\.close\("default"\)/);
-  assert.match(appSource, /shortagePurchaseStatusFilter/);
+  assert.match(appSource, /shortageStockStatusFilter/);
   assert.match(appSource, /routeSalesCategoryFilter/);
+  assert.match(appSource, /routeSalesGrouping/);
 
   console.log(JSON.stringify({
     ok: true,
