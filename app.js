@@ -15367,13 +15367,24 @@ async function addMobileClientFromQuickForm() {
     device: sessionDevice
     });
     const client = payload.client || state.clients.find((item) => item.name === name);
+    if (client) {
+      state.clients = Array.isArray(state.clients) ? state.clients : [];
+      const existingIndex = state.clients.findIndex((item) => sameText(item.codigo_cliente, client.codigo_cliente) || sameText(item.name, client.name));
+      if (existingIndex >= 0) state.clients[existingIndex] = client;
+      else state.clients.unshift(client);
+      syncVersion = Math.max(Number(syncVersion || 0), Number(payload.version || 0));
+      window.setTimeout(() => pullStateFromServer(), 250);
+    }
     mobileClient = client ? client.name : name;
     clearMobileClientForm();
     setMobileClientFormOpen(false);
     renderForCurrentUser();
     showCompactNotice(`${mobileClient} ya esta disponible para vender.`, "ok");
   } catch (error) {
-    window.alert(error.message || "No se pudo guardar el cliente en el servidor.");
+    const message = error && (error.name === "AbortError" || error.name === "TimeoutError")
+      ? "El servidor demoro en responder. Verificar el padron antes de volver a guardar para evitar duplicados."
+      : error.message || "No se pudo guardar el cliente en el servidor.";
+    window.alert(message);
   } finally {
     if (button) {
       button.disabled = false;

@@ -1512,6 +1512,22 @@ function writeStateResponse(res, state, extra, auditEntries, notificationEntries
   sendJson(res, 200, { ok: true, version, state: stateForUser(state, userForState), ...(extra || {}) });
 }
 
+function writeCompactStateResponse(res, state, extra, auditEntries, notificationEntries) {
+  const auditList = (Array.isArray(auditEntries) ? auditEntries : [auditEntries]).filter(Boolean);
+  const notificationList = (Array.isArray(notificationEntries) ? notificationEntries : [notificationEntries]).filter(Boolean);
+  if (auditList.length) {
+    appendGlobalAudit(state, auditList);
+    eventEngine.emitFromAuditEntries(state, auditList);
+  }
+  if (notificationList.length) {
+    appendNotifications(state, notificationList);
+    eventEngine.emitFromNotificationEntries(state, notificationList);
+  }
+  ensureRejectedGps(state);
+  const version = writeState(state);
+  sendJson(res, 200, { ok: true, version, compact: true, ...(extra || {}) });
+}
+
 function appendAuditToStateFile(req, user, input, details) {
   const payload = readStateFileCached();
   const state = payload.state || {};
@@ -5327,7 +5343,7 @@ const server = http.createServer(async (req, res) => {
           text: `Alta movil asignada a ${client.seller || "sin vendedor"} con GPS ${client.gpsAccuracy || 0} m.`
         });
         const sanitizedInput = withoutSensitiveFields({ ...input, gps: client.gps });
-        writeStateResponse(res, currentState, { client }, [
+        writeCompactStateResponse(res, currentState, { client }, [
           auditEntry(req, sessionUser, sanitizedInput, {
             action: "PREVENTISTA_REVALIDADO_ALTA_CLIENTE",
             entityType: "cliente",

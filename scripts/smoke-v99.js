@@ -91,6 +91,30 @@ async function jsonRequest(url, cookie, options = {}) {
   assert.equal(invalidWorkbook.response.status, 400);
   assert.match(invalidWorkbook.payload.error, /no es un XLSX valido/i);
 
+  const mobileClient = await jsonRequest(`${baseUrl}/api/clients/mobile`, cookie, {
+    method: "POST",
+    body: JSON.stringify({
+      codigo_cliente: `SMOKE-CLIENT-${Date.now()}`,
+      nombre_comercial: "Cliente smoke compacto",
+      consumidor_final: true,
+      telefono: "3510000000",
+      domicilio: "Calle prueba 123",
+      localidad: "Cordoba",
+      forma_pago: "Contado",
+      limite_credito: 0,
+      zona: "Centro",
+      ruta: "Centro",
+      vendedor_asignado: "Administracion 1",
+      dia_visita: "Lunes",
+      preventistaPassword: "Lopez2026!",
+      gps: { lat: -31.4167, lng: -64.1833, accuracy: 8, source: "gps" }
+    })
+  });
+  assert.equal(mobileClient.response.status, 200);
+  assert.equal(mobileClient.payload.compact, true);
+  assert.equal(mobileClient.payload.state, undefined);
+  assert.equal(mobileClient.payload.client.name, "Cliente smoke compacto");
+
   const report = await jsonRequest(`${baseUrl}/api/reports/xlsx`, cookie, {
     method: "POST", body: JSON.stringify({ fileName: "smoke-v99.xlsx", sheetName: "Prueba", headers: ["Codigo", "Producto", "Cantidad"], rows: [["P1", "Producto prueba", 2]] })
   });
@@ -125,7 +149,8 @@ async function jsonRequest(url, cookie, options = {}) {
     legacyImporterBlocked: true,
     xlsxTemplateAndReport: true,
     invalidXlsxHandled: true,
-    mixedPaymentAutoBalance: true
+    mixedPaymentAutoBalance: true,
+    mobileClientCompactResponse: true
   }, null, 2));
 })().finally(() => {
   child.kill();

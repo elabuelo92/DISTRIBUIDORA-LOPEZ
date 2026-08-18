@@ -9,6 +9,20 @@ Fecha: 18/08/2026
 - La aplicacion rechaza extensiones distintas de `.xlsx` antes de subir el archivo.
 - En Reparto, al ingresar una transferencia sobre el total precargado en efectivo, el sistema redistribuye automaticamente el efectivo restante y cambia el modo a `Mixto`.
 - El mismo comportamiento se aplica en sentido inverso cuando el total estaba precargado como transferencia.
+- El alta movil de clientes devuelve una respuesta compacta en lugar del estado completo de produccion.
+- El cliente nuevo se incorpora inmediatamente al padron local de Preventa y se sincroniza en segundo plano.
+
+## Correccion de alta movil
+
+El mensaje `signal is aborted without reason` era un falso error provocado por el timeout del navegador: despues de guardar el cliente, el servidor enviaba nuevamente todo el estado productivo, de aproximadamente 29 MB. En redes moviles la respuesta podia superar los 12 segundos y ser cancelada aunque el alta ya estuviera confirmada.
+
+La respuesta de `POST /api/clients/mobile` contiene ahora solamente:
+
+- resultado de la operacion;
+- version del estado;
+- cliente creado.
+
+La prueba automatizada confirma que no se incluye el estado completo y que el cliente queda disponible para venta inmediata.
 
 ## Prueba de cartera
 
