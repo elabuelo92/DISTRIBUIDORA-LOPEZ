@@ -17,7 +17,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-98";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-99";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -3177,12 +3177,21 @@ function dataUrlBuffer(value, maxBytes = MAX_BODY) {
   if (!match) throw new Error("Archivo XLSX invalido o incompleto.");
   const buffer = Buffer.from(match[2], "base64");
   if (!buffer.length || buffer.length > maxBytes) throw new Error("El archivo XLSX supera el limite permitido.");
+  if (buffer.length < 4 || buffer[0] !== 0x50 || buffer[1] !== 0x4b) {
+    throw new Error("El archivo seleccionado no es un XLSX valido. Descargar la plantilla vigente y guardar el archivo como Libro de Excel (.xlsx).");
+  }
   return buffer;
 }
 
 async function readPortfolioWorkbook(fileDataUrl) {
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(dataUrlBuffer(fileDataUrl));
+  try {
+    await workbook.xlsx.load(dataUrlBuffer(fileDataUrl));
+  } catch (error) {
+    const message = String(error && error.message || "");
+    if (message.startsWith("El archivo")) throw error;
+    throw new Error("No se pudo abrir el Excel. Verificar que sea un archivo .xlsx real, no protegido y generado con la plantilla vigente.");
+  }
   const worksheet = workbook.worksheets.find((sheet) => sheet.actualRowCount > 0);
   if (!worksheet) throw new Error("El Excel no contiene hojas con datos.");
   let headerRowNumber = 0;

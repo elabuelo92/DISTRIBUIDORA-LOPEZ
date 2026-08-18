@@ -179,9 +179,9 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-98";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "17/08/2026 19:35 ART";
-const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-17T19:35:00-03:00";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-99";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "18/08/2026 10:05 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-18T10:05:10-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
 
@@ -10257,6 +10257,10 @@ async function previewProductPortfolioFile() {
     setPortfolioImportMessage("Seleccionar un archivo XLSX.");
     return;
   }
+  if (!/\.xlsx$/i.test(file.name || "")) {
+    setPortfolioImportMessage("El archivo debe ser un Libro de Excel con extension .xlsx. Descargar y completar la plantilla vigente.");
+    return;
+  }
   const button = byId("portfolioPreviewBtn");
   button.disabled = true;
   button.textContent = "Validando...";
@@ -17946,6 +17950,33 @@ function updateDeliveryPendingAmount() {
   byId("deliveryTransferCbu").required = false;
 }
 
+function reconcileDeliveryPaymentInput(source) {
+  const order = state.orders.find((item) => item.code === byId("deliveryCollectionOrderCode").value);
+  if (!order) return;
+  const total = deliveryCollectionTotals(order).netAmount;
+  let cash = Math.max(0, numeric(byId("deliveryCashAmount").value, 0));
+  let transfer = Math.max(0, numeric(byId("deliveryTransferAmount").value, 0));
+  const method = byId("deliveryPaymentMethod");
+
+  // Los presets cargan el total en un medio. Al editar el otro, redistribuir
+  // ese total para que el operador no deba corregir dos campos manualmente.
+  if (source === "transfer" && method.value === "Efectivo" && cash >= total && transfer > 0) {
+    cash = Math.max(0, Math.round((total - transfer) * 100) / 100);
+    byId("deliveryCashAmount").value = String(cash);
+  } else if (source === "cash" && method.value === "Transferencia" && transfer >= total && cash > 0) {
+    transfer = Math.max(0, Math.round((total - cash) * 100) / 100);
+    byId("deliveryTransferAmount").value = String(transfer);
+  }
+
+  const pending = Math.max(0, Math.round((total - cash - transfer) * 100) / 100);
+  const activeParts = [cash > 0, transfer > 0, pending > 0].filter(Boolean).length;
+  if (activeParts > 1) method.value = "Mixto";
+  else if (transfer > 0) method.value = "Transferencia";
+  else if (pending > 0) method.value = "Cuenta corriente";
+  else method.value = "Efectivo";
+  updateDeliveryPendingAmount();
+}
+
 function deliveryTransferAttachmentFile() {
   return byId("deliveryTransferPhoto").files[0]
     || byId("deliveryTransferGallery").files[0]
@@ -18558,8 +18589,8 @@ document.addEventListener("click", async (event) => {
 });
 
 byId("deliveryPaymentMethod").addEventListener("change", updateDeliveryPaymentDefaults);
-byId("deliveryCashAmount").addEventListener("input", updateDeliveryPendingAmount);
-byId("deliveryTransferAmount").addEventListener("input", updateDeliveryPendingAmount);
+byId("deliveryCashAmount").addEventListener("input", () => reconcileDeliveryPaymentInput("cash"));
+byId("deliveryTransferAmount").addEventListener("input", () => reconcileDeliveryPaymentInput("transfer"));
 document.querySelectorAll("[data-delivery-payment-preset]").forEach((button) => {
   button.addEventListener("click", () => applyDeliveryPaymentPreset(button.dataset.deliveryPaymentPreset));
 });
