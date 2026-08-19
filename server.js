@@ -17,7 +17,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-99";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-100";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -574,7 +574,6 @@ function appendGpsHistory(session, gps, input = {}) {
     serverAt: gps.serverAt
   };
   fs.appendFileSync(GPS_HISTORY_LOG, `${JSON.stringify(entry)}\n`, "utf8");
-  if (Math.random() < 0.02) pruneGpsHistory(readSessionConfig().historyRetentionDays);
   return entry;
 }
 
