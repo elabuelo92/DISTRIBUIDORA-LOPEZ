@@ -17,7 +17,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-100";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-101";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -76,30 +76,36 @@ function send(res, status, type, body, headers) {
 }
 
 function sendJson(res, status, data, headers) {
-  let payload = Buffer.from(JSON.stringify(data), "utf8");
+  const payload = Buffer.from(JSON.stringify(data), "utf8");
   const responseHeaders = { ...(headers || {}) };
   const acceptEncoding = String(res._acceptEncoding || "gzip").toLowerCase();
+  const finish = (body, encoding = "") => {
+    if (res.destroyed || res.writableEnded) return;
+    if (encoding) {
+      responseHeaders["Content-Encoding"] = encoding;
+      responseHeaders["Vary"] = "Accept-Encoding";
+    }
+    res.writeHead(status, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Length": body.length,
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      "Pragma": "no-cache",
+      "Expires": "0",
+      ...responseHeaders
+    });
+    res.end(body);
+  };
   if (payload.length > 2048 && acceptEncoding.includes("gzip")) {
-    payload = zlib.gzipSync(payload);
-    responseHeaders["Content-Encoding"] = "gzip";
-    responseHeaders["Vary"] = "Accept-Encoding";
+    zlib.gzip(payload, (error, compressed) => finish(error ? payload : compressed, error ? "" : "gzip"));
+    return;
   } else if (payload.length > 2048 && acceptEncoding.includes("deflate")) {
-    payload = zlib.deflateSync(payload);
-    responseHeaders["Content-Encoding"] = "deflate";
-    responseHeaders["Vary"] = "Accept-Encoding";
+    zlib.deflate(payload, (error, compressed) => finish(error ? payload : compressed, error ? "" : "deflate"));
+    return;
   }
-  res.writeHead(status, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Content-Length": payload.length,
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-    "Pragma": "no-cache",
-    "Expires": "0",
-    ...responseHeaders
-  });
-  res.end(payload);
+  finish(payload);
 }
 
 function boundedNumber(value, fallback, min, max) {
@@ -2113,6 +2119,14 @@ function stateForUser(state, user) {
     clean.commissionAudit = [];
     clean.legalAudit = [];
     clean.legalAcceptances = [];
+    clean.globalAudit = [];
+    clean.domainEvents = [];
+    clean.integrationOutbox = [];
+    clean.productPortfolioAudit = [];
+    clean.rejectedGps = [];
+    clean.notifications = (clean.notifications || []).filter((entry) =>
+      (entry.audience || []).includes("seller") || String(entry.username || "") === String(user.username || "")
+    ).slice(0, 200);
     return clean;
   }
   if (user && user.role === "depot") {
@@ -2251,6 +2265,14 @@ function stateForUser(state, user) {
     clean.commissionAudit = [];
     clean.legalAudit = [];
     clean.legalAcceptances = [];
+    clean.globalAudit = [];
+    clean.domainEvents = [];
+    clean.integrationOutbox = [];
+    clean.productPortfolioAudit = [];
+    clean.rejectedGps = [];
+    clean.notifications = (clean.notifications || []).filter((entry) =>
+      (entry.audience || []).includes("driver") || String(entry.username || "") === String(user.username || "")
+    ).slice(0, 200);
     return clean;
   }
   if (!user || user.role !== "receiver") return state;

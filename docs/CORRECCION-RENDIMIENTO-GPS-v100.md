@@ -43,3 +43,11 @@ Se reinicio controladamente `distribuidora-lopez.service`. Luego del reinicio:
 6. Validacion de health, login, estado, version, licencia e integridad.
 7. Serie de mediciones de latencia y verificacion desde la URL publica.
 
+## Refuerzo 8790-101
+
+La revision posterior detecto que el estado productivo alcanzaba 36,8 MB, de los cuales 24,6 MB correspondian a auditoria global. `sendJson()` comprimia ese volumen con `gzipSync`, bloqueando el event loop durante cada sincronizacion grande.
+
+Se aplicaron dos refuerzos:
+
+- compresion gzip/deflate asincrona para que las respuestas grandes no bloqueen logins, GPS ni otras solicitudes;
+- vendedores y repartidores ya no reciben colecciones administrativas pesadas como auditoria global, eventos de dominio, outbox, homologaciones o GPS rechazados. El historial original permanece completo en el servidor.
