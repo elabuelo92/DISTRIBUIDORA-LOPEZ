@@ -1,6 +1,6 @@
 ﻿# Guia - Carga de Stock y Cartera de Productos
 
-Fecha de ultima validacion: 2026-08-17
+Fecha de ultima validacion: 2026-08-18
 Sistema: SERVIDOR_UNICO_8790  
 URL operativa: https://lopez.gruporochaapp.com
 
@@ -8,16 +8,21 @@ URL operativa: https://lopez.gruporochaapp.com
 
 Archivo validado:
 
-`C:\Users\Distribuidora Lopez\Downloads\STOCK ACTUALIZADO.xlsx`
+`C:\Users\Distribuidora Lopez\Desktop\Cartera de producto actualizado al 17 de ago.xlsx`
 
 Resultado de la carga:
 
-- 653 productos cargados.
+- 310 productos activos.
+- 687 registros historicos totales.
+- 278 productos homologados y actualizados.
+- 32 productos creados como altas nuevas.
+- 377 productos de la cartera anterior inactivados, sin eliminarlos.
 - 0 codigos duplicados.
-- Stock total: 52.582 unidades.
+- Stock activo total: 67.600 unidades.
 - 5 listas de precios cargadas.
-- Cada lista contiene 653 productos.
-- Usuario Kevin asignado a Lista NÃ‚Âº 4.
+- Lista 1, Lista 2 y Lista 4 con precios para los 310 productos activos.
+- Lista 3 con 308 precios y Lista 5 con 92, respetando las celdas vacias del Excel fuente.
+- Usuario Kevin asignado y bloqueado a Lista Nro. 4.
 - Backup productivo generado antes de modificar datos.
 
 ## Metodo 1 - Actualizar solo cantidades de stock desde el sistema
@@ -61,6 +66,32 @@ Usar cuando cambia el Excel completo de productos, costos, stock y listas.
 
 El boton `Descargar plantilla actual` genera el formato homologado de 17 columnas. El viejo importador por PowerShell/JSON quedo deshabilitado porque reemplazaba toda la cartera sin resolver coincidencias.
 
+Plantilla canonica versionada:
+
+`docs\plantillas\PLANTILLA-CARTERA-PRODUCTOS-v99.xlsx`
+
+Columnas obligatorias y orden exacto:
+
+1. `Accion`
+2. `ID_Sistema`
+3. `Descripcion`
+4. `Stock`
+5. `Costo`
+6. `Lista_1`
+7. `Lista_2_Preventa`
+8. `Lista_3`
+9. `Lista_4`
+10. `Lista_5`
+11. `Unidad_Medida`
+12. `Codigo_Proveedor`
+13. `Subrubro`
+14. `Categoria`
+15. `Codigo_Barras`
+16. `Activo`
+17. `Observaciones_Importacion`
+
+Para futuras cargas no reutilizar una copia antigua. Descargar siempre la plantilla desde el sistema, completarla sin cambiar encabezados ni agregar hojas protegidas, guardar como `.xlsx` y ejecutar primero `Validar y previsualizar`.
+
 ## Diferencia importante
 
 - `Cargar inventario inicial` modifica cantidades de stock.
@@ -77,12 +108,14 @@ https://lopez.gruporochaapp.com/api/health
 Debe mostrar:
 
 - `ok: true`
-- `productsCount: 653`
+- `version: 8790-99`
+- `productsCount: 687` (incluye 377 inactivos conservados por trazabilidad)
 - `priceLists: 5`
 - `LICENSE_OK`
 - `INTEGRITY_OK`
 
 ## Respaldo productivo de esta carga
 
-`/opt/distribuidora-lopez/data/backups/2026-08-11T13-21-51-947Z-stock-actualizado`
+- `/opt/distribuidora-lopez/backups/data-pre-v99-20260818-230600.tar.gz`
+- `/opt/distribuidora-lopez/data/backups/2026-08-18T23-52-50-319Z-importar-cartera-homologada`
 

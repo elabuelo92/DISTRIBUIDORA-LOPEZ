@@ -22,6 +22,7 @@ importaciones/
 *.xlsx
 *.xls
 *.csv
+!docs/plantillas/*.xlsx
 __pycache__/
 
 !config/
