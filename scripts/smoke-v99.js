@@ -132,6 +132,7 @@ async function jsonRequest(url, cookie, options = {}) {
   assert.equal(legacy.response.status, 410);
 
   const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const serverSource = fs.readFileSync(path.join(root, "server.js"), "utf8");
   assert.match(appSource, /orderEditPriceList\(order\)/);
   assert.match(appSource, /forceProductIndex/);
   assert.match(appSource, /debounce\(\(\) => renderMobileProductOptions\(\), 600\)/);
@@ -142,6 +143,9 @@ async function jsonRequest(url, cookie, options = {}) {
   assert.match(appSource, /function reconcileDeliveryPaymentInput\(source\)/);
   assert.match(appSource, /source === "transfer" && method\.value === "Efectivo"/);
   assert.match(appSource, /method\.value = "Mixto"/);
+  assert.match(appSource, /if \(payload\.order\)/);
+  assert.match(serverSource, /const orderEditMatch[\s\S]*?writeCompactStateResponse\(res, currentState, result/);
+  assert.match(serverSource, /clean\.globalAudit = \(clean\.globalAudit \|\| \[\]\)\.slice\(0, 1500\)/);
 
   console.log(JSON.stringify({
     ok: true,
@@ -155,7 +159,9 @@ async function jsonRequest(url, cookie, options = {}) {
     xlsxTemplateAndReport: true,
     invalidXlsxHandled: true,
     mixedPaymentAutoBalance: true,
-    mobileClientCompactResponse: true
+    mobileClientCompactResponse: true,
+    orderEditCompactResponse: true,
+    adminStateBounded: true
   }, null, 2));
 })().finally(() => {
   child.kill();

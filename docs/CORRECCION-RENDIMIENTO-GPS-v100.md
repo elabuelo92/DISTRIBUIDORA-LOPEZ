@@ -51,3 +51,11 @@ Se aplicaron dos refuerzos:
 
 - compresion gzip/deflate asincrona para que las respuestas grandes no bloqueen logins, GPS ni otras solicitudes;
 - vendedores y repartidores ya no reciben colecciones administrativas pesadas como auditoria global, eventos de dominio, outbox, homologaciones o GPS rechazados. El historial original permanece completo en el servidor.
+
+## Refuerzo 8790-102
+
+La edicion administrativa de pedidos todavia respondia con el estado completo. En navegadores con timeout de 12 segundos esto producia `signal is aborted without reason` aunque la operacion hubiera llegado al servidor.
+
+- `/api/orders/:code/edit` ahora persiste y audita normalmente, pero devuelve una respuesta compacta con el pedido actualizado.
+- La interfaz reemplaza solamente el pedido modificado y cierra el dialogo sin descargar nuevamente todo el ERP.
+- El estado inicial administrativo limita las colecciones historicas enviadas en la sincronizacion general. Los registros completos no se borran del archivo productivo.

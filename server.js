@@ -17,7 +17,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-101";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-102";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -2273,6 +2273,16 @@ function stateForUser(state, user) {
     clean.notifications = (clean.notifications || []).filter((entry) =>
       (entry.audience || []).includes("driver") || String(entry.username || "") === String(user.username || "")
     ).slice(0, 200);
+    return clean;
+  }
+  if (user && user.role === "admin") {
+    const clean = { ...(state || {}) };
+    clean.globalAudit = (clean.globalAudit || []).slice(0, 1500);
+    clean.domainEvents = (clean.domainEvents || []).slice(0, 500);
+    clean.integrationOutbox = (clean.integrationOutbox || []).slice(0, 500);
+    clean.productPortfolioAudit = (clean.productPortfolioAudit || []).slice(0, 150);
+    clean.rejectedGps = (clean.rejectedGps || []).slice(0, 150);
+    clean.notifications = (clean.notifications || []).slice(0, 500);
     return clean;
   }
   if (!user || user.role !== "receiver") return state;
@@ -5639,7 +5649,7 @@ const server = http.createServer(async (req, res) => {
           ip: clientIp(req)
         });
         accountEngine.migrateState(currentState);
-        writeStateResponse(res, currentState, result, auditEntry(req, sessionUser, input, {
+        writeCompactStateResponse(res, currentState, result, auditEntry(req, sessionUser, input, {
           action: "PEDIDO_EDITADO",
           entityType: "pedido",
           entityId: code,

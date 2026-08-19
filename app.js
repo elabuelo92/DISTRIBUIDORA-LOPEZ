@@ -179,7 +179,7 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-101";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-102";
 const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "18/08/2026 10:05 ART";
 const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-18T10:05:10-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
@@ -2038,13 +2038,14 @@ function applyPresenceToState() {
 }
 
 function applyServerStatePayload(payload) {
-  if (!payload || !payload.state) return;
+  if (!payload) return;
+  syncVersion = payload.version || syncVersion;
+  if (!payload.state) return;
   applyPresencePayload(payload);
   const nextState = normalizeState(payload.state);
   trackIncomingNotifications(nextState);
   state = nextState;
   applyPresenceToState();
-  syncVersion = payload.version || syncVersion;
   syncReady = true;
   persistLocalMeta("server-payload");
   scheduleRenderForCurrentUser();
@@ -14675,11 +14676,17 @@ async function submitOrderEdit(event) {
   submit.disabled = true;
   submit.textContent = "Guardando...";
   try {
-    await postOperationalAction(`api/orders/${encodeURIComponent(orderEditTargetCode)}/edit`, {
+    const payload = await postOperationalAction(`api/orders/${encodeURIComponent(orderEditTargetCode)}/edit`, {
       items: orderEditDraftItems,
       observations: byId("orderEditObservation").value,
       motive
     });
+    if (payload.order) {
+      const index = state.orders.findIndex((order) => order.code === payload.order.code);
+      if (index >= 0) state.orders[index] = payload.order;
+      else state.orders.unshift(payload.order);
+      scheduleRenderForCurrentUser();
+    }
     byId("orderEditDialog").close("default");
   } catch (error) {
     byId("orderEditMessage").textContent = error.message || "No se pudo editar el pedido.";
