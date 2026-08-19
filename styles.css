@@ -324,6 +324,27 @@
   grid-column: 1 / -1;
 }
 
+.commission-report-filters {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  align-items: end;
+}
+
+.commission-report-filters label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.remit-product-results {
+  max-height: 240px;
+  overflow: auto;
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
 .commission-rule-scope {
   display: grid;
   gap: 3px;

@@ -461,7 +461,7 @@
       const orders = (state.orders || []).filter((order) => order.seller === sellerName && !CANCELLED_COMMISSION_STATUSES.has(order.status));
       seller.orders = orders.length;
       seller.sales = orders.reduce((sum, order) => sum + positive(order.amount), 0);
-      seller.commission = orders.reduce((sum, order) => sum + positive(order.commissions && order.commissions.seller && order.commissions.seller.total), 0);
+      seller.commission = orders.reduce((sum, order) => sum + (order.commissionLiquidated === true ? 0 : positive(order.commissions && order.commissions.seller && order.commissions.seller.total)), 0);
     });
     return sellers;
   }

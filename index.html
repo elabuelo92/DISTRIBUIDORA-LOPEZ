@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-102-r20260819c">
+    <link rel="manifest" href="manifest.json?v=8790-103-r20260819d">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-102-r20260819c">
+    <link rel="stylesheet" href="styles.css?v=8790-103-r20260819d">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -157,7 +157,7 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-102</strong>
+              <strong data-version-value>8790-103</strong>
               <small data-version-build>Actualizada 18/08/2026 10:05</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
@@ -1166,9 +1166,9 @@
                 <button class="secondary-btn admin-only" id="exportStockPdfBtn" type="button">Exportar PDF</button>
                 <button class="secondary-btn admin-only" id="printStockBtn" type="button">Imprimir</button>
                 <button class="secondary-btn admin-only" type="button" data-open-view="control-stock">Control fisico</button>
-                <button class="secondary-btn" id="newProductBtn" type="button">Nuevo producto</button>
-                <button class="secondary-btn" id="manualStockBtn" type="button">Ingreso stock</button>
-                <button class="ghost-btn" id="loadPurchaseBtn" type="button">Compra demo</button>
+                <button class="secondary-btn" id="newProductBtn" type="button" hidden aria-hidden="true">Nuevo producto</button>
+                <button class="secondary-btn" id="manualStockBtn" type="button" hidden aria-hidden="true">Ingreso stock</button>
+                <button class="ghost-btn" id="loadPurchaseBtn" type="button" hidden aria-hidden="true">Compra demo</button>
               </div>
               </div>
               <div class="stock-tools admin-only">
@@ -1189,12 +1189,16 @@
                 <select id="stockBrandFilter" aria-label="Filtrar stock por marca">
                   <option value="all">Todas las marcas</option>
                 </select>
+                <button class="secondary-btn" id="selectVisibleStockProductsBtn" type="button">Seleccionar visibles</button>
+                <button class="secondary-btn" id="activateSelectedProductsBtn" type="button">Activar seleccionados</button>
+                <button class="danger-btn" id="inactivateSelectedProductsBtn" type="button">Inactivar seleccionados</button>
                 <button class="ghost-btn" id="clearStockSearchBtn" type="button">Limpiar</button>
               </div>
               <div class="responsive-table">
                 <table>
                   <thead>
                     <tr>
+                      <th class="admin-only">Sel.</th>
                       <th>Producto</th>
                       <th>Codigo</th>
                       <th>Rubro</th>
@@ -1613,14 +1617,30 @@
                 </div>
               </form>
             </section>
-            <section class="panel">
+            <section class="panel wide">
               <div class="panel-header">
                 <div>
-                  <h2>Resumen por usuario</h2>
-                  <p>Ventas, entregas, devoluciones y total final</p>
+                  <h2>Rendicion por vendedor</h2>
+                  <p>Comision calculada exclusivamente para el periodo seleccionado</p>
                 </div>
               </div>
+              <div class="data-filter-bar commission-report-filters">
+                <select id="commissionReportSeller" aria-label="Seleccionar vendedor">
+                  <option value="all">Todos los vendedores</option>
+                </select>
+                <label><span>Desde</span><input id="commissionReportFrom" type="date"></label>
+                <label><span>Hasta</span><input id="commissionReportTo" type="date"></label>
+                <button class="secondary-btn" id="commissionReportPrintBtn" type="button">Imprimir / PDF</button>
+                <button class="secondary-btn" id="commissionReportExcelBtn" type="button">Exportar Excel</button>
+                <button class="primary-btn" id="commissionReportSettleBtn" type="button">Registrar pago</button>
+              </div>
               <div class="activity-list" id="commissionSummaryList"></div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Producto</th><th>Cantidad</th><th>Monto bruto</th><th>% aplicado</th><th>Comision</th></tr></thead>
+                  <tbody id="commissionProductDetailTable"></tbody>
+                </table>
+              </div>
             </section>
             <section class="panel wide">
               <div class="panel-header">
@@ -2428,7 +2448,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-102</span>
+          <span id="appFooterVersion">Version del sistema: 8790-103</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -2673,7 +2693,7 @@
         </label>
         <label>
           Horario de atencion
-          <input name="horario_atencion" placeholder="Ej: 08:00 a 13:00">
+          <input name="horario_atencion" placeholder="Ej: 8-14 / 16-22">
         </label>
         <div class="form-grid">
           <label>
@@ -2940,10 +2960,11 @@
 
     <dialog id="supplierDialog">
       <form id="supplierForm" class="modal-card">
+        <input type="hidden" name="originalName" id="supplierOriginalName">
         <div class="modal-header">
           <div>
             <p class="eyebrow">Proveedor</p>
-            <h2>Nuevo proveedor</h2>
+            <h2 id="supplierDialogTitle">Nuevo proveedor</h2>
           </div>
           <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
         </div>
@@ -2966,6 +2987,10 @@
               <option value="Activo">Activo</option>
               <option value="Inactivo">Inactivo</option>
             </select>
+          </label>
+          <label>
+            Rubro principal
+            <input name="sector" autocomplete="off" placeholder="Ej: Bebidas, perfumeria, almacen">
           </label>
         </div>
         <div class="form-grid">
@@ -3057,7 +3082,8 @@
           </div>
           <label>
             Producto del inventario
-            <select id="supplierRemitProductSearch"></select>
+            <input id="supplierRemitProductSearch" type="search" autocomplete="off" placeholder="Escribir nombre, codigo, marca o rubro">
+            <div class="mobile-picker-list remit-product-results" id="supplierRemitProductResults"></div>
           </label>
           <div class="form-grid">
             <label>
@@ -4026,13 +4052,13 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-102-r20260819c"></script>
-    <script src="maps-config.js?v=8790-102-r20260819c"></script>
-    <script src="order-engine.js?v=8790-102-r20260819c"></script>
-    <script src="account-engine.js?v=8790-102-r20260819c"></script>
-    <script src="delivery-engine.js?v=8790-102-r20260819c"></script>
-    <script src="legal-engine.js?v=8790-102-r20260819c"></script>
-    <script src="app.js?v=8790-102-r20260819c"></script>
+    <script src="config.js?v=8790-103-r20260819d"></script>
+    <script src="maps-config.js?v=8790-103-r20260819d"></script>
+    <script src="order-engine.js?v=8790-103-r20260819d"></script>
+    <script src="account-engine.js?v=8790-103-r20260819d"></script>
+    <script src="delivery-engine.js?v=8790-103-r20260819d"></script>
+    <script src="legal-engine.js?v=8790-103-r20260819d"></script>
+    <script src="app.js?v=8790-103-r20260819d"></script>
   </body>
 </html>
 

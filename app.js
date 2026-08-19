@@ -179,9 +179,9 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-102";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "18/08/2026 10:05 ART";
-const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-18T10:05:10-03:00";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-103";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "19/08/2026 19:52 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-19T19:52:00-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
 
@@ -318,6 +318,7 @@ let dashboardPresenceGoogleSignature = "";
 let dashboardPresenceLastRenderAt = 0;
 let presenceLocationActions = new Map();
 let deliveryRouteMap = null;
+let deliveryRouteMapSignature = "";
 let deliveryRouteMarkers = [];
 let deliveryRoutePolyline = null;
 let deliveryMapGeocoder = null;
@@ -395,6 +396,7 @@ let stockSearchTerm = "";
 let stockStatusFilter = "all";
 let stockRubricFilter = "all";
 let stockBrandFilter = "all";
+const selectedStockProductKeys = new Set();
 let stockLedgerSearchTerm = "";
 let stockLedgerTypeFilter = "all";
 let stockLedgerUserFilter = "all";
@@ -4065,12 +4067,8 @@ function cartCommission(summary) {
 }
 
 function sellerCommissionValue(sellerName) {
-  if (!OrderEngine || typeof OrderEngine.summarizeCommissions !== "function") {
-    const seller = state.sellers.find((item) => item.name === sellerName);
-    return seller ? numeric(seller.commission, 0) : 0;
-  }
-  const row = OrderEngine.summarizeCommissions(state, { role: "seller" }).find((item) => item.user === sellerName);
-  return row ? numeric(row.total, 0) : 0;
+  return (state.orders || []).filter((order) => order.commissionLiquidated !== true && normalizeSearchText(order.seller) === normalizeSearchText(sellerName))
+    .reduce((sum, order) => sum + numeric(order.commissions && order.commissions.seller && order.commissions.seller.total, 0), 0);
 }
 
 function sellerSalesValue(sellerName) {
@@ -4307,7 +4305,7 @@ function getMobileClientOptions(seller) {
 function renderMobileProductSelect() {
   const select = byId("mobileProductSelect");
   if (!select) return;
-  select.innerHTML = state.products.map((product) => {
+  select.innerHTML = rankedProductSearch(state.products, "").map((product) => {
     const code = product.codigo_producto ? `${product.codigo_producto} - ` : "";
     const price = productPriceForUser(product);
     const available = OrderEngine.inventory(product).available;
@@ -4452,6 +4450,7 @@ function renderMobileClientOptions(clientsForSeller = null) {
       client.vendedor_asignado
     ].join(" "), terms);
   });
+  filteredClients.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "es", { sensitivity: "base" }));
   const visibleClients = filteredClients.slice(0, 60);
   if (!visibleClients.length) {
     list.innerHTML = '<div class="mobile-picker-empty">Sin clientes para esa busqueda.</div>';
@@ -8654,6 +8653,7 @@ function renderDeliveryRouteMapFallback(route, stops, detail = "") {
   if (!mapElement) return;
   clearDeliveryGoogleMap();
   deliveryRouteMap = null;
+  deliveryRouteMapSignature = "";
   const sortedStops = stops.length ? stops : deliveryRouteMapStops(route).filter((item) => !isDeliveryStopDelivered(item.status));
   const bounds = deliveryFallbackBounds(sortedStops);
   const pointButtons = sortedStops.map((item, index) => {
@@ -8728,6 +8728,7 @@ async function renderDeliveryRouteMap(route) {
   if (!route) {
     clearDeliveryGoogleMap();
     deliveryRouteMap = null;
+    deliveryRouteMapSignature = "";
     deliveryMapEmpty("Sin ruta activa", "Seleccionar o tomar una hoja de ruta para ver sus paradas.");
     return;
   }
@@ -8753,6 +8754,8 @@ async function renderDeliveryRouteMap(route) {
       return;
     }
     const { Map } = await google.maps.importLibrary("maps");
+    const nextSignature = `${route.id || route.code || "route"}:${located.map((item) => item.stop && item.stop.orderCode || item.label).join("|")}`;
+    const shouldFitMap = !deliveryRouteMap || nextSignature !== deliveryRouteMapSignature;
     const center = located.reduce((sum, item) => ({
       lat: sum.lat + item.position.lat,
       lng: sum.lng + item.position.lng
@@ -8766,9 +8769,8 @@ async function renderDeliveryRouteMap(route) {
         streetViewControl: false,
         fullscreenControl: true
       });
-    } else {
-      deliveryRouteMap.setCenter(mapCenter);
     }
+    deliveryRouteMapSignature = nextSignature;
     mapElement.classList.add("google-loaded");
     mapElement.classList.remove("delivery-fallback-loaded");
     clearDeliveryGoogleMap();
@@ -8807,8 +8809,8 @@ async function renderDeliveryRouteMap(route) {
         strokeWeight: 4
       });
     }
-    if (located.length > 1) deliveryRouteMap.fitBounds(bounds, 50);
-    else deliveryRouteMap.setZoom(16);
+    if (shouldFitMap && located.length > 1) deliveryRouteMap.fitBounds(bounds, 50);
+    else if (shouldFitMap) deliveryRouteMap.setZoom(16);
     if (legend) {
       const missing = resolved.length - located.length;
       legend.innerHTML = `
@@ -9714,6 +9716,7 @@ function renderStock() {
     const updatedAt = product.updatedAt || product.updated_at || product.priceUpdatedAt || "";
     return `
     <tr>
+      <td class="admin-only"><input type="checkbox" data-stock-product-select="${escapeHtml(product.codigo_producto || product.codigo_barras || product.name)}" ${selectedStockProductKeys.has(product.codigo_producto || product.codigo_barras || product.name) ? "checked" : ""}></td>
       <td>
         <strong>${escapeHtml(product.name)}</strong>
         <small>${escapeHtml(product.marca || "S/D")} - ${escapeHtml(product.familia || "S/D")}</small>
@@ -9742,7 +9745,7 @@ function renderStock() {
       </td>
     </tr>
   `;
-  }).join("") : '<tr><td class="stock-empty" colspan="11">No hay productos para el filtro seleccionado.</td></tr>';
+  }).join("") : '<tr><td class="stock-empty" colspan="12">No hay productos para el filtro seleccionado.</td></tr>';
 
   byId("stockMovements").innerHTML = (state.stockMovements || []).slice(0, 8).map((item) => `
     <article class="activity">
@@ -9763,6 +9766,27 @@ function renderStock() {
   `).join("") : '<article class="activity"><span class="tag ok">Completo</span><strong>Sin faltantes comprometidos</strong><p>Todos los pedidos activos tienen stock reservado.</p></article>';
   renderSupplyPlanner(shortages);
   renderStockLedger();
+}
+
+function selectVisibleStockProducts() {
+  getFilteredStockProducts().forEach((product) => selectedStockProductKeys.add(product.codigo_producto || product.codigo_barras || product.name));
+  renderStock();
+}
+
+async function applySelectedProductStatus(active) {
+  if (!selectedStockProductKeys.size) return showCompactNotice("Seleccionar al menos un producto.", "warn");
+  const action = active ? "activar" : "inactivar";
+  const motive = window.prompt(`Motivo para ${action} ${selectedStockProductKeys.size} productos:`);
+  if (!motive) return;
+  if (!window.confirm(`Se van a ${action} ${selectedStockProductKeys.size} productos. Continuar?`)) return;
+  try {
+    await postOperationalAction("api/products/bulk-status", { keys: Array.from(selectedStockProductKeys), active, motive });
+    selectedStockProductKeys.clear();
+    renderStock();
+    showCompactNotice(`Productos ${active ? "activados" : "inactivados"} correctamente.`, "ok");
+  } catch (error) {
+    showCompactNotice(error.message || "No se pudo actualizar la cartera.", "danger");
+  }
 }
 
 function stockMovementDateKey(value) {
@@ -10640,6 +10664,57 @@ function renderCommissionOptions() {
   if (products) {
     products.innerHTML = (state.products || []).map((product) => `<option value="${escapeHtml(product.name)}">${escapeHtml(product.codigo_producto || product.code || product.rubro || "")}</option>`).join("");
   }
+  const reportSeller = byId("commissionReportSeller");
+  if (reportSeller) {
+    const selected = reportSeller.value || "all";
+    const names = [...new Set((state.sellers || []).map((seller) => seller.name).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+    reportSeller.innerHTML = '<option value="all">Todos los vendedores</option>' + names.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
+    reportSeller.value = names.includes(selected) ? selected : "all";
+  }
+}
+
+function commissionReportDateKey(value) {
+  const date = new Date(value || 0);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit" });
+}
+
+function commissionReportData() {
+  const seller = byId("commissionReportSeller") ? byId("commissionReportSeller").value : "all";
+  const from = byId("commissionReportFrom") ? byId("commissionReportFrom").value : "";
+  const to = byId("commissionReportTo") ? byId("commissionReportTo").value : "";
+  const orders = (state.orders || []).filter((order) => {
+    const key = commissionReportDateKey(order.createdAt || order.receivedAt || order.date);
+    return (!from || key >= from) && (!to || key <= to) && (seller === "all" || normalizeSearchText(order.seller) === normalizeSearchText(seller));
+  });
+  const users = new Map();
+  const products = new Map();
+  orders.forEach((order) => {
+    const block = order.commissions && order.commissions.seller;
+    if (!block || !block.user) return;
+    const user = users.get(block.user) || { role: "seller", user: block.user, orders: 0, baseAmount: 0, cigarettes: 0, merchandise: 0, returns: 0, total: 0 };
+    user.orders += 1;
+    user.baseAmount += numeric(block.baseAmount, 0);
+    user.cigarettes += numeric(block.cigarettes, 0);
+    user.merchandise += numeric(block.merchandise, 0);
+    user.total += numeric(block.total, 0);
+    user.returns += numeric(order.returnSummary && order.returnSummary.returnedAmount, 0);
+    users.set(block.user, user);
+    (block.lines || []).forEach((line, index) => {
+      const item = (order.items || [])[index] || {};
+      const key = line.productCode || line.productName || `line-${index}`;
+      const row = products.get(key) || { product: line.productName || item.name || key, qty: 0, gross: 0, weightedPercent: 0, commission: 0 };
+      row.qty += numeric(item.qty || item.quantity || item.cantidad, 0);
+      row.gross += numeric(line.baseAmount, 0);
+      row.weightedPercent += numeric(line.baseAmount, 0) * numeric(line.percent, 0);
+      row.commission += numeric(line.commission, 0);
+      products.set(key, row);
+    });
+  });
+  const productRows = Array.from(products.values()).map((row) => ({ ...row, percent: row.gross > 0 ? row.weightedPercent / row.gross : 0 }))
+    .sort((a, b) => a.product.localeCompare(b.product, "es", { sensitivity: "base" }));
+  return { seller, from, to, orders, users: Array.from(users.values()).sort((a, b) => a.user.localeCompare(b.user, "es")), products: productRows };
 }
 
 function renderCommissionCards() {
@@ -10697,7 +10772,8 @@ function renderCommissionRulesTable() {
 function renderCommissionSummary() {
   const list = byId("commissionSummaryList");
   if (!list) return;
-  const rows = OrderEngine && typeof OrderEngine.summarizeCommissions === "function" ? OrderEngine.summarizeCommissions(state) : [];
+  const report = commissionReportData();
+  const rows = report.users;
   list.innerHTML = rows.length ? rows.map((row) => `
     <article class="stock-item commission-summary-card">
       <span class="tag ${row.role === "driver" ? "warn" : "ok"}">${escapeHtml(commissionRoleLabel(row.role))}</span>
@@ -10710,6 +10786,48 @@ function renderCommissionSummary() {
       <p class="commission-summary-meta">${row.orders} pedidos/entregas computadas.</p>
     </article>
   `).join("") : '<article class="stock-item"><span class="tag warn">Sin datos</span><strong>No hay comisiones computadas</strong><p>Se generaran al confirmar pedidos y entregar rutas.</p></article>';
+  const detail = byId("commissionProductDetailTable");
+  if (detail) detail.innerHTML = report.products.length ? report.products.map((row) => `<tr><td><strong>${escapeHtml(row.product)}</strong></td><td>${escapeHtml(row.qty)}</td><td>${money.format(row.gross)}</td><td>${row.percent.toFixed(2)}%</td><td><strong>${money.format(row.commission)}</strong></td></tr>`).join("") : '<tr><td class="stock-empty" colspan="5">Sin productos para el periodo seleccionado.</td></tr>';
+}
+
+function commissionReportHtml() {
+  const report = commissionReportData();
+  const rows = report.products.map((row) => `<tr><td>${escapeHtml(row.product)}</td><td>${escapeHtml(row.qty)}</td><td>${money.format(row.gross)}</td><td>${row.percent.toFixed(2)}%</td><td>${money.format(row.commission)}</td></tr>`).join("");
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Rendicion de comisiones</title><style>body{font:13px Arial;margin:24px;color:#111}h1{font-size:20px}table{width:100%;border-collapse:collapse}th,td{padding:7px;border-bottom:1px solid #bbb;text-align:left}th{background:#eee}@page{size:A4;margin:12mm}</style></head><body><h1>Rendicion de comisiones</h1><p>Vendedor: ${escapeHtml(report.seller === "all" ? "Todos" : report.seller)} | Periodo: ${escapeHtml(report.from || "Inicio")} a ${escapeHtml(report.to || "Hoy")}</p><table><thead><tr><th>Producto</th><th>Cantidad</th><th>Monto bruto</th><th>%</th><th>Comision</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+}
+
+function printCommissionReport() {
+  const popup = window.open("", "_blank");
+  if (!popup) return showCompactNotice("Habilitar ventanas emergentes para imprimir.", "danger");
+  popup.opener = null;
+  popup.document.write(commissionReportHtml());
+  popup.document.close();
+  popup.focus();
+  popup.print();
+}
+
+function exportCommissionReportExcel() {
+  const report = commissionReportData();
+  const rows = [["Producto", "Cantidad", "Monto bruto", "% aplicado", "Comision"], ...report.products.map((row) => [row.product, row.qty, row.gross, row.percent.toFixed(2), row.commission])];
+  const html = `<html><head><meta charset="utf-8"></head><body><table>${rows.map((row) => `<tr>${row.map((value) => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`).join("")}</table></body></html>`;
+  downloadBlob(`comisiones-${report.seller === "all" ? "todos" : normalizeSearchText(report.seller).replaceAll(" ", "-")}-${reportDateStamp()}.xls`, new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" }));
+}
+
+async function settleCommissionReport() {
+  const report = commissionReportData();
+  if (report.seller === "all") return showCompactNotice("Seleccionar un vendedor para registrar el pago.", "warn");
+  if (!report.from || !report.to) return showCompactNotice("Indicar fecha desde y hasta.", "warn");
+  const total = report.users.reduce((sum, row) => sum + numeric(row.total, 0), 0);
+  if (total <= 0) return showCompactNotice("No hay comisiones para liquidar en ese periodo.", "warn");
+  const motive = window.prompt(`Registrar pago de ${money.format(total)} a ${report.seller}. Indicar referencia u observacion:`);
+  if (!motive) return;
+  try {
+    await postOperationalAction("api/commissions/settlements", { seller: report.seller, dateFrom: report.from, dateTo: report.to, total, motive });
+    renderCommissionsModule();
+    showCompactNotice("Pago de comision registrado sin borrar el historial.", "ok");
+  } catch (error) {
+    showCompactNotice(error.message || "No se pudo registrar la liquidacion.", "danger");
+  }
 }
 
 function renderCommissionAudit() {
@@ -12187,6 +12305,7 @@ function renderSuppliers() {
       <td>${escapeHtml(supplier.due)}</td>
       <td><span class="tag ${supplierStatusClass(supplier.status)}">${escapeHtml(supplier.status)}</span></td>
       <td>
+        <button class="mini-btn" type="button" data-supplier-edit="${escapeHtml(supplier.name)}">Editar</button>
         <button class="mini-btn" type="button" data-supplier-account="${escapeHtml(supplier.name)}">Cuenta</button>
         <button class="mini-btn primary-mini" type="button" data-supplier-payment="${escapeHtml(supplier.name)}">Pago</button>
         ${mixedEntity ? `<button class="mini-btn" type="button" data-mixed-entity="${escapeHtml(mixedEntity.key)}">Ficha mixta</button>` : ""}
@@ -12275,15 +12394,21 @@ function localSupplierDuplicates(payload) {
   });
 }
 
-function openSupplierDialog() {
+function openSupplierDialog(supplier = null) {
   if (!isAdminUser()) {
     window.alert("Solo administracion puede crear proveedores.");
     return;
   }
   const form = byId("supplierForm");
   form.reset();
+  form.elements.originalName.value = supplier ? supplier.name : "";
+  byId("supplierDialogTitle").textContent = supplier ? "Editar proveedor" : "Nuevo proveedor";
+  byId("supplierSubmitBtn").textContent = supplier ? "Guardar cambios" : "Guardar proveedor";
   byId("supplierPaymentCondition").value = "Cuenta corriente";
   byId("supplierOperationalStatus").value = "Activo";
+  if (supplier) {
+    ["razon_social", "nombre_comercial", "cuit", "estado_operativo", "sector", "direccion", "localidad", "provincia", "condicion_pago", "telefono", "whatsapp", "email", "contacto_principal", "datos_bancarios", "observaciones"].forEach((name) => setFormValue(form, name, supplier[name] || ""));
+  }
   setSupplierMessage("");
   byId("supplierDialog").showModal();
 }
@@ -12294,7 +12419,7 @@ async function submitSupplier(event) {
   const submit = byId("supplierSubmitBtn");
   const formData = new FormData(form);
   const payload = Object.fromEntries(formData.entries());
-  const duplicates = localSupplierDuplicates(payload);
+  const duplicates = localSupplierDuplicates(payload).filter((supplier) => normalizeSearchText(supplier.name) !== normalizeSearchText(payload.originalName));
   if (duplicates.length && !window.confirm(`Posible proveedor existente: ${duplicates.map((item) => item.name).join(", ")}. Desea crearlo igual?`)) {
     setSupplierMessage("Alta detenida para evitar duplicado.", "warn");
     return;
@@ -12317,12 +12442,12 @@ async function submitSupplier(event) {
     populateSupplierRemitOptions(response.supplier && response.supplier.name);
     populateSupplierPaymentOptions(response.supplier && response.supplier.name);
     byId("supplierDialog").close("default");
-    showCompactNotice(`Proveedor ${response.supplier && response.supplier.name || ""} creado.`, "ok");
+    showCompactNotice(`Proveedor ${response.supplier && response.supplier.name || ""} ${payload.originalName ? "actualizado" : "creado"}.`, "ok");
   } catch (error) {
     setSupplierMessage(error.message || "No se pudo guardar el proveedor.");
   } finally {
     submit.disabled = false;
-    submit.textContent = "Guardar proveedor";
+    submit.textContent = payload.originalName ? "Guardar cambios" : "Guardar proveedor";
   }
 }
 
@@ -12509,17 +12634,18 @@ function supplierRemitSearchText(product) {
 }
 
 function populateSupplierRemitProductOptions() {
-  const select = byId("supplierRemitProductSearch");
-  if (!select) return;
-  select.innerHTML = [
-    '<option value="">Seleccionar producto del inventario</option>',
-    ...state.products.map((product) => {
-    const code = product.codigo_producto || product.codigo_barras || "";
-    const label = `${product.name}${code ? ` - ${code}` : ""}${product.rubro ? ` - ${product.rubro}` : ""}`;
-      const value = product.codigo_producto || product.codigo_barras || product.name;
-      return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
-    })
-  ].join("");
+  renderSupplierRemitProductResults();
+}
+
+function renderSupplierRemitProductResults() {
+  const input = byId("supplierRemitProductSearch");
+  const results = byId("supplierRemitProductResults");
+  if (!input || !results) return;
+  const products = rankedProductSearch(state.products, input.value).slice(0, 30);
+  results.innerHTML = products.length ? products.map((product) => {
+    const code = product.codigo_producto || product.codigo_barras || "S/C";
+    return `<button class="mobile-picker-option" type="button" data-supplier-remit-product="${escapeHtml(code)}"><strong>${escapeHtml(product.name)}</strong><small>${escapeHtml(`${code} - ${product.rubro || "Sin rubro"} - ${product.marca || "Sin marca"}`)}</small></button>`;
+  }).join("") : '<div class="mobile-picker-empty">Sin coincidencias.</div>';
 }
 
 function resolveSupplierRemitProduct(query) {
@@ -16038,6 +16164,12 @@ byId("clearStockLedgerFiltersBtn").addEventListener("click", () => {
   renderStockLedger();
 });
 byId("stockTable").addEventListener("click", (event) => {
+  const selector = event.target.closest("[data-stock-product-select]");
+  if (selector) {
+    if (selector.checked) selectedStockProductKeys.add(selector.dataset.stockProductSelect);
+    else selectedStockProductKeys.delete(selector.dataset.stockProductSelect);
+    return;
+  }
   const editButton = event.target.closest("[data-edit-product]");
   if (editButton) {
     openStockEditDialog(editButton.dataset.editProduct);
@@ -16046,6 +16178,9 @@ byId("stockTable").addEventListener("click", (event) => {
   const ledgerButton = event.target.closest("[data-stock-ledger-product]");
   if (ledgerButton) focusStockLedgerProduct(ledgerButton.dataset.stockLedgerProduct);
 });
+byId("selectVisibleStockProductsBtn").addEventListener("click", selectVisibleStockProducts);
+byId("activateSelectedProductsBtn").addEventListener("click", () => applySelectedProductStatus(true));
+byId("inactivateSelectedProductsBtn").addEventListener("click", () => applySelectedProductStatus(false));
 byId("stockEditForm").addEventListener("submit", submitStockEdit);
 byId("priceListSearch").addEventListener("input", (event) => {
   priceListSearchTerm = event.target.value;
@@ -16124,6 +16259,10 @@ byId("commissionRulesTable").addEventListener("click", (event) => {
 byId("saveCommissionRuleBtn").addEventListener("click", () => saveCommissionRule());
 byId("resetCommissionFormBtn").addEventListener("click", resetCommissionRuleForm);
 byId("exportCommissionsCsvBtn").addEventListener("click", exportCommissionsCsv);
+["commissionReportSeller", "commissionReportFrom", "commissionReportTo"].forEach((id) => byId(id).addEventListener("change", renderCommissionSummary));
+byId("commissionReportPrintBtn").addEventListener("click", printCommissionReport);
+byId("commissionReportExcelBtn").addEventListener("click", exportCommissionReportExcel);
+byId("commissionReportSettleBtn").addEventListener("click", settleCommissionReport);
 byId("legalPublishForm").addEventListener("submit", submitLegalPublish);
 byId("helpSearch").addEventListener("input", (event) => {
   helpSearchTerm = event.target.value;
@@ -16625,6 +16764,9 @@ byId("supplierPaymentForm").addEventListener("submit", submitSupplierPayment);
 byId("supplierRemitAddProductBtn").addEventListener("click", addSupplierRemitItem);
 byId("supplierRemitNewProductBtn").addEventListener("click", openSupplierProductDialog);
 byId("supplierProductForm").addEventListener("submit", submitSupplierProduct);
+byId("supplierRemitProductSearch").addEventListener("input", () => {
+  renderSupplierRemitProductResults();
+});
 byId("supplierRemitProductSearch").addEventListener("change", () => {
   const product = resolveSupplierRemitProduct(byId("supplierRemitProductSearch").value);
   if (product && !isSupplierReceiverMode() && numeric(byId("supplierRemitUnitPrice").value, 0) <= 0) {
@@ -17340,6 +17482,25 @@ document.addEventListener("click", async (event) => {
 });
 
 document.addEventListener("click", async (event) => {
+  const supplierRemitProductButton = event.target.closest("[data-supplier-remit-product]");
+  if (supplierRemitProductButton) {
+    const product = resolveSupplierRemitProduct(supplierRemitProductButton.dataset.supplierRemitProduct);
+    if (product) {
+      byId("supplierRemitProductSearch").value = product.codigo_producto || product.codigo_barras || product.name;
+      byId("supplierRemitUnitPrice").value = Math.max(0, numeric(product.cost, 0));
+      renderSupplierRemitProductResults();
+      updateSupplierRemitSubtotal();
+    }
+    return;
+  }
+
+  const supplierEditButton = event.target.closest("[data-supplier-edit]");
+  if (supplierEditButton) {
+    const supplier = (state.suppliers || []).find((item) => item.name === supplierEditButton.dataset.supplierEdit);
+    if (supplier) openSupplierDialog(supplier);
+    return;
+  }
+
   const supplierAccountButton = event.target.closest("[data-supplier-account]");
   if (supplierAccountButton) {
     selectedSupplierAccountName = supplierAccountButton.dataset.supplierAccount;

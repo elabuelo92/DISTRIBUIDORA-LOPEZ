@@ -17,7 +17,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-102";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-103";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -5087,6 +5087,60 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/commissions/settlements" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Liquidar comisiones requiere Administracion." });
+        return;
+      }
+      const input = JSON.parse(await readBody(req) || "{}");
+      const seller = String(input.seller || "").trim();
+      const motive = String(input.motive || "").trim();
+      const from = new Date(`${input.dateFrom || ""}T00:00:00-03:00`);
+      const to = new Date(`${input.dateTo || ""}T23:59:59-03:00`);
+      if (!seller || !motive || Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+        sendJson(res, 400, { ok: false, error: "Seleccionar vendedor, periodo e indicar referencia del pago." });
+        return;
+      }
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      const affected = (currentState.orders || []).filter((order) => {
+        const at = new Date(order.createdAt || order.receivedAt || order.date || 0);
+        return sameText(order.seller, seller) && at >= from && at <= to && order.commissionLiquidated !== true;
+      });
+      affected.forEach((order) => {
+        order.commissionLiquidated = true;
+        order.commissionLiquidatedAt = new Date().toISOString();
+        order.commissionLiquidatedBy = sessionUser.name;
+      });
+      orderEngine.refreshSellerMetrics(currentState);
+      const settlement = {
+        id: `COM-LIQ-${Date.now()}`,
+        seller,
+        dateFrom: from.toISOString(),
+        dateTo: to.toISOString(),
+        total: Math.max(0, numeric(input.total, 0)),
+        orders: affected.map((order) => order.code),
+        motive,
+        at: new Date().toISOString(),
+        user: sessionUser.name,
+        username: sessionUser.username
+      };
+      currentState.commissionSettlements = Array.isArray(currentState.commissionSettlements) ? currentState.commissionSettlements : [];
+      currentState.commissionSettlements.unshift(settlement);
+      writeStateResponse(res, currentState, { settlement }, auditEntry(req, sessionUser, input, {
+        action: "COMISION_LIQUIDADA",
+        entityType: "comision",
+        entityId: settlement.id,
+        entityLabel: seller,
+        previousValue: null,
+        newValue: settlement,
+        note: motive
+      }), [], sessionUser);
+      return;
+    }
+
     if (requestUrl.pathname === "/api/clients" && req.method === "GET") {
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
@@ -5882,6 +5936,44 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/products/bulk-status" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Solo Administracion puede activar o inactivar productos." });
+        return;
+      }
+      const input = JSON.parse(await readBody(req) || "{}");
+      const keys = new Set((Array.isArray(input.keys) ? input.keys : []).map(normalizeSearchText).filter(Boolean));
+      const motive = String(input.motive || "").trim();
+      if (!keys.size || !motive) {
+        sendJson(res, 400, { ok: false, error: "Seleccionar productos e indicar motivo." });
+        return;
+      }
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      const changed = [];
+      (currentState.products || []).forEach((product) => {
+        const candidates = [product.codigo_producto, product.codigo_barras, product.name].map(normalizeSearchText);
+        if (!candidates.some((key) => keys.has(key))) return;
+        const previous = String(product.activo || "SI").toUpperCase() !== "NO";
+        product.activo = input.active === true ? "SI" : "NO";
+        product.updatedAt = new Date().toISOString();
+        product.updatedBy = sessionUser.name;
+        changed.push({ code: product.codigo_producto || product.codigo_barras || product.name, name: product.name, previous, active: input.active === true });
+      });
+      writeStateResponse(res, currentState, { changed, count: changed.length }, auditEntry(req, sessionUser, input, {
+        action: input.active === true ? "PRODUCTOS_ACTIVADOS_MASIVO" : "PRODUCTOS_INACTIVADOS_MASIVO",
+        entityType: "producto",
+        entityId: `masivo-${Date.now()}`,
+        entityLabel: `${changed.length} productos`,
+        previousValue: changed.map((item) => ({ code: item.code, active: item.previous })),
+        newValue: changed.map((item) => ({ code: item.code, active: item.active })),
+        note: motive
+      }), [], sessionUser);
+      return;
+    }
+
     if (requestUrl.pathname === "/api/suppliers" && req.method === "POST") {
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
@@ -5894,8 +5986,22 @@ const server = http.createServer(async (req, res) => {
       const currentState = currentPayload.state || {};
       try {
         currentState.suppliers = Array.isArray(currentState.suppliers) ? currentState.suppliers.map(normalizeSupplierServerRecord) : [];
-        const supplier = normalizeSupplierCreateInput(input);
-        const duplicates = supplierDuplicateCandidates(currentState, supplier);
+        const originalName = String(input.originalName || "").trim();
+        const existingIndex = originalName ? currentState.suppliers.findIndex((item) => sameText(item.name, originalName)) : -1;
+        const existingSupplier = existingIndex >= 0 ? currentState.suppliers[existingIndex] : null;
+        const enteredSupplier = normalizeSupplierCreateInput(input);
+        const supplier = existingSupplier ? normalizeSupplierServerRecord({
+          ...existingSupplier,
+          ...enteredSupplier,
+          balance: existingSupplier.balance,
+          totalPaid: existingSupplier.totalPaid,
+          totalPurchased: existingSupplier.totalPurchased,
+          overdueDebt: existingSupplier.overdueDebt,
+          due: existingSupplier.due,
+          status: existingSupplier.status,
+          movements: existingSupplier.movements
+        }) : enteredSupplier;
+        const duplicates = supplierDuplicateCandidates(currentState, supplier).filter((item) => !existingSupplier || !sameText(item.name, existingSupplier.name));
         const exactCuit = taxIdKey(supplier.cuit)
           ? duplicates.find((item) => taxIdKey(item.cuit) === taxIdKey(supplier.cuit))
           : null;
@@ -5904,31 +6010,43 @@ const server = http.createServer(async (req, res) => {
           throw new Error(`Posible proveedor existente: ${duplicates.map((item) => item.name).join(", ")}. Confirmar duplicado para continuar.`);
         }
         const at = new Date().toISOString();
-        supplier.createdAt = at;
-        supplier.createdBy = sessionUser.name;
+        supplier.createdAt = existingSupplier && existingSupplier.createdAt || at;
+        supplier.createdBy = existingSupplier && existingSupplier.createdBy || sessionUser.name;
         supplier.updatedAt = at;
         supplier.updatedBy = sessionUser.name;
-        currentState.suppliers.unshift(supplier);
+        if (existingSupplier) {
+          currentState.suppliers[existingIndex] = supplier;
+          if (!sameText(originalName, supplier.name)) {
+            (currentState.supplierMovements || []).forEach((movement) => {
+              if (sameText(movement.supplier, originalName)) movement.supplier = supplier.name;
+            });
+            (currentState.products || []).forEach((product) => {
+              if (sameText(product.proveedor || product.supplier, originalName)) product.proveedor = supplier.name;
+            });
+          }
+        } else {
+          currentState.suppliers.unshift(supplier);
+        }
         currentState.suppliers = currentState.suppliers.map(normalizeSupplierServerRecord);
         currentState.activity = Array.isArray(currentState.activity) ? currentState.activity : [];
         currentState.activity.unshift({
           type: "Proveedores",
-          title: `Proveedor creado: ${supplier.name}`,
+          title: `Proveedor ${existingSupplier ? "actualizado" : "creado"}: ${supplier.name}`,
           text: `${supplier.nombre_comercial || supplier.name} queda disponible para remitos.`
         });
         writeStateResponse(res, currentState, { supplier }, auditEntry(req, sessionUser, input, {
-          action: "PROVEEDOR_CREADO",
+          action: existingSupplier ? "PROVEEDOR_EDITADO" : "PROVEEDOR_CREADO",
           entityType: "proveedor",
           entityId: supplier.name,
           entityLabel: supplier.name,
-          previousValue: null,
+          previousValue: existingSupplier,
           newValue: supplier,
-          note: "Alta de proveedor desde modulo Proveedores"
+          note: existingSupplier ? "Edicion de proveedor desde modulo Proveedores" : "Alta de proveedor desde modulo Proveedores"
         }), [
           notificationEntry(req, sessionUser, input, {
-            action: "PROVEEDOR_CREADO",
+            action: existingSupplier ? "PROVEEDOR_EDITADO" : "PROVEEDOR_CREADO",
             category: "Proveedores",
-            title: "Proveedor creado",
+            title: existingSupplier ? "Proveedor actualizado" : "Proveedor creado",
             text: `${supplier.name} disponible para carga de remitos.`,
             tone: "ok",
             entityType: "proveedor",
