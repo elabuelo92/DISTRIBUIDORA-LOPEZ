@@ -65,6 +65,11 @@ async function jsonRequest(url, cookie, options = {}) {
   assert.equal(health.version, "8790-99");
   const cookie = await adminLogin(baseUrl);
 
+  const initialState = await jsonRequest(`${baseUrl}/api/state?version=0`, cookie);
+  assert.equal(initialState.response.status, 200);
+  const priceListNumbers = (initialState.payload.state.priceLists || []).map((list) => Number(list.number));
+  assert.equal(new Set(priceListNumbers).size, priceListNumbers.length, "No debe haber listas de precios duplicadas.");
+
   const template = await jsonRequest(`${baseUrl}/api/product-portfolio/template`, cookie);
   assert.equal(template.response.status, 200);
   const templateBook = new ExcelJS.Workbook();

@@ -2864,6 +2864,15 @@ function ensurePriceListsState(state) {
     if (current) Object.assign(current, { ...generated, status: current.status || generated.status });
     else state.priceLists.push(generated);
   });
+  const seenPriceListNumbers = new Set();
+  state.priceLists = state.priceLists.filter((list) => {
+    const number = priceListNumberFromRecord(list);
+    if (!number || !seenPriceListNumbers.has(number)) {
+      if (number) seenPriceListNumbers.add(number);
+      return true;
+    }
+    return false;
+  });
   state.priceLists.forEach((list) => {
     list.isDefault = list.id === "PL-L2";
     if (list.id === "PL-L2") list.status = "Activa";

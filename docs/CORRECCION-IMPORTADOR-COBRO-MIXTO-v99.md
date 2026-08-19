@@ -42,6 +42,33 @@ La correccion no aplica datos automaticamente. Antes de aplicar se debe definir 
 1. Si los 32 productos pendientes se crean como altas nuevas o se omiten individualmente.
 2. Si los 377 productos actuales ausentes se inactivan o permanecen activos.
 
+## Aplicacion productiva 18/08/2026
+
+La cartera se aplico en produccion con autorizacion administrativa:
+
+- 278 productos homologados y actualizados.
+- 32 productos creados como altas nuevas.
+- 377 productos de la cartera anterior inactivados.
+- 310 productos activos finales sobre 687 registros historicos.
+- 281 productos activos con stock mayor a cero.
+- stock activo total cargado: 67.600 unidades.
+- cero filas pendientes de homologacion.
+
+Cobertura de precios recibida desde el Excel:
+
+- Lista 1: 310 productos.
+- Lista 2: 310 productos.
+- Lista 3: 308 productos; dos celdas sin precio en el archivo fuente.
+- Lista 4: 310 productos.
+- Lista 5: 92 productos; 218 celdas sin precio en el archivo fuente.
+
+No se inventaron precios para las celdas vacias. Kevin conserva la asignacion bloqueada a Lista 4.
+
+Backups:
+
+- `/opt/distribuidora-lopez/backups/data-pre-v99-20260818-230600.tar.gz`
+- `/opt/distribuidora-lopez/data/backups/2026-08-18T23-52-50-319Z-importar-cartera-homologada`
+
 ## Uso de la cobranza mixta
 
 1. Abrir `Cobrar y entregar`.
