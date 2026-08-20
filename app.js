@@ -179,9 +179,9 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-103";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "19/08/2026 19:52 ART";
-const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-19T19:52:00-03:00";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-105";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "20/08/2026 12:00 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-20T12:00:00-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
 
@@ -199,6 +199,7 @@ const LOGIN_RETRY_DELAYS_MS = Array.isArray(CONNECTION_TIMEOUTS.loginRetries)
   ? CONNECTION_TIMEOUTS.loginRetries
   : [0, 800, 1600, 3000, 5000];
 const LOGIN_CONNECTION_GRACE_MS = configNumber(CONNECTION_TIMEOUTS.loginGrace, 30000);
+const LOGIN_REQUEST_TIMEOUT_MS = Math.max(SERVER_TIMEOUT_MS, LOGIN_CONNECTION_GRACE_MS);
 const SYNC_INTERVAL_MS = configNumber(CONNECTION_TIMEOUTS.syncInterval, 2500);
 const MOBILE_SYNC_INTERVAL_MS = Math.max(SYNC_INTERVAL_MS, configNumber(CONNECTION_TIMEOUTS.mobileSyncInterval, 7000));
 const LEGACY_LOCAL_STATE_KEY = "distribuidoraLopezDemo";
@@ -2723,7 +2724,7 @@ async function postLoginWithRetry(credentials) {
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         body: JSON.stringify(credentials)
-      });
+      }, LOGIN_REQUEST_TIMEOUT_MS);
     } catch (error) {
       lastError = error;
     }

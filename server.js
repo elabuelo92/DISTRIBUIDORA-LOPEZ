@@ -17,7 +17,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-104";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-105";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -233,6 +233,20 @@ function verifyPassword(password, user) {
   const supplied = Buffer.from(passwordHash, "hex");
   const stored = Buffer.from(user.passwordHash, "hex");
   return supplied.length === stored.length && crypto.timingSafeEqual(supplied, stored);
+}
+
+function verifyPasswordAsync(password, user) {
+  if (!user || !user.salt || !user.passwordHash) return Promise.resolve(false);
+  return new Promise((resolve, reject) => {
+    crypto.pbkdf2(String(password), user.salt, 120000, 32, "sha256", (error, derivedKey) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      const stored = Buffer.from(user.passwordHash, "hex");
+      resolve(derivedKey.length === stored.length && crypto.timingSafeEqual(derivedKey, stored));
+    });
+  });
 }
 
 function verifyCurrentUserPassword(user, password) {
@@ -3928,11 +3942,15 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (requestUrl.pathname === "/api/login" && req.method === "POST") {
+      const loginTiming = { startedAt: Date.now() };
       const body = await readBody(req);
       const credentials = JSON.parse(body || "{}");
       const username = String(credentials.username || "").trim().toLowerCase();
       const user = readUsers().find((item) => item.username.toLowerCase() === username && item.active !== false);
-      if (!user || !verifyPassword(credentials.password || "", user)) {
+      loginTiming.bodyAndUserMs = Date.now() - loginTiming.startedAt;
+      const passwordOk = user ? await verifyPasswordAsync(credentials.password || "", user) : false;
+      loginTiming.passwordMs = Date.now() - loginTiming.startedAt - loginTiming.bodyAndUserMs;
+      if (!user || !passwordOk) {
         writeSessionAudit("LOGIN_FAILED", null, {
           username,
           ip: clientIp(req),
@@ -3947,9 +3965,11 @@ const server = http.createServer(async (req, res) => {
       const device = normalizeDevice(credentials.device || credentials, req);
       const ip = clientIp(req);
       const publicAccount = publicUser(user);
+      const stateStartedAt = Date.now();
       const legalPayload = readStateFileCached();
       const legalState = legalPayload.state || {};
       legalEngine.migrateState(legalState);
+      loginTiming.legalStateMs = Date.now() - stateStartedAt;
       const legalVersion = legalState.legalSettings.currentVersion;
       const legalHash = legalState.legalSettings.hash;
       const hasCurrentLegalAcceptance = (legalState.legalAcceptances || []).some((item) => String(item.username || "").trim().toLowerCase() === user.username.toLowerCase()
@@ -4049,6 +4069,10 @@ const server = http.createServer(async (req, res) => {
       if (session.location) session.lastGpsAt = session.location.updatedAt;
       sessions.set(token, session);
       writeSessionAudit("SESSION_STARTED", session, { note: active.length ? "Inicio con reemplazo de sesion anterior" : "Inicio de sesion" });
+      loginTiming.totalMs = Date.now() - loginTiming.startedAt;
+      if (loginTiming.totalMs > 1000) {
+        console.warn(`LOGIN_PERF ${JSON.stringify({ username, ...loginTiming })}`);
+      }
       sendJson(res, 200, {
         ok: true,
         user: publicAccount,
@@ -7298,19 +7322,7 @@ const server = http.createServer(async (req, res) => {
 
     if (requestUrl.pathname === "/api/logout" && req.method === "POST") {
       const token = cookieValue(req, "dl_session");
-      const sessionBeforeClose = token && sessions.get(token) ? publicSession(sessions.get(token)) : null;
       if (token) closeSession(token, "logout", "Usuario");
-      if (sessionBeforeClose) {
-        appendAuditToStateFile(req, sessionBeforeClose.user, {}, {
-          action: "SESSION_CLOSED",
-          entityType: "sesion",
-          entityId: sessionBeforeClose.sessionId,
-          entityLabel: sessionBeforeClose.name || sessionBeforeClose.username,
-          previousValue: sessionBeforeClose,
-          newValue: null,
-          note: "Cierre de sesion"
-        });
-      }
       sendJson(res, 200, { ok: true }, { "Set-Cookie": sessionCookie(req, "", 0) });
       return;
     }
