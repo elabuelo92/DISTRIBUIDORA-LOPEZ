@@ -17,7 +17,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-103";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-104";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -3933,13 +3933,11 @@ const server = http.createServer(async (req, res) => {
       const username = String(credentials.username || "").trim().toLowerCase();
       const user = readUsers().find((item) => item.username.toLowerCase() === username && item.active !== false);
       if (!user || !verifyPassword(credentials.password || "", user)) {
-        appendAuditToStateFile(req, null, { username }, {
-          action: "LOGIN_FALLIDO",
-          entityType: "sesion",
-          entityId: username,
-          entityLabel: username,
-          previousValue: null,
-          newValue: { username, ok: false },
+        writeSessionAudit("LOGIN_FAILED", null, {
+          username,
+          ip: clientIp(req),
+          deviceId: String(credentials.device && credentials.device.id || ""),
+          deviceLabel: String(credentials.device && credentials.device.label || ""),
           note: "Usuario o clave incorrectos"
         });
         sendJson(res, 401, { ok: false, error: "Usuario o clave incorrectos." });
@@ -4011,15 +4009,6 @@ const server = http.createServer(async (req, res) => {
           gps: normalizeGps(credentials.gps),
           note: `Sesion activa en ${differentActive[0].session.device.label || differentActive[0].session.device.id}`
         });
-        appendAuditToStateFile(req, publicUser(user), credentials, {
-          action: "LOGIN_MULTIPLE_RECHAZADO",
-          entityType: "sesion",
-          entityId: user.username,
-          entityLabel: user.name,
-          previousValue: publicSession(differentActive[0].session),
-          newValue: { username: user.username, device },
-          note: "Politica de sesion unica rechazo el acceso"
-        });
         sendJson(res, 409, {
           ok: false,
           error: "El usuario ya tiene una sesion activa en otro dispositivo.",
@@ -4060,15 +4049,6 @@ const server = http.createServer(async (req, res) => {
       if (session.location) session.lastGpsAt = session.location.updatedAt;
       sessions.set(token, session);
       writeSessionAudit("SESSION_STARTED", session, { note: active.length ? "Inicio con reemplazo de sesion anterior" : "Inicio de sesion" });
-      appendAuditToStateFile(req, publicAccount, credentials, {
-        action: "SESSION_STARTED",
-        entityType: "sesion",
-        entityId: session.sessionId,
-        entityLabel: publicAccount.name,
-        previousValue: active.map((item) => publicSession(item.session)),
-        newValue: publicSession(session),
-        note: active.length ? "Inicio con reemplazo de sesion anterior" : "Inicio de sesion"
-      });
       sendJson(res, 200, {
         ok: true,
         user: publicAccount,
