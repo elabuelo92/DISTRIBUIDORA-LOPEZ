@@ -17,12 +17,13 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-106";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-107";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
 const SESSION_CONFIG_FILE = path.join(DATA_DIR, "session-config.json");
 const SESSION_AUDIT_LOG = path.join(DATA_DIR, "session-audit.log");
+const GLOBAL_AUDIT_LOG = path.join(DATA_DIR, "global-audit.log");
 const GPS_HISTORY_LOG = path.join(DATA_DIR, "gps-history.log");
 const PRINT_DIR = path.join(DATA_DIR, "print-jobs");
 const UPLOAD_DIR = path.join(DATA_DIR, "delivery-uploads");
@@ -37,8 +38,11 @@ const DEFAULT_SESSION_TTL_MS = Math.max(16 * 60 * 60 * 1000, Number(process.env.
 const DEFAULT_WORKDAY_START_HOUR = Math.max(0, Math.min(23, Number(process.env.DL_WORKDAY_START_HOUR || 7)));
 const DEFAULT_WORKDAY_END_HOUR = Math.max(1, Math.min(24, Number(process.env.DL_WORKDAY_END_HOUR || 22)));
 const PRESENCE_OFFLINE_MS = Number(process.env.DL_PRESENCE_OFFLINE_MS || 45000);
+const GLOBAL_AUDIT_STATE_LIMIT = Math.max(1000, Number(process.env.DL_GLOBAL_AUDIT_STATE_LIMIT || 3000));
+const GPS_ALERT_THROTTLE_MS = Math.max(60 * 1000, Number(process.env.DL_GPS_ALERT_THROTTLE_MS || 15 * 60 * 1000));
 const sessions = new Map();
 const recentPresenceHistory = [];
+const recentGpsAlerts = new Map();
 const productPortfolioPreviews = new Map();
 const securityEngine = licenseEngine.createEngine({
   root: ROOT,
@@ -883,6 +887,11 @@ function recordRejectedGps(req, session, input, normalizedGps, reason) {
     provider: normalizedGps ? normalizedGps.provider : "",
     reason
   };
+  const alertKey = `${rejected.username || rejected.device && rejected.device.id || rejected.ip}|${reason}`;
+  if (!shouldPersistGpsAlert(alertKey)) {
+    writeSessionAudit("GPS_REJECTED_THROTTLED", session, { gps: normalizedGps, note: reason });
+    return rejected;
+  }
   const rejectedGps = ensureRejectedGps(state);
   rejectedGps.unshift(rejected);
   state.rejectedGps = rejectedGps.slice(0, 500);
@@ -1008,10 +1017,32 @@ function ensureGlobalAudit(state) {
 function appendGlobalAudit(state, entries) {
   if (!state || typeof state !== "object") return state;
   const audit = ensureGlobalAudit(state);
-  (Array.isArray(entries) ? entries : [entries]).filter(Boolean).forEach((entry) => {
+  const added = (Array.isArray(entries) ? entries : [entries]).filter(Boolean);
+  added.forEach((entry) => {
     audit.unshift(entry);
   });
+  if (audit.length > GLOBAL_AUDIT_STATE_LIMIT) audit.splice(GLOBAL_AUDIT_STATE_LIMIT);
+  if (added.length) {
+    try {
+      fs.appendFileSync(GLOBAL_AUDIT_LOG, `${added.map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf8");
+    } catch {
+      // La auditoria activa debe continuar aunque el archivo historico no este disponible.
+    }
+  }
   return state;
+}
+
+function shouldPersistGpsAlert(key) {
+  const normalizedKey = String(key || "gps");
+  const now = Date.now();
+  const previous = Number(recentGpsAlerts.get(normalizedKey) || 0);
+  recentGpsAlerts.set(normalizedKey, now);
+  if (recentGpsAlerts.size > 2000) {
+    for (const [entryKey, at] of recentGpsAlerts.entries()) {
+      if (now - Number(at || 0) > GPS_ALERT_THROTTLE_MS * 2) recentGpsAlerts.delete(entryKey);
+    }
+  }
+  return !previous || now - previous >= GPS_ALERT_THROTTLE_MS;
 }
 
 function ensureNotifications(state) {
@@ -4477,7 +4508,7 @@ const server = http.createServer(async (req, res) => {
       appendGpsHistory(session, gps, input);
       const warning = gpsWarning(gps);
       writeSessionAudit("GPS_UPDATED", session, { gps, note: warning || `GPS ${gps.lat}, ${gps.lng}` });
-      if (warning) {
+      if (warning && shouldPersistGpsAlert(`${session.sessionId}|${warning}`)) {
         appendNotificationToStateFile(req, session.user, { ...input, gps }, {
           action: "GPS_PRECISION_BAJA",
           category: "GPS",
@@ -7644,7 +7675,8 @@ const server = http.createServer(async (req, res) => {
           const incomingAudit = ensureGlobalAudit(payload.state);
           const auditById = new Map([...previousAudit, ...incomingAudit].map((entry) => [entry.id, entry]));
           payload.state.globalAudit = Array.from(auditById.values())
-            .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+            .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0))
+            .slice(0, GLOBAL_AUDIT_STATE_LIMIT);
           const previousNotifications = ensureNotifications(currentPayload.state || {});
           const incomingNotifications = ensureNotifications(payload.state);
           const notificationsById = new Map([...previousNotifications, ...incomingNotifications].map((entry) => [entry.id, entry]));
