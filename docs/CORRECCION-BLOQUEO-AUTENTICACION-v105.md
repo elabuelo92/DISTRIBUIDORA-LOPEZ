@@ -16,6 +16,10 @@ Fecha: 20/08/2026
 - Los ingresos superiores a un segundo registran `LOGIN_PERF` con tiempos por etapa en el journal del servicio.
 - Se mantiene la misma cantidad de iteraciones PBKDF2 y no se reduce la seguridad de las claves.
 
+## Complemento v106
+
+Un login sin coordenadas todavia se interpretaba como GPS rechazado y disparaba una escritura completa del estado. Desde v106 la ausencia de GPS permite iniciar sesion con ubicacion pendiente. Las coordenadas efectivamente recibidas que sean simuladas, antiguas o invalidas continuan siendo rechazadas y auditadas.
+
 ## Validacion requerida
 
 - Sintaxis Node y smoke funcional.
