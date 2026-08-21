@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-107-r20260820d">
+    <link rel="manifest" href="manifest.json?v=8790-108-r20260820e">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-107-r20260820d">
+    <link rel="stylesheet" href="styles.css?v=8790-108-r20260820e">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -128,6 +128,7 @@
           <button class="nav-item" data-view="proveedores"><span class="icon" aria-hidden="true">PRV</span>Proveedores</button>
           <button class="nav-item" data-view="estadisticas"><span class="icon" aria-hidden="true">EST</span>Estadisticas</button>
           <button class="nav-item admin-only" data-view="diagnostico"><span class="icon" aria-hidden="true">DIA</span>Diagnostico</button>
+          <button class="nav-item superadmin-only" data-view="monitor" hidden><span class="icon" aria-hidden="true">MON</span>Monitor</button>
           <button class="nav-item" data-view="legal"><span class="icon" aria-hidden="true">LEG</span>Legal</button>
           <button class="nav-item" data-view="ayuda"><span class="icon" aria-hidden="true">?</span>Ayuda</button>
           <button class="nav-item" data-view="acerca"><span class="icon" aria-hidden="true">i</span>Acerca</button>
@@ -157,8 +158,8 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-107</strong>
-              <small data-version-build>Actualizada 20/08/2026 15:28</small>
+              <strong data-version-value>8790-108</strong>
+              <small data-version-build>Actualizada 20/08/2026 21:07</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
             <button class="ghost-btn app-back-btn" id="appBackBtn" type="button">Volver</button>
@@ -2038,6 +2039,65 @@
           </div>
         </section>
 
+        <section class="view superadmin-only" id="monitor" hidden>
+          <div class="monitor-workspace">
+            <section class="panel wide monitor-hero">
+              <div class="panel-header">
+                <div>
+                  <h2>Monitor de produccion</h2>
+                  <p>Salud, memoria, estado operativo y recuperacion automatica</p>
+                </div>
+                <div class="table-actions">
+                  <span class="tag info" id="systemMonitorStatus">Comprobando</span>
+                  <button class="secondary-btn" id="refreshSystemMonitorBtn" type="button">Actualizar</button>
+                </div>
+              </div>
+              <div class="monitor-updated" id="systemMonitorUpdatedAt" aria-live="polite">Esperando primera lectura...</div>
+              <div class="diagnostics-grid" id="systemMonitorCards"></div>
+            </section>
+
+            <section class="panel monitor-memory-panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Memoria del servicio</h2>
+                  <p>Consumo frente a los limites preventivos</p>
+                </div>
+              </div>
+              <div id="systemMonitorMemory"></div>
+            </section>
+
+            <section class="panel monitor-host-panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Servidor y almacenamiento</h2>
+                  <p>Capacidad disponible y tamano del estado activo</p>
+                </div>
+              </div>
+              <div id="systemMonitorHost"></div>
+            </section>
+
+            <section class="panel wide">
+              <div class="panel-header">
+                <div>
+                  <h2>Protecciones automaticas</h2>
+                  <p>Contadores, umbrales y proxima comprobacion</p>
+                </div>
+              </div>
+              <div class="monitor-protection-grid" id="systemMonitorProtections"></div>
+            </section>
+
+            <section class="panel wide">
+              <div class="panel-header">
+                <div>
+                  <h2>Eventos recientes</h2>
+                  <p>Historial del monitor y recuperaciones del servicio</p>
+                </div>
+              </div>
+              <div class="monitor-events" id="systemMonitorEvents"></div>
+            </section>
+          </div>
+        </section>
+
         <section class="view" id="legal">
           <div class="legal-workspace">
             <section class="panel wide">
@@ -2448,7 +2508,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-107</span>
+          <span id="appFooterVersion">Version del sistema: 8790-108</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -4052,13 +4112,13 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-107-r20260820d"></script>
-    <script src="maps-config.js?v=8790-107-r20260820d"></script>
-    <script src="order-engine.js?v=8790-107-r20260820d"></script>
-    <script src="account-engine.js?v=8790-107-r20260820d"></script>
-    <script src="delivery-engine.js?v=8790-107-r20260820d"></script>
-    <script src="legal-engine.js?v=8790-107-r20260820d"></script>
-    <script src="app.js?v=8790-107-r20260820d"></script>
+    <script src="config.js?v=8790-108-r20260820e"></script>
+    <script src="maps-config.js?v=8790-108-r20260820e"></script>
+    <script src="order-engine.js?v=8790-108-r20260820e"></script>
+    <script src="account-engine.js?v=8790-108-r20260820e"></script>
+    <script src="delivery-engine.js?v=8790-108-r20260820e"></script>
+    <script src="legal-engine.js?v=8790-108-r20260820e"></script>
+    <script src="app.js?v=8790-108-r20260820e"></script>
   </body>
 </html>
 

@@ -79,6 +79,7 @@ const titles = {
   proveedores: "Proveedores",
   estadisticas: "Estadisticas operativas",
   diagnostico: "Diagnostico tecnico",
+  monitor: "Monitor de produccion",
   legal: "Legal",
   ayuda: "Centro de ayuda",
   acerca: "Acerca del sistema",
@@ -179,9 +180,9 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-107";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "20/08/2026 15:28 ART";
-const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-20T15:28:00-03:00";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-108";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "20/08/2026 21:07 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-20T21:07:33-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
 
@@ -332,6 +333,10 @@ let lastBackGuardNoticeAt = 0;
 let viewHistoryStack = [];
 let authMode = "pending";
 let syncIntervalId = null;
+let systemMonitorIntervalId = null;
+let systemMonitorData = null;
+let systemMonitorLatencyMs = null;
+let systemMonitorLoading = false;
 let syncPullInFlight = false;
 let syncPushInFlight = false;
 let pendingPullAfterPush = false;
@@ -649,6 +654,158 @@ function renderDiagnostics() {
   `;
 }
 
+function monitorBytes(value) {
+  const bytes = Number(value || 0);
+  if (bytes >= 1024 ** 3) return `${(bytes / (1024 ** 3)).toFixed(2)} GB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / (1024 ** 2)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${Math.max(0, Math.round(bytes))} B`;
+}
+
+function monitorDuration(value) {
+  let seconds = Math.max(0, Number(value || 0));
+  const days = Math.floor(seconds / 86400);
+  seconds -= days * 86400;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days) return `${days} d ${hours} h`;
+  if (hours) return `${hours} h ${minutes} min`;
+  return `${minutes} min`;
+}
+
+function monitorPercent(value, maximum) {
+  if (!Number(maximum || 0)) return 0;
+  return Math.max(0, Math.min(100, (Number(value || 0) / Number(maximum)) * 100));
+}
+
+function monitorTone(value, warning, danger) {
+  if (Number(value || 0) >= Number(danger || Infinity)) return "danger";
+  if (Number(value || 0) >= Number(warning || Infinity)) return "warn";
+  return "ok";
+}
+
+function monitorBar(label, value, maximum, tone = "ok", detail = "") {
+  const percent = monitorPercent(value, maximum);
+  return `
+    <div class="monitor-meter ${tone}">
+      <div><strong>${escapeHtml(label)}</strong><span>${escapeHtml(detail || `${monitorBytes(value)} / ${monitorBytes(maximum)}`)}</span></div>
+      <div class="monitor-meter-track"><i style="width:${percent.toFixed(1)}%"></i></div>
+      <small>${percent.toFixed(1)}%</small>
+    </div>
+  `;
+}
+
+function renderSystemMonitor() {
+  if (!isSuperAdminUser()) return;
+  const status = byId("systemMonitorStatus");
+  const updated = byId("systemMonitorUpdatedAt");
+  const cards = byId("systemMonitorCards");
+  const memoryBox = byId("systemMonitorMemory");
+  const hostBox = byId("systemMonitorHost");
+  const protections = byId("systemMonitorProtections");
+  const events = byId("systemMonitorEvents");
+  if (!cards || !memoryBox || !hostBox || !protections || !events) return;
+  const data = systemMonitorData;
+  if (!data) {
+    if (status) status.textContent = systemMonitorLoading ? "Consultando" : "Sin lectura";
+    cards.innerHTML = `<article class="diagnostic-card warn"><small>Monitor</small><strong>${systemMonitorLoading ? "Cargando..." : "Actualizar para consultar"}</strong></article>`;
+    return;
+  }
+
+  const processInfo = data.process || {};
+  const host = data.host || {};
+  const stateInfo = data.state || {};
+  const sessionInfo = data.sessions || {};
+  const monitor = data.monitor || {};
+  const thresholds = monitor.thresholds || {};
+  const rssTone = monitorTone(processInfo.rssBytes, Number(thresholds.memoryHighBytes || 0) * 0.7, thresholds.memoryHighBytes);
+  const failureTone = Number(monitor.healthFailures || 0) || Number(monitor.memoryFailures || 0) ? "warn" : "ok";
+  if (status) {
+    status.textContent = failureTone === "ok" ? "Operativo" : "Atencion";
+    status.className = `tag ${failureTone === "ok" ? "ok" : "warn"}`;
+  }
+  if (updated) updated.textContent = `Actualizado ${new Date(data.generatedAt).toLocaleString("es-AR")} - respuesta ${Math.round(systemMonitorLatencyMs || 0)} ms`;
+
+  const cardItems = [
+    { label: "Servicio", value: data.service && data.service.status === "active" ? "Activo" : "Revisar", tone: data.service && data.service.status === "active" ? "ok" : "danger" },
+    { label: "Latencia", value: `${Math.round(systemMonitorLatencyMs || 0)} ms`, tone: Number(systemMonitorLatencyMs || 0) < 1000 ? "ok" : Number(systemMonitorLatencyMs || 0) < 2000 ? "warn" : "danger" },
+    { label: "RAM del ERP", value: monitorBytes(processInfo.rssBytes), tone: rssTone },
+    { label: "RAM disponible", value: monitorBytes(host.freeMemoryBytes), tone: Number(host.freeMemoryBytes || 0) > 1024 ** 3 ? "ok" : "warn" },
+    { label: "Estado activo", value: monitorBytes(stateInfo.bytes), tone: Number(stateInfo.bytes || 0) < 100 * 1024 ** 2 ? "ok" : "warn" },
+    { label: "Sesiones", value: `${sessionInfo.active || 0} online / ${sessionInfo.total || 0}`, tone: "ok" },
+    { label: "Fallas health", value: `${monitor.healthFailures || 0} / ${thresholds.healthFailures || 3}`, tone: Number(monitor.healthFailures || 0) ? "warn" : "ok" },
+    { label: "Tiempo activo", value: monitorDuration(data.service && data.service.uptimeSeconds), tone: "ok" }
+  ];
+  cards.innerHTML = cardItems.map((item) => `
+    <article class="diagnostic-card ${item.tone}"><small>${escapeHtml(item.label)}</small><strong>${escapeHtml(item.value)}</strong></article>
+  `).join("");
+
+  memoryBox.innerHTML = [
+    monitorBar("Uso actual", processInfo.rssBytes, processInfo.memoryMaxBytes || thresholds.memoryRestartBytes, rssTone),
+    monitorBar("Heap JavaScript", processInfo.heapUsedBytes, processInfo.heapTotalBytes || 1, "ok"),
+    monitorBar("Umbral preventivo", processInfo.rssBytes, processInfo.memoryHighBytes || thresholds.memoryHighBytes, rssTone)
+  ].join("");
+  hostBox.innerHTML = [
+    monitorBar("RAM del servidor", Number(host.totalMemoryBytes || 0) - Number(host.freeMemoryBytes || 0), host.totalMemoryBytes || 1, Number(host.freeMemoryBytes || 0) > 1024 ** 3 ? "ok" : "warn"),
+    `<article class="diagnostic-detail"><strong>Archivo operativo</strong><span>${escapeHtml(`${monitorBytes(stateInfo.bytes)} - ${stateInfo.modifiedAt ? new Date(stateInfo.modifiedAt).toLocaleString("es-AR") : "sin fecha"}`)}</span></article>`,
+    `<article class="diagnostic-detail"><strong>Carga del servidor</strong><span>${escapeHtml((host.loadAverage || []).map((value) => Number(value).toFixed(2)).join(" / ") || "-")}</span></article>`
+  ].join("");
+
+  const lastRestart = Number(monitor.lastRestartEpoch || 0);
+  const protectionItems = [
+    ["Control automatico", `Cada ${data.service && data.service.monitorIntervalSeconds || 60} segundos`],
+    ["Chequeo previo", data.service && data.service.preflightLocalTime || "06:45 ART"],
+    ["Reinicio por health", `${thresholds.healthFailures || 3} fallas consecutivas`],
+    ["Alerta de RAM", monitorBytes(thresholds.memoryHighBytes)],
+    ["Reinicio por RAM", `${monitorBytes(thresholds.memoryRestartBytes)} durante ${thresholds.memoryFailureChecks || 2} controles`],
+    ["Ultimo reinicio automatico", lastRestart ? new Date(lastRestart * 1000).toLocaleString("es-AR") : "Sin reinicios automaticos"]
+  ];
+  protections.innerHTML = protectionItems.map(([label, value]) => `<article class="diagnostic-detail"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(value)}</span></article>`).join("");
+
+  const eventRows = Array.isArray(monitor.events) ? monitor.events : [];
+  events.innerHTML = (eventRows.length ? eventRows : [{ timestamp: "", level: "INFO", message: "Sin eventos registrados" }]).map((item) => `
+    <article class="monitor-event ${String(item.level || "").toLowerCase()}">
+      <time>${escapeHtml(item.timestamp ? new Date(item.timestamp).toLocaleString("es-AR") : "-")}</time>
+      <strong>${escapeHtml(item.level || "INFO")}</strong>
+      <span>${escapeHtml(item.message || "")}</span>
+    </article>
+  `).join("");
+}
+
+async function refreshSystemMonitor() {
+  if (!isSuperAdminUser() || systemMonitorLoading) return;
+  systemMonitorLoading = true;
+  renderSystemMonitor();
+  const startedAt = performance.now();
+  try {
+    const response = await fetchWithTimeout(apiUrl("api/admin/system-monitor"), { cache: "no-store" }, 8000);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) throw new Error(payload.error || `HTTP ${response.status}`);
+    systemMonitorLatencyMs = performance.now() - startedAt;
+    systemMonitorData = payload;
+  } catch (error) {
+    systemMonitorLatencyMs = performance.now() - startedAt;
+    const status = byId("systemMonitorStatus");
+    const updated = byId("systemMonitorUpdatedAt");
+    if (status) { status.textContent = "Sin respuesta"; status.className = "tag danger"; }
+    if (updated) updated.textContent = error.message || "No se pudo consultar el monitor";
+  } finally {
+    systemMonitorLoading = false;
+    renderSystemMonitor();
+  }
+}
+
+function startSystemMonitor() {
+  if (!isSuperAdminUser()) return;
+  refreshSystemMonitor();
+  if (!systemMonitorIntervalId) systemMonitorIntervalId = setInterval(refreshSystemMonitor, 10000);
+}
+
+function stopSystemMonitor() {
+  if (systemMonitorIntervalId) clearInterval(systemMonitorIntervalId);
+  systemMonitorIntervalId = null;
+}
+
 async function runConnectionDiagnostics() {
   const startedAt = performance.now();
   updateConnectionDiagnostics({
@@ -812,6 +969,7 @@ function closeTopDialogForBack() {
 
 function canUseView(viewId) {
   if (!viewId) return false;
+  if (viewId === "monitor" && !isSuperAdminUser()) return false;
   const view = byId(viewId);
   if (!view) return false;
   const navItem = Array.from(document.querySelectorAll(".nav-item")).find((item) => item.dataset.view === viewId);
@@ -2568,6 +2726,10 @@ function isAdminUser() {
   return Boolean(currentUser && currentUser.role === "admin");
 }
 
+function isSuperAdminUser() {
+  return Boolean(currentUser && currentUser.role === "admin" && String(currentUser.username || "").trim().toLowerCase() === "superadmin");
+}
+
 function isReceiverUser() {
   return Boolean(currentUser && currentUser.role === "receiver");
 }
@@ -2596,6 +2758,9 @@ function updateAdminOnlyVisibility() {
   });
   document.querySelectorAll(".supplier-admin-view").forEach((item) => {
     item.hidden = isReceiverUser();
+  });
+  document.querySelectorAll(".superadmin-only").forEach((item) => {
+    item.hidden = !isSuperAdminUser();
   });
 }
 
@@ -2850,6 +3015,7 @@ function stopRealtimeChannels() {
     clearTimeout(presenceLocationIntervalId);
     presenceLocationIntervalId = null;
   }
+  stopSystemMonitor();
   if (geoWatchId !== null && "geolocation" in navigator) {
     navigator.geolocation.clearWatch(geoWatchId);
     geoWatchId = null;
@@ -3522,6 +3688,9 @@ function renderActiveView(viewId = activeViewId()) {
       break;
     case "diagnostico":
       renderDiagnostics();
+      break;
+    case "monitor":
+      renderSystemMonitor();
       break;
     case "legal":
       renderLegalModule();
@@ -14586,6 +14755,8 @@ function switchView(viewId, options = {}) {
   renderAssistantGuide();
   if (viewId === "reparto") startDeliveryLocation();
   if (viewId === "diagnostico") runConnectionDiagnostics();
+  if (viewId === "monitor") startSystemMonitor();
+  else stopSystemMonitor();
   if (viewId === "admin" && isAdminUser() && !securityLicenseStatus) refreshLicenseStatus();
   if (!options.skipRender && currentUser) renderActiveView(viewId);
   if (!options.skipBackGuard) armAppBackGuard();
@@ -16064,6 +16235,9 @@ window.addEventListener("online", () => {
   pullStateFromServer();
 });
 byId("runDiagnosticsBtn").addEventListener("click", runConnectionDiagnostics);
+if (byId("refreshSystemMonitorBtn")) {
+  byId("refreshSystemMonitorBtn").addEventListener("click", refreshSystemMonitor);
+}
 byId("configureAndroidServerBtn").addEventListener("click", () => {
   if (window.AndroidConnection && typeof window.AndroidConnection.openSettings === "function") {
     window.AndroidConnection.openSettings();

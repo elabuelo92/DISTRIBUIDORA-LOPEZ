@@ -2,6 +2,7 @@
 const http = require("http");
 const path = require("path");
 const crypto = require("crypto");
+const os = require("os");
 const zlib = require("zlib");
 const ExcelJS = require("exceljs");
 const { spawn } = require("child_process");
@@ -17,7 +18,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-107";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-108";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -25,6 +26,8 @@ const SESSION_CONFIG_FILE = path.join(DATA_DIR, "session-config.json");
 const SESSION_AUDIT_LOG = path.join(DATA_DIR, "session-audit.log");
 const GLOBAL_AUDIT_LOG = path.join(DATA_DIR, "global-audit.log");
 const GPS_HISTORY_LOG = path.join(DATA_DIR, "gps-history.log");
+const SYSTEM_MONITOR_STATE_DIR = process.env.DL_MONITOR_STATE_DIR || "/var/lib/distribuidora-lopez-monitor";
+const SYSTEM_MONITOR_LOG = process.env.DL_MONITOR_LOG_FILE || "/var/log/distribuidora-lopez-monitor.log";
 const PRINT_DIR = path.join(DATA_DIR, "print-jobs");
 const UPLOAD_DIR = path.join(DATA_DIR, "delivery-uploads");
 const SUPPLIER_UPLOAD_DIR = path.join(DATA_DIR, "supplier-uploads");
@@ -1423,6 +1426,132 @@ function requireUser(req, res) {
     return null;
   }
   return user;
+}
+
+function requireSuperAdmin(req, res) {
+  const user = requireUser(req, res);
+  if (!user) return null;
+  if (user.role !== "admin" || String(user.username || "").trim().toLowerCase() !== "superadmin") {
+    sendJson(res, 403, { ok: false, error: "SUPERADMIN_REQUIRED" });
+    return null;
+  }
+  return user;
+}
+
+function readNumericFile(file, fallback = 0) {
+  try {
+    const value = Number(String(fs.readFileSync(file, "utf8") || "").trim());
+    return Number.isFinite(value) ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function processCgroupPath() {
+  try {
+    const entry = fs.readFileSync("/proc/self/cgroup", "utf8").split(/\r?\n/).find((line) => line.startsWith("0::"));
+    const relative = entry ? entry.slice(3).replace(/^\/+/, "") : "";
+    return relative ? path.join("/sys/fs/cgroup", relative) : "";
+  } catch {
+    return "";
+  }
+}
+
+function readCgroupLimit(name) {
+  const base = processCgroupPath();
+  if (!base) return 0;
+  try {
+    const raw = String(fs.readFileSync(path.join(base, name), "utf8") || "").trim();
+    if (!raw || raw === "max") return 0;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function recentMonitorEvents(limit = 20) {
+  try {
+    return fs.readFileSync(SYSTEM_MONITOR_LOG, "utf8")
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .slice(-Math.max(1, limit))
+      .reverse()
+      .map((line) => {
+        const timestamp = String(line).split(" level=")[0] || "";
+        const level = (String(line).match(/ level=([^ ]+)/) || [])[1] || "INFO";
+        return { timestamp, level, message: String(line).replace(/^\S+\s+/, "") };
+      });
+  } catch {
+    return [];
+  }
+}
+
+function systemMonitorPayload() {
+  const payload = readStateFileCached();
+  const currentState = payload.state || {};
+  const memory = process.memoryUsage();
+  let stateStat = null;
+  try { stateStat = fs.statSync(STATE_FILE); } catch {}
+  const publicSessionList = publicSessions();
+  return {
+    ok: true,
+    version: APP_RUNTIME_VERSION,
+    generatedAt: new Date().toISOString(),
+    service: {
+      status: "active",
+      pid: process.pid,
+      uptimeSeconds: Math.round(process.uptime()),
+      restartPolicy: "always",
+      monitorIntervalSeconds: 60,
+      preflightLocalTime: "06:45 America/Argentina/Buenos_Aires"
+    },
+    process: {
+      rssBytes: memory.rss,
+      heapUsedBytes: memory.heapUsed,
+      heapTotalBytes: memory.heapTotal,
+      externalBytes: memory.external,
+      memoryHighBytes: readCgroupLimit("memory.high"),
+      memoryMaxBytes: readCgroupLimit("memory.max"),
+      memorySwapMaxBytes: readCgroupLimit("memory.swap.max")
+    },
+    host: {
+      totalMemoryBytes: os.totalmem(),
+      freeMemoryBytes: os.freemem(),
+      loadAverage: os.loadavg(),
+      uptimeSeconds: Math.round(os.uptime()),
+      cpuCount: os.cpus().length
+    },
+    state: {
+      version: payload.version || 0,
+      bytes: stateStat ? stateStat.size : 0,
+      modifiedAt: stateStat ? stateStat.mtime.toISOString() : "",
+      globalAudit: Array.isArray(currentState.globalAudit) ? currentState.globalAudit.length : 0,
+      notifications: Array.isArray(currentState.notifications) ? currentState.notifications.length : 0,
+      domainEvents: Array.isArray(currentState.domainEvents) ? currentState.domainEvents.length : 0,
+      orders: Array.isArray(currentState.orders) ? currentState.orders.length : 0,
+      products: Array.isArray(currentState.products) ? currentState.products.length : 0,
+      clients: Array.isArray(currentState.clients) ? currentState.clients.length : 0
+    },
+    sessions: {
+      active: publicSessionList.filter((session) => session.online).length,
+      total: publicSessionList.length,
+      open: sessions.size
+    },
+    monitor: {
+      healthFailures: readNumericFile(path.join(SYSTEM_MONITOR_STATE_DIR, "health_failures")),
+      memoryFailures: readNumericFile(path.join(SYSTEM_MONITOR_STATE_DIR, "memory_failures")),
+      lastRestartEpoch: readNumericFile(path.join(SYSTEM_MONITOR_STATE_DIR, "last_restart")),
+      thresholds: {
+        healthFailures: 3,
+        memoryHighBytes: 1073741824,
+        memoryRestartBytes: 1610612736,
+        memoryFailureChecks: 2,
+        restartCooldownSeconds: 300
+      },
+      events: recentMonitorEvents(24)
+    }
+  };
 }
 
 function publicSecurityStatus(status, includeDetails = false) {
@@ -7502,6 +7631,13 @@ const server = http.createServer(async (req, res) => {
           salesOrder: order.code ? erpnextEngine.salesOrderPayload(order, currentState, config) : null
         }
       });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/admin/system-monitor" && req.method === "GET") {
+      const sessionUser = requireSuperAdmin(req, res);
+      if (!sessionUser) return;
+      sendJson(res, 200, systemMonitorPayload());
       return;
     }
 
