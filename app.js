@@ -180,8 +180,8 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-109";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "25/08/2026 00:08 ART";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-110";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "25/08/2026 00:51 ART";
 const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-25T00:08:47-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
@@ -299,6 +299,7 @@ let mobileCart = {};
 let mobileProduct = "";
 let productPortfolioPreview = null;
 let mobileWorkday = defaultMobileWorkday();
+let mobileClientScope = "today";
 let mobilePreventaTab = "order";
 let mobileNewClientLocation = null;
 let mobileClientCreateInFlight = false;
@@ -381,7 +382,10 @@ let clientStatusFilter = "all";
 let clientSellerFilter = "all";
 let clientZoneFilter = "all";
 let clientAccountFilter = "all";
+let clientSellerOptions = [];
 let clientPage = 1;
+let currentClientPageRecords = [];
+const selectedClientIds = new Set();
 const CLIENTS_PAGE_SIZE = 50;
 const CLIENTS_CACHE_TTL_MS = 15000;
 const CLIENTS_REQUEST_TIMEOUT_MS = 8000;
@@ -1238,6 +1242,12 @@ function defaultMobileWorkday() {
 
 function routeModeWorkday() {
   return mobileWorkday === "Fuera de Ruta" ? "Fuera de Ruta" : defaultMobileWorkday();
+}
+
+function mobileClientScopeLabel(scope = mobileClientScope) {
+  if (scope === "portfolio") return "Mi cartera";
+  if (scope === "outside") return "Fuera de ruta";
+  return "Mi ruta de hoy";
 }
 
 function clientGpsPoint(client) {
@@ -4282,24 +4292,59 @@ function renderCommissions() {
   `;
 }
 
+function sessionSellerRecord() {
+  const sessionSellerName = currentUser && currentUser.role === "seller"
+    ? String(currentUser.sellerName || currentUser.name || "").trim()
+    : String(mobileSeller || "").trim();
+  const existing = state.sellers.find((item) => normalizeSearchText(item.name) === normalizeSearchText(sessionSellerName));
+  if (existing) return existing;
+  if (!sessionSellerName || !currentUser || currentUser.role !== "seller") return state.sellers[0] || null;
+  const assignedClient = state.clients.find((client) => ClientPortfolioEngine.belongsToSeller(client, [
+    sessionSellerName,
+    currentUser.name,
+    currentUser.username
+  ]));
+  const created = {
+    name: sessionSellerName,
+    sellerName: sessionSellerName,
+    username: currentUser.username || "",
+    route: assignedClient && (assignedClient.ruta || assignedClient.route || assignedClient.zona || assignedClient.zone) || "Sin ruta",
+    orders: 0,
+    sales: 0,
+    commission: 0,
+    gps: "GPS pendiente",
+    progress: 0,
+    location: null
+  };
+  state.sellers.unshift(created);
+  return created;
+}
+
 function renderMobileSeller() {
-  const seller = state.sellers.find((item) => item.name === mobileSeller) || state.sellers[0];
+  const seller = sessionSellerRecord();
   if (!seller) return;
   mobileSeller = seller.name;
-  mobileWorkday = routeModeWorkday();
-  const outsideRoute = mobileWorkday === "Fuera de Ruta";
+  mobileWorkday = mobileClientScope === "outside" ? "Fuera de Ruta" : defaultMobileWorkday();
+  const outsideRoute = mobileClientScope === "outside";
   const clientsForSeller = getMobileClientOptions(seller);
-  const selectedClient = state.clients.find((client) => client.name === mobileClient) || clientsForSeller[0] || state.clients[0];
-  if (selectedClient) mobileClient = selectedClient.name;
+  const selectedClient = clientsForSeller.find((client) => client.name === mobileClient) || clientsForSeller[0] || null;
+  mobileClient = selectedClient ? selectedClient.name : "";
   if (!mobileProduct || !state.products.some((product) => product.name === mobileProduct)) {
     mobileProduct = state.products[0] ? state.products[0].name : "";
   }
 
-  byId("sellerRouteLabel").textContent = `${seller.route || "Ruta"} - ${outsideRoute ? "Fuera de Ruta" : mobileWorkday}`;
+  byId("sellerRouteLabel").textContent = `${mobileClientScopeLabel()} - ${outsideRoute ? "Excepcional" : mobileWorkday}`;
   const sessionSeller = byId("mobileSessionSellerLabel");
   if (sessionSeller) sessionSeller.textContent = `${seller.name} - ${outsideRoute ? "Fuera de Ruta" : `Ruta ${seller.route || mobileWorkday}`}`;
   const outsideToggle = byId("outsideRouteToggle");
   if (outsideToggle) outsideToggle.checked = outsideRoute;
+  document.querySelectorAll("[data-mobile-client-scope]").forEach((button) => {
+    const active = button.dataset.mobileClientScope === mobileClientScope;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    const count = button.querySelector("[data-mobile-client-scope-count]");
+    if (count) count.textContent = String(getMobileClientOptions(seller, button.dataset.mobileClientScope).length);
+  });
   byId("sellerSelect").innerHTML = state.sellers.map((item) => `
     <option value="${escapeHtml(item.name)}" ${item.name === seller.name ? "selected" : ""}>${escapeHtml(item.name)}</option>
   `).join("");
@@ -4321,6 +4366,9 @@ function renderMobileSeller() {
       <span>Ultimo pago: ${escapeHtml(formatLastPayment(credit.lastPayment))}</span>
       <span class="account-inline-status ${accountStatusTone(credit.status)}">${escapeHtml(credit.warning)}</span>
     `;
+  } else {
+    byId("mobileClientName").textContent = "Sin clientes en esta vista";
+    byId("mobileClientInfo").innerHTML = `<span>${escapeHtml(mobileClientScopeLabel())}: no hay clientes disponibles.</span>`;
   }
 
   renderMobileProductSelect();
@@ -4443,35 +4491,28 @@ function renderAssistantGuide() {
   }
 }
 
-function getMobileClientOptions(seller) {
-  const route = String(seller.route || "").toLowerCase();
-  const selectedDay = routeModeWorkday();
+function getMobileClientOptions(seller, scope = mobileClientScope) {
+  const selectedDay = defaultMobileWorkday();
   const origin = selectedSellerGpsPoint();
   const distanceFor = (client) => {
     const point = clientGpsPoint(client);
     return origin && point ? distanceMeters(origin, point) : Number.POSITIVE_INFINITY;
   };
-  const matchesDay = (client) => {
-    const day = normalizeWorkday(client.dia_visita || client.day || client.last || "");
-    if (selectedDay === "Fuera de Ruta") return true;
-    return !day || day === selectedDay;
-  };
-  return [...state.clients].filter((client) => {
-    const assigned = client.seller === seller.name || client.vendedor_asignado === seller.name || !client.seller;
-    return assigned && matchesDay(client);
-  }).sort((a, b) => {
-    const score = (client) => {
-      if (client.seller === seller.name) return 0;
-      const clientRoute = String(client.ruta || client.zone || client.zona || "").toLowerCase();
-      if (route && clientRoute && (clientRoute.includes(route) || route.includes(clientRoute))) return 1;
-      if (!client.seller) return 2;
-      return 3;
-    };
-    const scoreDiff = score(a) - score(b);
-    if (scoreDiff !== 0) return scoreDiff;
-    const distanceDiff = distanceFor(a) - distanceFor(b);
-    if (Number.isFinite(distanceDiff) && distanceDiff !== 0) return distanceDiff;
-    return String(a.name || "").localeCompare(String(b.name || ""), "es");
+  const identities = [
+    seller && seller.name,
+    seller && seller.sellerName,
+    seller && seller.username,
+    currentUser && currentUser.role === "seller" ? currentUser.name : "",
+    currentUser && currentUser.role === "seller" ? currentUser.sellerName : "",
+    currentUser && currentUser.role === "seller" ? currentUser.username : ""
+  ].filter(Boolean);
+  if (typeof ClientPortfolioEngine === "undefined") return [];
+  return ClientPortfolioEngine.filterClients(state.clients, {
+    scope,
+    sellerIdentities: identities,
+    sellerRoute: seller && seller.route,
+    workday: selectedDay,
+    distanceFor
   });
 }
 
@@ -4598,7 +4639,7 @@ function renderMobileClientPicker(clientsForSeller = null) {
   if (meta) {
     meta.textContent = selected
       ? `${selected.status || "Sin estado"} - ${selected.ruta || selected.zone || "Sin ruta"}`
-      : "Buscar por nombre, ruta o vendedor";
+      : `${mobileClientScopeLabel()} - buscar cliente`;
   }
   renderMobileClientOptions(clients);
 }
@@ -4616,6 +4657,12 @@ function renderMobileClientOptions(clientsForSeller = null) {
       client.name,
       client.codigo_cliente,
       client.razon_social,
+      client.nombre_comercial,
+      client.domicilio,
+      client.address,
+      client.telefono,
+      client.phone,
+      client.localidad,
       client.ruta,
       client.zone,
       client.zona,
@@ -9637,8 +9684,82 @@ function renderClientsError(message) {
 
 function updateClientFilterOptions(payload) {
   const filters = payload && payload.filters || {};
-  clientSellerFilter = updateDynamicFilter("clientSellerFilter", filters.sellers || [], clientSellerFilter, "Todos los vendedores");
+  clientSellerOptions = Array.from(new Set(filters.sellers || [])).sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+  clientSellerFilter = updateDynamicFilter("clientSellerFilter", clientSellerOptions, clientSellerFilter, "Todos los vendedores");
   clientZoneFilter = updateDynamicFilter("clientZoneFilter", filters.zones || [], clientZoneFilter, "Todas las zonas");
+}
+
+function populateClientBulkSellerOptions() {
+  const select = byId("clientBulkSeller");
+  if (!select) return;
+  const current = select.value;
+  select.innerHTML = [
+    '<option value="">Vendedor: sin cambios</option>',
+    ...Array.from(new Set([...clientSellerOptions, ...state.sellers.map((seller) => seller.name)].filter(Boolean)))
+      .sort((a, b) => String(a || "").localeCompare(String(b || ""), "es", { sensitivity: "base" }))
+      .map((seller) => `<option value="${escapeHtml(seller)}">${escapeHtml(seller)}</option>`)
+  ].join("");
+  if (Array.from(select.options).some((option) => option.value === current)) select.value = current;
+}
+
+function updateClientBulkUi(message = "", tone = "") {
+  const panel = byId("clientBulkActions");
+  const count = byId("clientBulkCount");
+  if (panel) panel.hidden = selectedClientIds.size === 0;
+  if (count) count.textContent = `${selectedClientIds.size} seleccionados`;
+  const visibleIds = currentClientPageRecords.map(clientIdentity).filter(Boolean);
+  const selectVisible = byId("selectVisibleClients");
+  if (selectVisible) {
+    const selectedVisible = visibleIds.filter((id) => selectedClientIds.has(id)).length;
+    selectVisible.checked = visibleIds.length > 0 && selectedVisible === visibleIds.length;
+    selectVisible.indeterminate = selectedVisible > 0 && selectedVisible < visibleIds.length;
+  }
+  const status = byId("clientBulkStatus");
+  if (status && message) {
+    status.textContent = message;
+    status.dataset.tone = tone || "info";
+  }
+}
+
+async function applyClientBulkAssignment() {
+  const seller = byId("clientBulkSeller").value;
+  const route = byId("clientBulkRoute").value.trim();
+  const zone = byId("clientBulkZone").value.trim();
+  const day = byId("clientBulkDay").value;
+  const motive = byId("clientBulkMotive").value.trim();
+  const adminPassword = byId("clientBulkPassword").value;
+  if (![seller, route, zone, day].some(Boolean)) {
+    updateClientBulkUi("Indicar vendedor, ruta, zona o dia.", "danger");
+    return;
+  }
+  if (!motive || !adminPassword) {
+    updateClientBulkUi("Completar motivo y clave de administrador.", "danger");
+    return;
+  }
+  const button = byId("applyClientBulkAssignment");
+  button.disabled = true;
+  updateClientBulkUi(`Actualizando ${selectedClientIds.size} clientes...`, "info");
+  try {
+    const payload = await postOperationalAction("api/clients/bulk-assign", {
+      clientIds: Array.from(selectedClientIds), seller, route, zone, day, motive, admin_password: adminPassword
+    }, { timeoutMs: 30000 });
+    (payload.updated || []).forEach((updated) => {
+      const index = findClientForEdit(clientIdentity(updated));
+      const stateIndex = index ? state.clients.indexOf(index) : -1;
+      if (stateIndex >= 0) state.clients[stateIndex] = normalizeClientRecord(updated);
+    });
+    const affected = Number(payload.affected || 0);
+    selectedClientIds.clear();
+    clientPageCache.clear();
+    byId("clientBulkPassword").value = "";
+    byId("clientBulkMotive").value = "";
+    updateClientBulkUi(`${affected} clientes actualizados correctamente.`, "ok");
+    await renderClients({ force: true });
+  } catch (error) {
+    updateClientBulkUi(error.message || "No se pudo completar la reasignacion.", "danger");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function renderClientsPager(payload, renderMs, fromCache) {
@@ -9664,11 +9785,14 @@ function renderClientPage(payload, fromCache = false) {
   updateClientFilterOptions(payload);
   clientPage = Number(payload.page || clientPage || 1);
   const clients = Array.isArray(payload.records) ? payload.records : [];
+  currentClientPageRecords = clients;
+  populateClientBulkSellerOptions();
   byId("clientsTable").innerHTML = clients.length ? clients.map((client) => {
     const account = client.account || { currentBalance: 0, creditLimit: 0, totalDebt: 0, status: "Al dia" };
     const mixedEntityKeyValue = client.mixedEntityKey || "";
     return `
     <tr>
+      <td><input type="checkbox" data-client-select="${escapeHtml(clientIdentity(client))}" aria-label="Seleccionar ${escapeHtml(client.name)}" ${selectedClientIds.has(clientIdentity(client)) ? "checked" : ""}></td>
       <td>
         <strong>${escapeHtml(client.name)}</strong>
         <small>${escapeHtml(client.codigo_cliente || "Sin codigo")} - ${escapeHtml(client.razon_social || client.name)}</small>
@@ -9708,7 +9832,8 @@ function renderClientPage(payload, fromCache = false) {
       </td>
     </tr>
   `;
-  }).join("") : '<tr><td class="stock-empty" colspan="8">No hay clientes para los filtros seleccionados.</td></tr>';
+  }).join("") : '<tr><td class="stock-empty" colspan="9">No hay clientes para los filtros seleccionados.</td></tr>';
+  updateClientBulkUi();
   const renderMs = Math.round((performance.now() - startedAt) * 10) / 10;
   renderClientsPager(payload, renderMs, fromCache);
   clientPerformanceMark("renderComplete", {
@@ -15136,8 +15261,10 @@ async function submitOrderScan(event) {
 function populateSellerOptions(selectId) {
   const select = byId(selectId);
   if (!select) return;
-  select.innerHTML = state.sellers.map((seller) => `
-    <option value="${escapeHtml(seller.name)}">${escapeHtml(seller.name)}</option>
+  const sellers = Array.from(new Set([...clientSellerOptions, ...state.sellers.map((seller) => seller.name)].filter(Boolean)))
+    .sort((a, b) => String(a).localeCompare(String(b), "es", { sensitivity: "base" }));
+  select.innerHTML = sellers.map((seller) => `
+    <option value="${escapeHtml(seller)}">${escapeHtml(seller)}</option>
   `).join("");
 }
 
@@ -16889,6 +17016,29 @@ byId("clientsTable").addEventListener("click", (event) => {
   if (!event.target.closest("[data-clients-retry]")) return;
   renderClients({ force: true });
 });
+byId("clientsTable").addEventListener("change", (event) => {
+  const checkbox = event.target.closest("[data-client-select]");
+  if (!checkbox) return;
+  if (checkbox.checked) selectedClientIds.add(checkbox.dataset.clientSelect);
+  else selectedClientIds.delete(checkbox.dataset.clientSelect);
+  updateClientBulkUi();
+});
+byId("selectVisibleClients").addEventListener("change", (event) => {
+  currentClientPageRecords.map(clientIdentity).filter(Boolean).forEach((id) => {
+    if (event.target.checked) selectedClientIds.add(id);
+    else selectedClientIds.delete(id);
+  });
+  document.querySelectorAll("[data-client-select]").forEach((checkbox) => {
+    checkbox.checked = selectedClientIds.has(checkbox.dataset.clientSelect);
+  });
+  updateClientBulkUi();
+});
+byId("clearClientBulkSelection").addEventListener("click", () => {
+  selectedClientIds.clear();
+  document.querySelectorAll("[data-client-select]").forEach((checkbox) => { checkbox.checked = false; });
+  updateClientBulkUi();
+});
+byId("applyClientBulkAssignment").addEventListener("click", applyClientBulkAssignment);
 byId("accountsSearch").addEventListener("input", (event) => {
   accountSearchTerm = event.target.value;
   debouncedRenderAccounts();
@@ -17193,11 +17343,27 @@ byId("sellerWorkdaySelect").addEventListener("change", (event) => {
   renderMobileSeller();
 });
 byId("outsideRouteToggle").addEventListener("change", (event) => {
+  mobileClientScope = event.target.checked ? "outside" : "today";
   mobileWorkday = event.target.checked ? "Fuera de Ruta" : defaultMobileWorkday();
   const firstClient = getMobileClientOptions(state.sellers.find((seller) => seller.name === mobileSeller) || {}).find(Boolean);
   mobileClient = firstClient ? firstClient.name : "";
   mobileCart = {};
   renderMobileSeller();
+});
+document.querySelectorAll("[data-mobile-client-scope]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const nextScope = button.dataset.mobileClientScope;
+    if (!["today", "portfolio", "outside"].includes(nextScope) || nextScope === mobileClientScope) return;
+    mobileClientScope = nextScope;
+    mobileWorkday = nextScope === "outside" ? "Fuera de Ruta" : defaultMobileWorkday();
+    const seller = state.sellers.find((item) => item.name === mobileSeller) || state.sellers[0] || {};
+    const firstClient = getMobileClientOptions(seller)[0];
+    mobileClient = firstClient ? firstClient.name : "";
+    mobileCart = {};
+    const search = byId("mobileClientSearch");
+    if (search) search.value = "";
+    renderMobileSeller();
+  });
 });
 byId("mobileClientSelect").addEventListener("change", (event) => {
   mobileClient = event.target.value;

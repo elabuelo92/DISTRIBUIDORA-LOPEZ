@@ -18,7 +18,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-109";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-110";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -2589,7 +2589,7 @@ function clientListRecord(state, client, supplierKeys) {
     localidad: client.localidad || "",
     zone: client.zone || client.zona || "",
     ruta: client.ruta || client.route || "",
-    seller: client.seller || client.vendedor || "",
+    seller: client.seller || client.vendedor_asignado || client.vendedor || "",
     horario_atencion: client.horario_atencion || client.hours || "",
     latitud: client.latitud ?? client.latitude ?? null,
     longitud: client.longitud ?? client.longitude ?? null,
@@ -2628,7 +2628,7 @@ function paginatedClientsPayload(state, searchParams, stateVersion) {
   const zones = new Set();
 
   const filtered = source.filter((client) => {
-    const clientSeller = String(client.seller || client.vendedor || "");
+    const clientSeller = String(client.seller || client.vendedor_asignado || client.vendedor || "");
     const clientZone = String(client.zone || client.zona || client.ruta || "");
     if (clientSeller) sellers.add(clientSeller);
     if (clientZone) zones.add(clientZone);
@@ -2802,6 +2802,7 @@ function editedClientFromInput(previous, input, user) {
     ruta: String(input.ruta || zone).trim(),
     vendedor_asignado: seller,
     seller,
+    vendedor: seller,
     tipo_cliente: String(input.tipo_cliente || "OTROS").trim(),
     forma_pago: String(input.forma_pago || "Contado").trim(),
     condicion_comercial: String(input.condicion_comercial || input.forma_pago || "").trim(),
@@ -2875,6 +2876,7 @@ function mobileClientFromInput(input, user) {
     ruta: String(input.ruta || zone).trim(),
     vendedor_asignado: seller,
     seller,
+    vendedor: seller,
     dia_visita: String(input.dia_visita || "").trim(),
     frecuencia_visita: String(input.frecuencia_visita || "Semanal").trim(),
     estado: String(input.estado || "Activo").trim() || "Activo",
@@ -5349,6 +5351,12 @@ const server = http.createServer(async (req, res) => {
       }
       const currentPayload = readStateFileCached();
       const payload = paginatedClientsPayload(currentPayload.state || {}, requestUrl.searchParams, currentPayload.version);
+      const sellerUsers = readUsers()
+        .filter((user) => user.role === "seller" && user.active !== false)
+        .map((user) => String(user.sellerName || user.name || user.username || "").trim())
+        .filter(Boolean);
+      payload.filters.sellers = Array.from(new Set([...(payload.filters.sellers || []), ...sellerUsers]))
+        .sort((a, b) => a.localeCompare(b, "es-AR"));
       sendJson(res, 200, payload, {
         "Server-Timing": `clients;dur=${payload.performance.queryMs}`,
         "X-DL-Clients-Query-Ms": String(payload.performance.queryMs)
@@ -5450,6 +5458,126 @@ const server = http.createServer(async (req, res) => {
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo editar el cliente." });
       }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/clients/bulk-assign" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "La asignacion masiva de clientes requiere Administrador." });
+        return;
+      }
+      const body = await readBody(req);
+      const input = JSON.parse(body || "{}");
+      const clientIds = Array.from(new Set((Array.isArray(input.clientIds) ? input.clientIds : [])
+        .map((value) => String(value || "").trim()).filter(Boolean)));
+      const motive = String(input.motive || input.motivo || "").trim();
+      const adminPassword = String(input.admin_password || input.adminPassword || "").trim();
+      const changes = {
+        seller: String(input.seller || input.vendedor_asignado || "").trim(),
+        route: String(input.route || input.ruta || "").trim(),
+        zone: String(input.zone || input.zona || "").trim(),
+        day: String(input.day || input.dia_visita || "").trim()
+      };
+      if (!clientIds.length || clientIds.length > 1000) {
+        sendJson(res, 400, { ok: false, error: "Seleccionar entre 1 y 1000 clientes." });
+        return;
+      }
+      if (!motive) {
+        sendJson(res, 400, { ok: false, error: "Indicar el motivo de la reasignacion." });
+        return;
+      }
+      if (!Object.values(changes).some(Boolean)) {
+        sendJson(res, 400, { ok: false, error: "Indicar al menos vendedor, ruta, zona o dia." });
+        return;
+      }
+      const users = readUsers();
+      const adminUser = users.find((item) => item.username.toLowerCase() === sessionUser.username.toLowerCase() && item.active !== false);
+      if (!adminUser || !verifyPassword(adminPassword, adminUser)) {
+        sendJson(res, 401, { ok: false, error: "Clave de administrador incorrecta." });
+        return;
+      }
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      currentState.clients = Array.isArray(currentState.clients) ? currentState.clients : [];
+      const indexes = clientIds.map((id) => findClientIndex(currentState, id));
+      const missing = clientIds.filter((id, index) => indexes[index] < 0);
+      if (missing.length) {
+        sendJson(res, 409, { ok: false, error: `No se encontraron ${missing.length} clientes. No se aplicaron cambios.`, missing });
+        return;
+      }
+      const audits = [];
+      const updated = [];
+      indexes.forEach((index) => {
+        const client = currentState.clients[index];
+        const previous = JSON.parse(JSON.stringify(client));
+        if (changes.seller) {
+          client.seller = changes.seller;
+          client.vendedor = changes.seller;
+          client.vendedor_asignado = changes.seller;
+        }
+        if (changes.route) {
+          client.ruta = changes.route;
+          client.route = changes.route;
+        }
+        if (changes.zone) {
+          client.zona = changes.zone;
+          client.zone = changes.zone;
+        }
+        if (changes.day) client.dia_visita = changes.day;
+        client.updatedAt = new Date().toISOString();
+        client.assignmentHistory = Array.isArray(client.assignmentHistory) ? client.assignmentHistory : [];
+        client.assignmentHistory.push({
+          at: client.updatedAt,
+          user: sessionUser.name,
+          username: sessionUser.username,
+          motive,
+          previous: {
+            seller: previous.seller || previous.vendedor_asignado || "",
+            route: previous.ruta || previous.route || "",
+            zone: previous.zona || previous.zone || "",
+            day: previous.dia_visita || ""
+          },
+          next: {
+            seller: client.seller || client.vendedor_asignado || "",
+            route: client.ruta || client.route || "",
+            zone: client.zona || client.zone || "",
+            day: client.dia_visita || ""
+          }
+        });
+        audits.push(auditEntry(req, sessionUser, input, {
+          action: "CLIENTE_ASIGNACION_MASIVA",
+          entityType: "cliente",
+          entityId: clientRecordId(client),
+          entityLabel: client.name || client.nombre_comercial,
+          previousValue: previous,
+          newValue: client,
+          note: motive
+        }));
+        updated.push(client);
+      });
+      currentState.activity = Array.isArray(currentState.activity) ? currentState.activity : [];
+      currentState.activity.unshift({
+        type: "Clientes",
+        title: `${updated.length} clientes reasignados`,
+        text: `${sessionUser.name}: ${motive}.`
+      });
+      writeCompactStateResponse(res, currentState, {
+        updated,
+        affected: updated.length,
+        message: `${updated.length} clientes actualizados correctamente.`
+      }, audits, notificationEntry(req, sessionUser, input, {
+        action: "CLIENTE_ASIGNACION_MASIVA",
+        category: "Clientes",
+        title: `${updated.length} clientes reasignados`,
+        text: `${sessionUser.name}: ${motive}.`,
+        tone: "info",
+        entityType: "cliente",
+        entityId: "bulk",
+        entityLabel: "Asignacion masiva",
+        audience: ["admin"]
+      }), { atomic: true });
       return;
     }
 

@@ -6,7 +6,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test:client-create": "node scripts/smoke-client-create-v109.js"
+    "test:client-create": "node scripts/smoke-client-create-v109.js",
+    "test:client-portfolio": "node scripts/smoke-client-portfolio-v110.js"
   },
   "engines": {
     "node": ">=18"

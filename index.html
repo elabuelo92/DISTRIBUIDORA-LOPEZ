@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-109-r20260825a">
+    <link rel="manifest" href="manifest.json?v=8790-110-r20260825b">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-109-r20260825a">
+    <link rel="stylesheet" href="styles.css?v=8790-110-r20260825b">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -158,7 +158,7 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-109</strong>
+              <strong data-version-value>8790-110</strong>
               <small data-version-build>Actualizada 25/08/2026 00:08</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
@@ -320,11 +320,22 @@
                     <small>Cliente</small>
                     <strong id="mobileSessionSellerLabel">Vendedor por sesion</strong>
                   </div>
-                  <label class="outside-route-switch">
+                  <label class="outside-route-switch" hidden>
                     <input id="outsideRouteToggle" type="checkbox">
                     <span>Fuera de Ruta</span>
                   </label>
                 </div>
+              <div class="mobile-client-scopes" data-mobile-preventa-panel="order" role="group" aria-label="Cartera de clientes">
+                <button class="active" type="button" data-mobile-client-scope="today" aria-pressed="true">
+                  <span>Mi ruta de hoy</span><b data-mobile-client-scope-count>0</b>
+                </button>
+                <button type="button" data-mobile-client-scope="portfolio" aria-pressed="false">
+                  <span>Mi cartera</span><b data-mobile-client-scope-count>0</b>
+                </button>
+                <button type="button" data-mobile-client-scope="outside" aria-pressed="false">
+                  <span>Fuera de ruta</span><b data-mobile-client-scope-count>0</b>
+                </button>
+              </div>
               <div class="phone-actions" data-mobile-preventa-panel="order">
                 <div class="phone-field mobile-picker-field">
                   <span>Cliente cargado</span>
@@ -991,10 +1002,33 @@
               </select>
               <button class="ghost-btn" id="clearClientFilters" type="button">Limpiar</button>
             </div>
+            <section class="client-bulk-actions" id="clientBulkActions" hidden aria-label="Asignacion masiva de clientes">
+              <div class="client-bulk-head">
+                <strong id="clientBulkCount">0 seleccionados</strong>
+                <span>Reasignacion administrativa</span>
+                <button class="mini-btn" id="clearClientBulkSelection" type="button">Quitar seleccion</button>
+              </div>
+              <div class="client-bulk-grid">
+                <select id="clientBulkSeller" aria-label="Nuevo vendedor"><option value="">Vendedor: sin cambios</option></select>
+                <input id="clientBulkRoute" type="text" placeholder="Ruta: sin cambios">
+                <input id="clientBulkZone" type="text" placeholder="Zona: sin cambios">
+                <select id="clientBulkDay" aria-label="Nuevo dia de visita">
+                  <option value="">Dia: sin cambios</option>
+                  <option value="Lunes">Lunes</option><option value="Martes">Martes</option><option value="Miercoles">Miercoles</option>
+                  <option value="Jueves">Jueves</option><option value="Viernes">Viernes</option><option value="Sabado">Sabado</option>
+                  <option value="Fuera de Ruta">Fuera de Ruta</option>
+                </select>
+                <input id="clientBulkMotive" type="text" placeholder="Motivo obligatorio">
+                <input id="clientBulkPassword" type="password" autocomplete="current-password" placeholder="Clave administrador">
+                <button class="primary-btn" id="applyClientBulkAssignment" type="button">Aplicar asignacion</button>
+              </div>
+              <p class="inline-status" id="clientBulkStatus" aria-live="polite"></p>
+            </section>
             <div class="responsive-table">
               <table>
                 <thead>
                   <tr>
+                    <th><input id="selectVisibleClients" type="checkbox" aria-label="Seleccionar clientes visibles"></th>
                     <th>Cliente</th>
                     <th>Fiscal / contacto</th>
                     <th>Domicilio</th>
@@ -2508,7 +2542,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-109</span>
+          <span id="appFooterVersion">Version del sistema: 8790-110</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -4112,13 +4146,14 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-109-r20260825a"></script>
-    <script src="maps-config.js?v=8790-109-r20260825a"></script>
-    <script src="order-engine.js?v=8790-109-r20260825a"></script>
-    <script src="account-engine.js?v=8790-109-r20260825a"></script>
-    <script src="delivery-engine.js?v=8790-109-r20260825a"></script>
-    <script src="legal-engine.js?v=8790-109-r20260825a"></script>
-    <script src="app.js?v=8790-109-r20260825a"></script>
+    <script src="config.js?v=8790-110-r20260825b"></script>
+    <script src="maps-config.js?v=8790-110-r20260825b"></script>
+    <script src="order-engine.js?v=8790-110-r20260825b"></script>
+    <script src="account-engine.js?v=8790-110-r20260825b"></script>
+    <script src="delivery-engine.js?v=8790-110-r20260825b"></script>
+    <script src="legal-engine.js?v=8790-110-r20260825b"></script>
+    <script src="client-portfolio-engine.js?v=8790-110-r20260825b"></script>
+    <script src="app.js?v=8790-110-r20260825b"></script>
   </body>
 </html>
 
