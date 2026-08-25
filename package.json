@@ -5,7 +5,8 @@
   "description": "Demo CRM/preventa para Distribuidora Lopez con dashboard, pedidos, stock y GPS.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test:client-create": "node scripts/smoke-client-create-v109.js"
   },
   "engines": {
     "node": ">=18"

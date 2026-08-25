@@ -180,9 +180,9 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-108";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "20/08/2026 21:07 ART";
-const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-20T21:07:33-03:00";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-109";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "25/08/2026 00:08 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-25T00:08:47-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
 
@@ -301,6 +301,8 @@ let productPortfolioPreview = null;
 let mobileWorkday = defaultMobileWorkday();
 let mobilePreventaTab = "order";
 let mobileNewClientLocation = null;
+let mobileClientCreateInFlight = false;
+let mobileClientPendingOperation = null;
 let mobileSalesSearchTerm = "";
 let mobileSalesSelectedOrderCode = "";
 let mobileClientHistoryOpen = false;
@@ -2212,17 +2214,18 @@ function applyServerStatePayload(payload) {
   scheduleRenderForCurrentUser();
 }
 
-async function postOperationalAction(path, body) {
+async function postOperationalAction(path, body, options = {}) {
   const response = await fetchWithTimeout(apiUrl(path), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     cache: "no-store",
     body: JSON.stringify(body || {})
-  }, 12000);
+  }, Math.max(1000, Number(options.timeoutMs || 12000)));
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(payload.error || "No se pudo completar la operacion.");
     error.payload = payload;
+    error.status = response.status;
     throw error;
   }
   applyServerStatePayload(payload);
@@ -15555,7 +15558,62 @@ async function registerMobileClientLocation() {
   }
 }
 
+function newMobileClientOperationId() {
+  const token = globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+  return `CLIENT-${token}`;
+}
+
+function ambiguousClientCreateError(error) {
+  return !Number(error && error.status) && (
+    !error
+    || error.name === "AbortError"
+    || error.name === "TimeoutError"
+    || error.name === "TypeError"
+  );
+}
+
+async function reconcileMobileClientCreate(operationId) {
+  const response = await fetchWithTimeout(
+    apiUrl(`api/clients/mobile/status?operationId=${encodeURIComponent(operationId)}`),
+    { cache: "no-store" },
+    10000
+  );
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload.error || "No se pudo verificar el alta del cliente.");
+    error.status = response.status;
+    throw error;
+  }
+  return payload.found && payload.client ? payload : null;
+}
+
+async function createMobileClientOnServer(request) {
+  try {
+    return await postOperationalAction("api/clients/mobile", request, { timeoutMs: 20000 });
+  } catch (error) {
+    if (!ambiguousClientCreateError(error)) throw error;
+    await sleep(500);
+    try {
+      const reconciled = await reconcileMobileClientCreate(request.operationId);
+      if (reconciled) return { ...reconciled, compact: true, reconciled: true };
+    } catch {
+      // Si la respuesta se perdio, el reintento idempotente confirmara o creara una sola vez.
+    }
+    try {
+      return await postOperationalAction("api/clients/mobile", request, { timeoutMs: 20000 });
+    } catch (retryError) {
+      if (!ambiguousClientCreateError(retryError)) throw retryError;
+      const reconciled = await reconcileMobileClientCreate(request.operationId).catch(() => null);
+      if (reconciled) return { ...reconciled, compact: true, reconciled: true };
+      throw retryError;
+    }
+  }
+}
+
 async function addMobileClientFromQuickForm() {
+  if (mobileClientCreateInFlight) return;
   const name = byId("mobileNewClientName").value.trim();
   if (!name) {
     window.alert("Completar el nombre comercial del cliente.");
@@ -15634,42 +15692,47 @@ async function addMobileClientFromQuickForm() {
   }
   const button = byId("saveMobileClientBtn");
   const previousText = button ? button.textContent : "";
+  const pendingMatches = mobileClientPendingOperation && sameText(mobileClientPendingOperation.name, name);
+  const operationId = pendingMatches ? mobileClientPendingOperation.id : newMobileClientOperationId();
+  mobileClientPendingOperation = { id: operationId, name };
+  mobileClientCreateInFlight = true;
   if (button) {
     button.disabled = true;
     button.textContent = "Registrando...";
   }
   try {
-    const payload = await postOperationalAction("api/clients/mobile", {
-    codigo_cliente: `PEND-${Date.now()}`,
-    nombre_comercial: name,
-    razon_social: businessName || name,
-    cuit: taxId,
-    consumidor_final: consumerFinal,
-    condicion_fiscal: consumerFinal ? "Cons.Final" : "Responsable Inscripto",
+    const payload = await createMobileClientOnServer({
+      operationId,
+      codigo_cliente: `MOB-${operationId.replace(/[^A-Za-z0-9]/g, "").slice(-20)}`,
+      nombre_comercial: name,
+      razon_social: businessName || name,
+      cuit: taxId,
+      consumidor_final: consumerFinal,
+      condicion_fiscal: consumerFinal ? "Cons.Final" : "Responsable Inscripto",
       domicilio: address,
       localidad: city,
       telefono: phone,
-    forma_pago: payment,
-    condicion_comercial: payment,
-    dias_credito: 0,
-    limite_credito: Math.max(0, Number(limitField.value || 0)),
-    saldo_inicial: 0,
-    tipo_cliente: "Preventa",
-    zona: zone,
-    ruta: route,
-    vendedor_asignado: mobileSeller,
+      forma_pago: payment,
+      condicion_comercial: payment,
+      dias_credito: 0,
+      limite_credito: Math.max(0, Number(limitField.value || 0)),
+      saldo_inicial: 0,
+      tipo_cliente: "Preventa",
+      zona: zone,
+      ruta: route,
+      vendedor_asignado: mobileSeller,
       dia_visita: visitDay,
       frecuencia_visita: "Semanal",
       estado: "Activo",
-    observaciones: "Alta rapida desde celular",
+      observaciones: "Alta rapida desde celular",
       latitud: mobileNewClientLocation.lat,
       longitud: mobileNewClientLocation.lng,
       gpsAccuracy: mobileNewClientLocation.accuracy,
       gps: mobileNewClientLocation,
-    horario_atencion: "",
-    origen: "preventa",
-    preventistaPassword: sellerPassword,
-    device: sessionDevice
+      horario_atencion: "",
+      origen: "preventa",
+      preventistaPassword: sellerPassword,
+      device: sessionDevice
     });
     const client = payload.client || state.clients.find((item) => item.name === name);
     if (client) {
@@ -15684,13 +15747,17 @@ async function addMobileClientFromQuickForm() {
     clearMobileClientForm();
     setMobileClientFormOpen(false);
     renderForCurrentUser();
-    showCompactNotice(`${mobileClient} ya esta disponible para vender.`, "ok");
+    mobileClientPendingOperation = null;
+    showCompactNotice("Cliente creado correctamente", "ok");
   } catch (error) {
-    const message = error && (error.name === "AbortError" || error.name === "TimeoutError")
-      ? "El servidor demoro en responder. Verificar el padron antes de volver a guardar para evitar duplicados."
+    const ambiguous = ambiguousClientCreateError(error);
+    if (!ambiguous) mobileClientPendingOperation = null;
+    const message = ambiguous
+      ? "No se pudo confirmar la respuesta del servidor. La aplicacion conservara esta operacion para verificarla sin duplicar el cliente."
       : error.message || "No se pudo guardar el cliente en el servidor.";
     window.alert(message);
   } finally {
+    mobileClientCreateInFlight = false;
     if (button) {
       button.disabled = false;
       button.textContent = previousText || "Guardar cliente";

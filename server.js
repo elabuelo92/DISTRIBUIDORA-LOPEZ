@@ -18,7 +18,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-108";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-109";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -1640,7 +1640,7 @@ function readStateVersionFast() {
   }
 }
 
-function writeState(state) {
+function writeState(state, options = {}) {
   if (state && typeof state === "object") {
     ensureGlobalAudit(state);
     ensureNotifications(state);
@@ -1660,7 +1660,19 @@ function writeState(state) {
     version: Date.now(),
     state: sanitizeState(state)
   };
-  fs.writeFileSync(STATE_FILE, JSON.stringify(payload), "utf8");
+  const serialized = JSON.stringify(payload);
+  if (options.atomic === true) {
+    const temporary = `${STATE_FILE}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(temporary, serialized, "utf8");
+    try {
+      fs.renameSync(temporary, STATE_FILE);
+    } catch (error) {
+      try { fs.unlinkSync(temporary); } catch {}
+      throw error;
+    }
+  } else {
+    fs.writeFileSync(STATE_FILE, serialized, "utf8");
+  }
   try {
     stateCache = {
       mtimeMs: fs.statSync(STATE_FILE).mtimeMs,
@@ -1691,7 +1703,7 @@ function writeStateResponse(res, state, extra, auditEntries, notificationEntries
   sendJson(res, 200, { ok: true, version, state: stateForUser(state, userForState), ...(extra || {}) });
 }
 
-function writeCompactStateResponse(res, state, extra, auditEntries, notificationEntries) {
+function writeCompactStateResponse(res, state, extra, auditEntries, notificationEntries, options = {}) {
   const auditList = (Array.isArray(auditEntries) ? auditEntries : [auditEntries]).filter(Boolean);
   const notificationList = (Array.isArray(notificationEntries) ? notificationEntries : [notificationEntries]).filter(Boolean);
   if (auditList.length) {
@@ -1703,8 +1715,15 @@ function writeCompactStateResponse(res, state, extra, auditEntries, notification
     eventEngine.emitFromNotificationEntries(state, notificationList);
   }
   ensureRejectedGps(state);
-  const version = writeState(state);
-  sendJson(res, 200, { ok: true, version, compact: true, ...(extra || {}) });
+  const version = writeState(state, options);
+  const responseExtra = { ...(extra || {}) };
+  if (Number.isFinite(Number(options.performanceStartedAt))) {
+    responseExtra.performance = {
+      ...(responseExtra.performance || {}),
+      totalMs: Math.round((performance.now() - Number(options.performanceStartedAt)) * 10) / 10
+    };
+  }
+  sendJson(res, 200, { ok: true, version, compact: true, ...responseExtra });
 }
 
 function appendAuditToStateFile(req, user, input, details) {
@@ -2871,6 +2890,22 @@ function mobileClientFromInput(input, user) {
     updatedAt: at,
     createdBy: user && user.name || "Preventa"
   };
+}
+
+function mobileClientOperationId(input) {
+  const legacyCode = String(input.codigo_cliente || "").trim();
+  const value = String(input.operationId || input.idempotencyKey || (legacyCode ? `CLIENT-LEGACY-${legacyCode}` : "")).trim();
+  if (!value) throw new Error("Falta identificador seguro de la operacion. Actualizar la aplicacion e intentar nuevamente.");
+  if (!/^[A-Za-z0-9._:-]{12,128}$/.test(value)) throw new Error("El identificador de la operacion no es valido.");
+  return value;
+}
+
+function mobileClientByOperation(state, operationId, username) {
+  const normalizedUsername = String(username || "").trim().toLowerCase();
+  return (Array.isArray(state && state.clients) ? state.clients : []).find((client) => (
+    String(client.createOperationId || "") === operationId
+    && String(client.createdByUsername || "").trim().toLowerCase() === normalizedUsername
+  )) || null;
 }
 
 function productSearchText(product) {
@@ -5558,7 +5593,32 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/clients/mobile/status" && req.method === "GET") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (!["admin", "seller"].includes(sessionUser.role)) {
+        sendJson(res, 403, { ok: false, error: "Consulta permitida solo para preventa o administracion." });
+        return;
+      }
+      try {
+        const operationId = mobileClientOperationId({ operationId: requestUrl.searchParams.get("operationId") });
+        const currentPayload = readStateFileCached();
+        const client = mobileClientByOperation(currentPayload.state || {}, operationId, sessionUser.username);
+        sendJson(res, 200, {
+          ok: true,
+          found: Boolean(client),
+          version: currentPayload.version,
+          client: client || null,
+          clientId: client ? client.codigo_cliente || client.id || "" : ""
+        });
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo verificar el alta del cliente." });
+      }
+      return;
+    }
+
     if (requestUrl.pathname === "/api/clients/mobile" && req.method === "POST") {
+      const operationStartedAt = performance.now();
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
       if (!["admin", "seller"].includes(sessionUser.role)) {
@@ -5589,10 +5649,27 @@ const server = http.createServer(async (req, res) => {
       const currentState = currentPayload.state || {};
       currentState.clients = Array.isArray(currentState.clients) ? currentState.clients : [];
       try {
+        const operationId = mobileClientOperationId(input);
+        const previousClient = mobileClientByOperation(currentState, operationId, sessionUser.username);
+        if (previousClient) {
+          sendJson(res, 200, {
+            ok: true,
+            version: currentPayload.version,
+            compact: true,
+            idempotentReplay: true,
+            client: previousClient,
+            clientId: previousClient.codigo_cliente || previousClient.id || "",
+            message: "Cliente creado correctamente",
+            performance: { totalMs: Math.round((performance.now() - operationStartedAt) * 10) / 10 }
+          });
+          return;
+        }
         const client = mobileClientFromInput(input, sessionUser);
         if (currentState.clients.some((item) => sameText(item.codigo_cliente, client.codigo_cliente) || sameText(item.name || item.nombre_comercial, client.name))) {
           throw new Error("Ese cliente ya esta cargado en el padron.");
         }
+        client.createOperationId = operationId;
+        client.createdByUsername = sessionUser.username;
         currentState.clients.unshift(client);
         currentState.activity = Array.isArray(currentState.activity) ? currentState.activity : [];
         currentState.activity.unshift({
@@ -5601,7 +5678,12 @@ const server = http.createServer(async (req, res) => {
           text: `Alta movil asignada a ${client.seller || "sin vendedor"} con GPS ${client.gpsAccuracy || 0} m.`
         });
         const sanitizedInput = withoutSensitiveFields({ ...input, gps: client.gps });
-        writeCompactStateResponse(res, currentState, { client }, [
+        writeCompactStateResponse(res, currentState, {
+          client,
+          clientId: client.codigo_cliente || client.id || "",
+          idempotentReplay: false,
+          message: "Cliente creado correctamente"
+        }, [
           auditEntry(req, sessionUser, sanitizedInput, {
             action: "PREVENTISTA_REVALIDADO_ALTA_CLIENTE",
             entityType: "cliente",
@@ -5630,7 +5712,7 @@ const server = http.createServer(async (req, res) => {
           entityId: client.codigo_cliente || client.name,
           entityLabel: client.name,
           audience: ["admin"]
-        }));
+        }), { atomic: true, performanceStartedAt: operationStartedAt });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo crear el cliente." });
       }
