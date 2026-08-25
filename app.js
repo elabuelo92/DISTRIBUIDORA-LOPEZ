@@ -180,9 +180,9 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-110";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "25/08/2026 00:51 ART";
-const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-25T00:08:47-03:00";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-111";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "25/08/2026 01:51 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-25T01:51:08-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
 
@@ -1164,6 +1164,9 @@ function normalizeState(nextState) {
   nextState.maintenanceBackups = Array.isArray(nextState.maintenanceBackups) ? nextState.maintenanceBackups : [];
   nextState.commissionSettings = nextState.commissionSettings && typeof nextState.commissionSettings === "object" ? nextState.commissionSettings : {};
   nextState.commissionAudit = Array.isArray(nextState.commissionAudit) ? nextState.commissionAudit : [];
+  nextState.salesPolicy = nextState.salesPolicy && typeof nextState.salesPolicy === "object"
+    ? { ...nextState.salesPolicy, allowPreorderWithoutStock: nextState.salesPolicy.allowPreorderWithoutStock === true }
+    : { allowPreorderWithoutStock: false };
   applyDuePriceListsLocal(nextState);
   const incomingSellers = nextState.sellers || [];
   const sellerNames = new Set(incomingSellers.map((seller) => seller.name));
@@ -4221,14 +4224,18 @@ function orderCommission(order, options = {}) {
   if (OrderEngine && typeof OrderEngine.calculateOrderCommissions === "function") {
     return OrderEngine.calculateOrderCommissions(state, order || {}, options);
   }
-  const total = Math.round(numeric(order && order.amount, 0) * 0.03);
+  console.warn("Motor central de comisiones no disponible; se evita aplicar un porcentaje alternativo.");
   return {
-    seller: { total, cigarettes: 0, merchandise: total, baseAmount: numeric(order && order.amount, 0), lines: [] },
+    seller: { total: 0, cigarettes: 0, merchandise: 0, baseAmount: 0, lines: [] },
     driver: { total: 0, cigarettes: 0, merchandise: 0, baseAmount: 0, lines: [] },
-    total,
+    total: 0,
     cigarettes: 0,
-    merchandise: total
+    merchandise: 0
   };
+}
+
+function allowPreorderWithoutStock() {
+  return Boolean(state.salesPolicy && state.salesPolicy.allowPreorderWithoutStock === true);
 }
 
 function cartCommission(summary) {
@@ -4715,10 +4722,18 @@ function renderMobileProductOptions() {
     const available = OrderEngine.inventory(product).available;
     const tone = available <= 0 ? "danger" : available < product.min ? "warn" : "ok";
     const price = productPriceForUser(product);
+    const presentation = product.presentacion || product.presentation || product.unidad_venta || product.unit || product.bultos || "Unidad";
+    const blocked = available <= 0 && !allowPreorderWithoutStock();
+    const stockLabel = available <= 0
+      ? "SIN STOCK"
+      : available < numeric(product.stock_minimo ?? product.min, 0)
+        ? `STOCK BAJO - Disponible ${available}`
+        : `Disponible ${available}`;
     return `
-      <button class="mobile-picker-option ${product.name === mobileProduct ? "active" : ""}" type="button" data-mobile-product-option="${escapeHtml(product.name)}">
+      <button class="mobile-picker-option mobile-product-option ${tone === "danger" ? "is-out-of-stock" : tone === "warn" ? "is-low-stock" : ""} ${product.name === mobileProduct ? "active" : ""}" type="button" data-mobile-product-option="${escapeHtml(product.name)}" ${blocked ? "disabled aria-disabled=\"true\"" : ""}>
         <strong>${escapeHtml(product.name)}</strong>
-        <small>${escapeHtml(`${product.codigo_producto || "S/C"} - ${product.rubro || "S/R"} - ${money.format(price)}`)} <span class="stock-dot ${tone}">Disponible ${escapeHtml(available)}</span></small>
+        <small>${escapeHtml(`${product.codigo_producto || "S/C"} - ${presentation} - ${money.format(price)}`)}</small>
+        <span class="mobile-stock-status ${tone}">${tone === "warn" ? "⚠ " : ""}${escapeHtml(stockLabel)}</span>
       </button>
     `;
   }).join("") + (filteredProducts.length > visibleProducts.length
@@ -4764,8 +4779,16 @@ function renderMobileProductInfo() {
   const rubric = product.rubro && product.rubro !== "S/D" ? `${product.rubro} - ` : "";
   const stock = OrderEngine.inventory(product);
   const price = productPriceForUser(product);
-  info.textContent = `${code}${rubric}Disponible ${stock.available} - Fisico ${stock.physical} - En transito ${stock.inTransit} - Precio ${money.format(price)} - ${currentUserPriceListLabel()} - Subtotal ${money.format(qty * price)}`;
-  addButton.disabled = false;
+  const noStock = stock.available <= 0;
+  const lowStock = !noStock && stock.available < numeric(product.stock_minimo ?? product.min, 0);
+  const policyAllows = allowPreorderWithoutStock();
+  info.classList.toggle("danger", noStock);
+  info.classList.toggle("warn", lowStock);
+  info.textContent = noStock
+    ? `${code}${rubric}SIN STOCK. ${policyAllows ? "Preventa sin stock autorizada por Administracion." : "No se puede agregar al pedido."} Precio ${money.format(price)} - ${currentUserPriceListLabel()}`
+    : `${code}${rubric}${lowStock ? "⚠ STOCK BAJO - " : ""}Disponible ${stock.available} - Fisico ${stock.physical} - En transito ${stock.inTransit} - Precio ${money.format(price)} - ${currentUserPriceListLabel()} - Subtotal ${money.format(qty * price)}`;
+  addButton.disabled = noStock && !policyAllows;
+  qtyInput.disabled = noStock && !policyAllows;
 }
 
 function renderMobileCart() {
@@ -4856,12 +4879,10 @@ function mobileCommercialStats(seller) {
       noPurchaseClients: new Set()
     };
   }
-  const assignedClients = getMobileClientOptions(seller);
-  const assignedNames = new Set(assignedClients.map((client) => normalizeSearchText(client.name)));
+  const assignedClients = getMobileClientOptions(seller, "today");
   const sellerOrders = state.orders.filter((order) => (
     order.seller === seller.name
     && orderHappenedToday(order)
-    && (!assignedNames.size || assignedNames.has(normalizeSearchText(order.client)))
   ));
   const noPurchaseVisits = (state.noPurchaseVisits || []).filter((visit) => (
     visit.seller === seller.name
@@ -4921,10 +4942,16 @@ function renderMobileProgressDashboard() {
   const progress = target ? Math.min(100, Math.round((stats.visitedCount / target) * 100)) : 0;
   const tone = progressTone(progress);
   const gpsText = seller && seller.location ? "Activo" : "Pendiente";
+  const estimatedReasons = stats.sellerOrders.filter((order) => {
+    const approval = order.commercialApproval && normalizeSearchText(order.commercialApproval.status);
+    return (approval && !["aprobado", "aplicado", "rechazado"].includes(approval))
+      || Boolean(order.returnSummary && numeric(order.returnSummary.returnedAmount, 0) > 0)
+      || [ORDER_STATUS.CANCELLED, ORDER_STATUS.REJECTED, ORDER_STATUS.NOT_DELIVERED].includes(order.status);
+  }).length;
   container.innerHTML = `
     <section class="mobile-progress-hero" data-tone="${tone}">
       <div>
-        <small>Estado general</small>
+        <small>Mi jornada de hoy</small>
         <strong>${stats.visitedCount} / ${target}</strong>
         <span>Objetivo diario</span>
       </div>
@@ -4933,18 +4960,23 @@ function renderMobileProgressDashboard() {
       </div>
     </section>
     <section class="mobile-commercial-grid">
+      <article><span>Clientes vendidos</span><strong>${stats.withPurchase}</strong></article>
+      <article><span>Pedidos realizados</span><strong>${stats.sellerOrders.length}</strong></article>
+      <article><span>Bruto vendido</span><strong>${money.format(stats.sales)}</strong></article>
+      <article><span>Comision estimada</span><strong>${money.format(stats.commission)}</strong></article>
       <article><span>Visitados</span><strong>${stats.visitedCount}</strong></article>
-      <article><span>Ventas</span><strong>${stats.withPurchase}</strong></article>
-      <article><span>Pendientes</span><strong>${stats.pendingCount}</strong></article>
       <article><span>Sin compra</span><strong>${stats.withoutPurchase}</strong></article>
-      <article><span>WhatsApp</span><strong>${stats.whatsappContacts}</strong></article>
-      <article><span>Importe vendido</span><strong>${money.format(stats.sales)}</strong></article>
-      <article><span>Comision</span><strong>${money.format(stats.commission)}</strong></article>
-      <article><span>Cumplimiento</span><strong>${progress}%</strong></article>
+      <article><span>Pendientes</span><strong>${stats.pendingCount}</strong></article>
+      <article><span>Efectividad</span><strong>${stats.effectiveness}%</strong></article>
+      <article><span>Avance</span><strong>${progress}%</strong></article>
       <article><span>Ticket promedio</span><strong>${money.format(stats.avgTicket)}</strong></article>
-      <article><span>Pedidos</span><strong>${stats.sellerOrders.length}</strong></article>
       <article><span>GPS</span><strong>${gpsText}</strong></article>
     </section>
+    <p class="mobile-commission-estimate ${estimatedReasons ? "warn" : ""}">
+      ${estimatedReasons
+        ? `${estimatedReasons} venta(s) tienen descuentos, anulaciones, devoluciones o autorizaciones pendientes. La comision es estimada hasta su cierre.`
+        : "La comision se muestra como estimada hasta su liquidacion administrativa definitiva."}
+    </p>
   `;
 }
 
@@ -14628,11 +14660,41 @@ function renderAdmin() {
     </article>
   `).join("");
 
+  const policyToggle = byId("allowPreorderWithoutStock");
+  if (policyToggle && document.activeElement !== policyToggle) policyToggle.checked = allowPreorderWithoutStock();
+  const policyStatus = byId("salesPolicyStatus");
+  if (policyStatus) {
+    policyStatus.textContent = allowPreorderWithoutStock()
+      ? "Habilitada: los productos agotados se muestran en rojo y pueden enviarse a abastecimiento."
+      : "Bloqueada: los productos agotados se muestran en rojo pero no pueden agregarse al pedido.";
+    policyStatus.dataset.tone = allowPreorderWithoutStock() ? "warn" : "ok";
+  }
+
   renderGlobalAudit();
   renderRejectedGps();
   renderSessionMonitor();
   renderLicensePanel();
   renderDiagnostics();
+}
+
+async function submitSalesPolicy(event) {
+  event.preventDefault();
+  if (!isAdminUser()) return;
+  const form = new FormData(event.currentTarget);
+  try {
+    await postOperationalAction("api/admin/sales-policy", {
+      allowPreorderWithoutStock: form.get("allowPreorderWithoutStock") === "on",
+      motive: String(form.get("motive") || "").trim(),
+      adminPassword: String(form.get("adminPassword") || "")
+    });
+    event.currentTarget.elements.adminPassword.value = "";
+    event.currentTarget.elements.motive.value = "";
+    renderAdmin();
+    renderMobileProductSelect();
+    showCompactNotice("Politica de Preventa actualizada.", "ok");
+  } catch (error) {
+    window.alert(error.message || "No se pudo actualizar la politica de Preventa.");
+  }
 }
 
 function setUserAdminMessage(message, tone = "") {
@@ -15895,6 +15957,11 @@ async function addMobileClientFromQuickForm() {
 function addSelectedMobileProduct() {
   const product = state.products.find((item) => item.name === mobileProduct);
   if (!product) return;
+  if (OrderEngine.inventory(product).available <= 0 && !allowPreorderWithoutStock()) {
+    window.alert("SIN STOCK. Administracion no habilito la preventa de productos agotados.");
+    renderMobileProductInfo();
+    return;
+  }
   const qtyInput = byId("mobileProductQty");
   const qty = Math.max(1, Number(qtyInput.value || 1));
   mobileCart[product.name] = Math.max(0, Number(mobileCart[product.name] || 0)) + qty;
@@ -17308,6 +17375,9 @@ if (byId("refreshLicenseBtn")) {
 }
 if (byId("sessionSettingsForm")) {
   byId("sessionSettingsForm").addEventListener("submit", submitSessionSettings);
+}
+if (byId("salesPolicyForm")) {
+  byId("salesPolicyForm").addEventListener("submit", submitSalesPolicy);
 }
 ["gpsRouteReportDate", "gpsRouteRoleFilter", "gpsRouteStartHour", "gpsRouteEndHour"].forEach((id) => {
   const field = byId(id);

@@ -376,7 +376,20 @@
         percent,
         commission,
         ruleId: rule.id,
-        ruleLabel: rule.isDefault ? "General predeterminada" : `${rule.role} ${rule.rubro || rule.productName || rule.productCode}`
+        ruleLabel: rule.isDefault ? "General predeterminada" : `${rule.role} ${rule.rubro || rule.productName || rule.productCode}`,
+        ruleSnapshot: {
+          id: rule.id,
+          role: rule.role,
+          username: rule.username || "",
+          userLabel: rule.userLabel || "",
+          rubro: rule.rubro || "*",
+          productCode: rule.productCode || "",
+          productName: rule.productName || "",
+          percent,
+          priority: numeric(rule.priority, 0),
+          startsAt: rule.startsAt || "",
+          endsAt: rule.endsAt || ""
+        }
       };
     });
     return {
@@ -1056,6 +1069,26 @@
       items,
       amount: items.reduce((sum, item) => sum + item.lineTotal, 0)
     };
+  }
+
+  function outOfStockProducts(state, items) {
+    return (Array.isArray(items) ? items : []).filter((item) => {
+      const product = findProduct(state, item);
+      return product && inventory(product).available <= 0;
+    }).map((item) => ({
+      productCode: String(item.productCode || item.codigo_producto || ""),
+      name: String(item.name || item.productName || item.product || "Producto")
+    }));
+  }
+
+  function assertPreventaStockPolicy(state, items) {
+    if (state && state.salesPolicy && state.salesPolicy.allowPreorderWithoutStock === true) return [];
+    const blocked = outOfStockProducts(state, items);
+    if (!blocked.length) return [];
+    const error = new Error(`SIN STOCK: ${blocked.map((item) => item.name).join(", ")}. Administracion no habilito la preventa de productos agotados.`);
+    error.code = "OUT_OF_STOCK_BLOCKED";
+    error.products = blocked;
+    throw error;
   }
 
   function addTrace(order, status, actor, note, at, gps, action) {
@@ -1917,6 +1950,8 @@
     saveCommissionRule,
     nextOrderCode,
     quoteOrder,
+    outOfStockProducts,
+    assertPreventaStockPolicy,
     createOrder,
     allocatePendingOrders,
     applyStockEntry,

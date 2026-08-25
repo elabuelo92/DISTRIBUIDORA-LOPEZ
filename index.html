@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-110-r20260825b">
+    <link rel="manifest" href="manifest.json?v=8790-111-r20260825c">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-110-r20260825b">
+    <link rel="stylesheet" href="styles.css?v=8790-111-r20260825c">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -158,8 +158,8 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-110</strong>
-              <small data-version-build>Actualizada 25/08/2026 00:08</small>
+              <strong data-version-value>8790-111</strong>
+              <small data-version-build>Actualizada 25/08/2026 01:51</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
             <button class="ghost-btn app-back-btn" id="appBackBtn" type="button">Volver</button>
@@ -311,7 +311,7 @@
                 <button class="active" type="button" data-mobile-preventa-tab="order" aria-selected="true">Pedido</button>
                 <button type="button" data-mobile-preventa-tab="client" aria-selected="false">Cliente nuevo</button>
                 <button type="button" data-mobile-preventa-tab="sales" aria-selected="false">Mis ventas</button>
-                <button type="button" data-mobile-preventa-tab="status" aria-selected="false">Estado</button>
+                <button type="button" data-mobile-preventa-tab="status" aria-selected="false">Mi jornada</button>
               </nav>
               <div class="mobile-progress-dashboard" id="mobileProgressDashboard" data-mobile-preventa-panel="status" hidden></div>
               <section class="mobile-block mobile-client-block">
@@ -2309,6 +2309,30 @@
               </div>
               <div class="requirements-list" id="requirementsList"></div>
             </section>
+            <section class="panel admin-sales-policy-panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Politica de Preventa</h2>
+                  <p>Control administrativo para productos completamente agotados</p>
+                </div>
+              </div>
+              <form class="sales-policy-form" id="salesPolicyForm">
+                <label class="inline-check">
+                  <input id="allowPreorderWithoutStock" name="allowPreorderWithoutStock" type="checkbox">
+                  Permitir preventa de productos con stock disponible en cero
+                </label>
+                <p class="form-help" id="salesPolicyStatus">Si esta desactivada, un producto agotado permanece visible pero no puede agregarse al pedido.</p>
+                <label>
+                  Motivo del cambio
+                  <input name="motive" required autocomplete="off" placeholder="Ej: habilitacion temporal por compra confirmada">
+                </label>
+                <label>
+                  Clave administrativa
+                  <input name="adminPassword" required type="password" autocomplete="current-password" placeholder="Reingresar clave">
+                </label>
+                <button class="primary-btn" type="submit">Guardar politica</button>
+              </form>
+            </section>
             <section class="panel admin-session-panel">
               <div class="panel-header">
                 <div>
@@ -2542,7 +2566,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-110</span>
+          <span id="appFooterVersion">Version del sistema: 8790-111</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -4146,14 +4170,14 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-110-r20260825b"></script>
-    <script src="maps-config.js?v=8790-110-r20260825b"></script>
-    <script src="order-engine.js?v=8790-110-r20260825b"></script>
-    <script src="account-engine.js?v=8790-110-r20260825b"></script>
-    <script src="delivery-engine.js?v=8790-110-r20260825b"></script>
-    <script src="legal-engine.js?v=8790-110-r20260825b"></script>
-    <script src="client-portfolio-engine.js?v=8790-110-r20260825b"></script>
-    <script src="app.js?v=8790-110-r20260825b"></script>
+    <script src="config.js?v=8790-111-r20260825c"></script>
+    <script src="maps-config.js?v=8790-111-r20260825c"></script>
+    <script src="order-engine.js?v=8790-111-r20260825c"></script>
+    <script src="account-engine.js?v=8790-111-r20260825c"></script>
+    <script src="delivery-engine.js?v=8790-111-r20260825c"></script>
+    <script src="legal-engine.js?v=8790-111-r20260825c"></script>
+    <script src="client-portfolio-engine.js?v=8790-111-r20260825c"></script>
+    <script src="app.js?v=8790-111-r20260825c"></script>
   </body>
 </html>
 

@@ -3735,6 +3735,37 @@ h2 {
   background: #e7f4f2;
 }
 
+.mobile-product-option.is-out-of-stock,
+.mobile-product-option.is-out-of-stock:disabled {
+  border-color: #dc2626;
+  background: #fff1f2;
+  color: #991b1b;
+  opacity: 1;
+}
+
+.mobile-product-option.is-low-stock {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.mobile-stock-status {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.mobile-stock-status.danger,
+.product-info.danger {
+  color: #b91c1c;
+}
+
+.mobile-stock-status.warn,
+.product-info.warn {
+  color: #a15c09;
+}
+
 .mobile-picker-option strong,
 .mobile-picker-option small {
     overflow: hidden;
@@ -3858,6 +3889,22 @@ h2 {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.35;
+}
+
+.mobile-commission-estimate {
+  margin: 0;
+  padding: 10px;
+  border-left: 4px solid var(--accent);
+  background: #eef8f7;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.mobile-commission-estimate.warn {
+  border-left-color: var(--warn);
+  background: #fffbeb;
+  color: #854d0e;
 }
 
 .phone-products {
@@ -4504,6 +4551,31 @@ td small {
   background: #fff;
   color: var(--ink);
 }
+
+.sales-policy-form {
+  display: grid;
+  gap: 10px;
+}
+
+.sales-policy-form > label:not(.inline-check) {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.sales-policy-form input:not([type="checkbox"]) {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.sales-policy-form .form-help[data-tone="warn"] { color: #a15c09; }
+.sales-policy-form .form-help[data-tone="ok"] { color: var(--ok); }
 
 .session-table-wrap td strong,
 .session-table-wrap td small {

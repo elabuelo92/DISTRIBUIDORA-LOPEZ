@@ -18,7 +18,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-110";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-111";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -5581,6 +5581,47 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/admin/sales-policy" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Solo Administracion puede modificar la politica de Preventa." });
+        return;
+      }
+      const input = JSON.parse(await readBody(req) || "{}");
+      const motive = String(input.motive || input.motivo || "").trim();
+      if (!motive) {
+        sendJson(res, 400, { ok: false, error: "Indicar el motivo del cambio de politica." });
+        return;
+      }
+      if (!verifyCurrentUserPassword(sessionUser, input.adminPassword || input.admin_password || "")) {
+        sendJson(res, 403, { ok: false, error: "La clave administrativa no es correcta." });
+        return;
+      }
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      const previous = currentState.salesPolicy && typeof currentState.salesPolicy === "object"
+        ? { ...currentState.salesPolicy }
+        : { allowPreorderWithoutStock: false };
+      currentState.salesPolicy = {
+        ...previous,
+        allowPreorderWithoutStock: input.allowPreorderWithoutStock === true,
+        updatedAt: new Date().toISOString(),
+        updatedBy: sessionUser.name,
+        motive
+      };
+      writeStateResponse(res, currentState, { salesPolicy: currentState.salesPolicy }, auditEntry(req, sessionUser, input, {
+        action: "POLITICA_PREVENTA_STOCK_ACTUALIZADA",
+        entityType: "configuracion",
+        entityId: "sales-policy",
+        entityLabel: "Politica de Preventa sin stock",
+        previousValue: previous,
+        newValue: currentState.salesPolicy,
+        note: motive
+      }), null, sessionUser);
+      return;
+    }
+
     if (requestUrl.pathname === "/api/orders" && req.method === "POST") {
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
@@ -5601,6 +5642,7 @@ const server = http.createServer(async (req, res) => {
       }
       try {
         const quote = orderEngine.quoteOrder(currentState, pricedInput);
+        orderEngine.assertPreventaStockPolicy(currentState, quote.items);
         const credit = accountEngine.accountSummary(currentState, input.client, quote.amount);
         if (credit.requiresAuthorization) {
           if (!accountEngine.canAuthorize(sessionUser)) {
@@ -5716,7 +5758,12 @@ const server = http.createServer(async (req, res) => {
           }) : null
         ]);
       } catch (error) {
-        sendJson(res, 400, { ok: false, error: error.message || "No se pudo registrar el pedido." });
+        sendJson(res, error && error.code === "OUT_OF_STOCK_BLOCKED" ? 409 : 400, {
+          ok: false,
+          code: error && error.code || "ORDER_CREATE_ERROR",
+          error: error.message || "No se pudo registrar el pedido.",
+          products: error && error.products || []
+        });
       }
       return;
     }
