@@ -180,9 +180,9 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-111";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "25/08/2026 01:51 ART";
-const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-25T01:51:08-03:00";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-112";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "26/08/2026 18:42 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-26T18:42:10-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
 
@@ -10462,11 +10462,26 @@ function populatePriceListSelectors() {
   };
   fillSelect("priceListTargetRubric", state.products.map((product) => product.rubro), "Seleccionar rubro");
   fillSelect("priceListTargetBrand", state.products.map((product) => product.marca), "Seleccionar marca");
-  fillSelect("priceListTargetSupplier", state.products.map((product) => product.proveedor || product.supplier), "Seleccionar proveedor");
+  const supplierNames = priceListSupplierCatalog();
+  fillSelect("priceListTargetSupplier", supplierNames, "Seleccionar proveedor");
   priceListListFilter = updateDynamicFilter("priceListFilterList", state.priceLists.map((list) => list.name), priceListListFilter, "Todas las listas");
   priceListRubricFilter = updateDynamicFilter("priceListRubricFilter", state.products.map((product) => product.rubro), priceListRubricFilter, "Todos los rubros");
   priceListBrandFilter = updateDynamicFilter("priceListBrandFilter", state.products.map((product) => product.marca), priceListBrandFilter, "Todas las marcas");
-  priceListSupplierFilter = updateDynamicFilter("priceListSupplierFilter", state.products.map((product) => product.proveedor || product.supplier), priceListSupplierFilter, "Todos los proveedores");
+  priceListSupplierFilter = updateDynamicFilter("priceListSupplierFilter", supplierNames, priceListSupplierFilter, "Todos los proveedores");
+}
+
+function priceListSupplierCatalog() {
+  return uniqueSorted([
+    ...(state.suppliers || []).map((supplier) => (
+      supplier.name
+      || supplier.razon_social
+      || supplier.razonSocial
+      || supplier.nombre_comercial
+      || supplier.nombre
+      || ""
+    )),
+    ...(state.products || []).map((product) => product.proveedor || product.supplier || "")
+  ].map((value) => String(value || "").trim()).filter(Boolean));
 }
 
 function priceListStatusTone(status) {
