@@ -22,6 +22,8 @@ Demo web para mostrar un flujo integrado de distribuidora:
 - Impresion inteligente para Armado con bultos, control manual, QR/codigo de recuperacion y auditoria.
 - Branding institucional discreto de Grupo Rocha Solutions en login, ayuda, acerca, footer y documentos.
 - APK con boton Volver interno, back nativo protegido y Preventa movil organizada por plantillas: Pedido, Cliente nuevo y Estado.
+- Aprobacion comercial sincronizada: el descuento aprobado actualiza lineas, total y comision en Administracion sin esperar un refresco completo.
+- Listas comerciales exportables a PDF y generacion auditada de Lista Nº 1 con 8% de descuento sobre Lista Nº 2.
 
 ## Ejecutar local
 

@@ -18,7 +18,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-115";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-116";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -4003,6 +4003,68 @@ function applyDuePriceLists(state, actor = "Sistema") {
   return due.length;
 }
 
+function derivePriceListColumn(state, input = {}, user = {}) {
+  ensurePriceListsState(state);
+  const sourceList = Math.min(5, Math.max(1, Math.round(numeric(input.sourceList, 2))));
+  const targetList = Math.min(5, Math.max(1, Math.round(numeric(input.targetList, 1))));
+  const discountPct = Math.min(100, Math.max(0, numeric(input.discountPct, 8)));
+  if (sourceList === targetList) throw new Error("La lista origen y destino deben ser diferentes.");
+  if (input.confirmed !== true) throw new Error("Confirmar la generacion de la lista.");
+  const motive = String(input.motive || input.motivo || "").trim();
+  if (!motive) throw new Error("Indicar motivo administrativo.");
+  const at = new Date().toISOString();
+  const actor = String(user.name || user.username || "Administracion");
+  const items = [];
+  (Array.isArray(state.products) ? state.products : []).forEach((product) => {
+    const sourcePrice = productPriceForListNumber(product, sourceList);
+    const previousPrice = Math.max(0, numeric(product[`precio_lista_${targetList}`], 0));
+    const nextPrice = Math.round(sourcePrice * (1 - discountPct / 100) * 100) / 100;
+    product[`precio_lista_${targetList}`] = nextPrice;
+    items.push(priceListItemFromProduct(product, {
+      listNumber: targetList,
+      previousPrice,
+      price: nextPrice,
+      percentApplied: sourcePrice > 0 ? -discountPct : 0
+    }));
+  });
+  ensurePriceListsState(state);
+  const target = state.priceLists.find((list) => priceListNumberFromRecord(list) === targetList);
+  if (!target) throw new Error("No se encontro la lista destino.");
+  target.items = defaultPriceListItems(state, targetList);
+  target.productCount = target.items.length;
+  target.updatedAt = at;
+  target.updatedBy = actor;
+  target.operation = "derivada_descuento";
+  target.motive = motive;
+  target.status = "Activa";
+  const simulation = {
+    operation: "derivada_descuento",
+    affected: items.length,
+    items,
+    rounding: 0,
+    increasePct: -discountPct,
+    marginPct: 0
+  };
+  appendPriceListAudit(state, target, simulation, {
+    operation: "derivada_descuento",
+    motive: `${motive}. Lista ${targetList} = Lista ${sourceList} - ${discountPct}%.`
+  }, actor);
+  state.activity = Array.isArray(state.activity) ? state.activity : [];
+  state.activity.unshift({
+    type: "Precios",
+    title: `${priceListNameForNumber(targetList)} actualizada`,
+    text: `${items.length} productos calculados desde ${priceListNameForNumber(sourceList)} con ${discountPct}% de descuento por ${actor}.`
+  });
+  return {
+    sourceList,
+    targetList,
+    discountPct,
+    affected: items.length,
+    priceList: target,
+    productPrices: items.map((item) => ({ productCode: item.productCode, price: item.price }))
+  };
+}
+
 function padText(value, size) {
   const text = String(value ?? "").replace(/\s+/g, " ").trim();
   if (text.length > size) return text.slice(0, Math.max(0, size - 1)) + " ";
@@ -4928,6 +4990,50 @@ const server = http.createServer(async (req, res) => {
         }), sessionUser);
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo aplicar la lista de precios." });
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/price-lists/derive" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Listas de precios permitidas solo para administradores." });
+        return;
+      }
+      const body = await readBody(req);
+      const input = JSON.parse(body || "{}");
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      orderEngine.migrateState(currentState);
+      ensurePriceListsState(currentState);
+      const targetList = Math.min(5, Math.max(1, Math.round(numeric(input.targetList, 1))));
+      const previousList = JSON.parse(JSON.stringify(
+        (currentState.priceLists || []).find((list) => priceListNumberFromRecord(list) === targetList) || null
+      ));
+      try {
+        const result = derivePriceListColumn(currentState, input, sessionUser);
+        writeCompactStateResponse(res, currentState, result, auditEntry(req, sessionUser, input, {
+          action: "LISTA_PRECIOS_DERIVADA",
+          entityType: "lista-precios",
+          entityId: result.priceList.id,
+          entityLabel: result.priceList.name,
+          previousValue: previousList,
+          newValue: result.priceList,
+          note: input.motive || input.motivo || "Lista derivada"
+        }), notificationEntry(req, sessionUser, input, {
+          action: "LISTA_PRECIOS_APLICADA",
+          category: "Precios",
+          title: `${result.priceList.name} actualizada`,
+          text: `${result.affected} productos calculados con ${result.discountPct}% de descuento sobre Lista Nº ${result.sourceList}.`,
+          tone: "ok",
+          entityType: "lista-precios",
+          entityId: result.priceList.id,
+          entityLabel: result.priceList.name,
+          audience: ["admin"]
+        }));
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo generar la lista derivada." });
       }
       return;
     }
@@ -6114,7 +6220,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const input = JSON.parse(body || "{}");
       const currentPayload = readStateFileCached();
-      const currentState = currentPayload.state || {};
+      const currentState = JSON.parse(JSON.stringify(currentPayload.state || {}));
       const code = decodeURIComponent(orderCommercialApprovalMatch[1]);
       try {
         const previousOrder = JSON.parse(JSON.stringify(entitySnapshot(currentState, "pedido", code)));
@@ -6126,7 +6232,21 @@ const server = http.createServer(async (req, res) => {
           gps: input.gps || null
         });
         accountEngine.migrateState(currentState);
-        writeStateResponse(res, currentState, result, auditEntry(req, sessionUser, input, {
+        const amountBefore = Math.max(0, numeric(previousOrder && previousOrder.amount, 0));
+        const amountAfter = Math.max(0, numeric(result.order && result.order.amount, 0));
+        const request = previousOrder && previousOrder.commercialApproval || {};
+        const approvedDiscount = result.audit && result.audit.decision === "Aprobada"
+          && ["general_discount", "product_discount"].includes(String(request.type || ""))
+          && numeric(request.discountPct || request.proposedValue, 0) > 0;
+        if (approvedDiscount && amountBefore > 0 && amountAfter >= amountBefore) {
+          throw new Error("La aprobacion no modifico el importe del pedido. No se guardaron cambios.");
+        }
+        writeCompactStateResponse(res, currentState, {
+          ...result,
+          amountBefore,
+          amountAfter,
+          discountApplied: Math.max(0, amountBefore - amountAfter)
+        }, auditEntry(req, sessionUser, input, {
           action: result.audit && result.audit.decision === "Aprobada" ? "PEDIDO_APROBACION_COMERCIAL_APROBADA" : "PEDIDO_APROBACION_COMERCIAL_RECHAZADA",
           entityType: "pedido",
           entityId: code,
@@ -6144,7 +6264,7 @@ const server = http.createServer(async (req, res) => {
           entityId: code,
           entityLabel: result.order && result.order.client || code,
           audience: ["admin"]
-        }), sessionUser);
+        }));
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo resolver la aprobacion comercial." });
       }

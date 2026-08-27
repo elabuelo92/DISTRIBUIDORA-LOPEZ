@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-115-r20260827a">
+    <link rel="manifest" href="manifest.json?v=8790-116-r20260827a">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-115-r20260827a">
+    <link rel="stylesheet" href="styles.css?v=8790-116-r20260827a">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -158,7 +158,7 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-115</strong>
+              <strong data-version-value>8790-116</strong>
               <small data-version-build>Actualizada 27/08/2026 14:35</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
@@ -1325,6 +1325,18 @@
                 <span id="priceListProductsCount" class="tag info">0 productos visibles</span>
               </div>
               <div class="price-list-kpis" id="priceListCards"></div>
+              <div class="data-filter-bar compact-filter-bar">
+                <select id="priceListExportNumber" aria-label="Lista para exportar">
+                  <option value="1">Lista Nº 1</option>
+                  <option value="2" selected>Lista Nº 2</option>
+                  <option value="3">Lista Nº 3</option>
+                  <option value="4">Lista Nº 4</option>
+                  <option value="5">Lista Nº 5</option>
+                </select>
+                <button class="secondary-btn" id="exportPriceListPdfBtn" type="button">Exportar lista PDF</button>
+                <button class="primary-btn admin-only" id="derivePriceListOneBtn" type="button">Generar Lista 1 (-8% de Lista 2)</button>
+                <span class="empty-note">El PDF para clientes incluye codigo, producto y precio; no muestra costos ni stock.</span>
+              </div>
             </section>
             <section class="panel wide product-portfolio-panel admin-only">
               <div class="panel-header">
@@ -2566,7 +2578,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-115</span>
+          <span id="appFooterVersion">Version del sistema: 8790-116</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -4170,14 +4182,14 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-115-r20260827a"></script>
-    <script src="maps-config.js?v=8790-115-r20260827a"></script>
-    <script src="order-engine.js?v=8790-115-r20260827a"></script>
-    <script src="account-engine.js?v=8790-115-r20260827a"></script>
-    <script src="delivery-engine.js?v=8790-115-r20260827a"></script>
-    <script src="legal-engine.js?v=8790-115-r20260827a"></script>
-    <script src="client-portfolio-engine.js?v=8790-115-r20260827a"></script>
-    <script src="app.js?v=8790-115-r20260827a"></script>
+    <script src="config.js?v=8790-116-r20260827a"></script>
+    <script src="maps-config.js?v=8790-116-r20260827a"></script>
+    <script src="order-engine.js?v=8790-116-r20260827a"></script>
+    <script src="account-engine.js?v=8790-116-r20260827a"></script>
+    <script src="delivery-engine.js?v=8790-116-r20260827a"></script>
+    <script src="legal-engine.js?v=8790-116-r20260827a"></script>
+    <script src="client-portfolio-engine.js?v=8790-116-r20260827a"></script>
+    <script src="app.js?v=8790-116-r20260827a"></script>
   </body>
 </html>
 

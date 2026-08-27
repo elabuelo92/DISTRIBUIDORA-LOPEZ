@@ -180,9 +180,9 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-115";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "27/08/2026 01:32 ART";
-const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-27T01:32:11-03:00";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-116";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "27/08/2026 14:53 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-27T14:53:17-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
 
@@ -10881,6 +10881,78 @@ async function applyPriceListFromForm() {
   }
 }
 
+function applyDerivedPriceListPayload(payload) {
+  const targetList = Math.min(5, Math.max(1, Math.round(numeric(payload && payload.targetList, 1))));
+  const byCode = new Map((payload && payload.productPrices || []).map((item) => [String(item.productCode || ""), item]));
+  state.products = (state.products || []).map((product) => {
+    const patch = byCode.get(String(product.codigo_producto || product.code || ""));
+    return patch ? { ...product, [`precio_lista_${targetList}`]: Math.max(0, numeric(patch.price, 0)) } : product;
+  });
+  if (payload && payload.priceList) {
+    const listNumber = priceListNumberFromRecord(payload.priceList);
+    state.priceLists = (state.priceLists || []).filter((list) => priceListNumberFromRecord(list) !== listNumber);
+    state.priceLists.push(payload.priceList);
+  }
+  if (payload && payload.version) syncVersion = Math.max(Number(syncVersion || 0), Number(payload.version || 0));
+  persistLocalMeta("price-list-derived");
+  renderPriceLists();
+}
+
+async function derivePriceListOneFromTwo() {
+  if (!isAdminUser()) {
+    window.alert("Solo Administracion puede generar listas de precios.");
+    return;
+  }
+  const activeProducts = (state.products || []).filter((product) => String(product.activo || "SI").toUpperCase() !== "NO");
+  const accepted = window.confirm([
+    "Generar Lista Nº 1 con 8% de descuento sobre Lista Nº 2?",
+    `Productos a recalcular: ${activeProducts.length}`,
+    "Lista Nº 2 y pedidos ya confirmados no se modificaran."
+  ].join("\n"));
+  if (!accepted) return;
+  const motive = window.prompt("Motivo administrativo:", "Lista 1 comercial: 8% de descuento sobre Lista 2");
+  if (!motive || !motive.trim()) return;
+  try {
+    const payload = await postOperationalAction("api/price-lists/derive", {
+      sourceList: 2,
+      targetList: 1,
+      discountPct: 8,
+      confirmed: true,
+      motive: motive.trim()
+    });
+    applyDerivedPriceListPayload(payload);
+    showCompactNotice(`Lista Nº 1 actualizada: ${payload.affected || 0} productos.`, "ok");
+  } catch (error) {
+    window.alert(error.message || "No se pudo generar la Lista Nº 1.");
+  }
+}
+
+function exportSelectedPriceListPdf() {
+  const listNumber = Math.min(5, Math.max(1, Math.round(numeric(byId("priceListExportNumber")?.value, 2))));
+  const rows = (state.products || [])
+    .filter((product) => String(product.activo || "SI").toUpperCase() !== "NO")
+    .map((product) => ({
+      code: String(product.codigo_producto || product.code || "").trim(),
+      name: String(product.name || product.descripcion || "Producto").trim(),
+      price: productPriceForListNumber(product, listNumber)
+    }))
+    .filter((item) => item.price > 0)
+    .sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
+  if (!rows.length) {
+    window.alert("La lista seleccionada no tiene productos activos con precio.");
+    return;
+  }
+  const lines = [
+    `LISTA Nº ${listNumber}`,
+    `Vigencia: ${new Date().toLocaleDateString("es-AR")}`,
+    `Productos: ${rows.length}`,
+    "",
+    "CODIGO | PRODUCTO | PRECIO",
+    ...rows.map((item) => `${item.code || "S/C"} | ${item.name} | ${money.format(item.price)}`)
+  ];
+  downloadBlob(`lista-precios-${listNumber}-${reportDateStamp()}.pdf`, makeSimplePdf(`Distribuidora Lopez - Lista Nº ${listNumber}`, lines));
+}
+
 function clearPriceListFilters() {
   priceListSearchTerm = "";
   priceListListFilter = "all";
@@ -16710,6 +16782,8 @@ byId("priceListForm").addEventListener("input", () => {
 });
 byId("simulatePriceListBtn").addEventListener("click", simulatePriceListFromForm);
 byId("applyPriceListBtn").addEventListener("click", applyPriceListFromForm);
+byId("exportPriceListPdfBtn").addEventListener("click", exportSelectedPriceListPdf);
+byId("derivePriceListOneBtn").addEventListener("click", derivePriceListOneFromTwo);
 byId("assignSellerPriceListBtn").addEventListener("click", assignSellerPriceListFromPanel);
 document.querySelectorAll("[data-maintenance-cleanup]").forEach((button) => {
   button.addEventListener("click", () => runMaintenanceCleanup(button.dataset.maintenanceCleanup));
@@ -17857,11 +17931,15 @@ document.addEventListener("click", async (event) => {
   if (!motive || !motive.trim()) return;
   button.disabled = true;
   try {
-    await postOperationalAction(`api/orders/${encodeURIComponent(code)}/commercial-approval`, {
+    const payload = await postOperationalAction(`api/orders/${encodeURIComponent(code)}/commercial-approval`, {
       decision: approve ? "approve" : "reject",
       motive: motive.trim()
     });
-    showCompactNotice(`Solicitud comercial ${approve ? "aprobada" : "rechazada"}.`, approve ? "ok" : "warn");
+    applyOrderPatches(payload.order ? [payload.order] : [], payload.version);
+    const financialSummary = approve && numeric(payload.discountApplied, 0) > 0
+      ? ` Total ${money.format(payload.amountBefore)} -> ${money.format(payload.amountAfter)}.`
+      : "";
+    showCompactNotice(`Solicitud comercial ${approve ? "aprobada y aplicada" : "rechazada"}.${financialSummary}`, approve ? "ok" : "warn");
   } catch (error) {
     window.alert(error.message || "No se pudo resolver la solicitud comercial.");
   } finally {
