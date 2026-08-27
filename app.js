@@ -6502,7 +6502,7 @@ function orderPackageLabels(order) {
 
 function smartLabelPageHtml(order, packageLabel) {
   const label = orderLabelFields(order);
-  const barcode = code39Svg(packageLabel.scanCode, { height: 78, narrow: 2, wide: 5, quiet: 14, caption: formatLabelHumanCode(packageLabel.scanCode) });
+  const barcode = code39Svg(packageLabel.scanCode, { height: 100, narrow: 3, wide: 7, quiet: 24, caption: formatLabelHumanCode(packageLabel.scanCode) });
   return `
     <section class="smart-label-page">
       <header>
@@ -6525,17 +6525,17 @@ function smartLabelPageHtml(order, packageLabel) {
       <div class="smart-label-body">
         <main>
           <h1>${escapeHtml(label.client)}</h1>
-          <p><b>Direccion:</b> ${escapeHtml(label.address || "Sin direccion")}</p>
-          <p><b>Telefono:</b> ${escapeHtml(label.phone || "S/D")}</p>
-          <p><b>Ruta:</b> ${escapeHtml(label.zone || "Sin ruta")}</p>
-          ${label.observations ? `<p><b>Obs:</b> ${escapeHtml(label.observations)}</p>` : ""}
+          <div class="smart-label-details">
+            <p class="smart-label-address"><b>Direccion:</b> ${escapeHtml(label.address || "Sin direccion")}</p>
+            <p><b>Telefono:</b> ${escapeHtml(label.phone || "S/D")}</p>
+            <p><b>Ruta:</b> ${escapeHtml(label.zone || "Sin ruta")}</p>
+          </div>
         </main>
-        <div class="smart-label-code">${barcode}</div>
       </div>
-      <footer>
-        <span>ID bulto: ${escapeHtml(formatLabelHumanCode(packageLabel.uniqueId || packageLabel.scanCode))}</span>
-        ${label.printer ? `<span>Impresora: ${escapeHtml(label.printer)}</span>` : ""}
-      </footer>
+      <div class="smart-label-code">
+        ${barcode}
+        <span>ID BULTO: ${escapeHtml(formatLabelHumanCode(packageLabel.uniqueId || packageLabel.scanCode))}</span>
+      </div>
     </section>
   `;
 }
@@ -6554,24 +6554,27 @@ function printOrderLabel(order) {
           * { box-sizing: border-box; }
           html, body { width: 100mm; margin: 0; padding: 0; }
           body { font-family: Arial, sans-serif; color: #111827; overflow: hidden; }
-          .smart-label-page { width: 99mm; height: 59mm; margin: 0; page-break-inside: avoid; break-inside: avoid; page-break-after: always; break-after: page; border: 2px solid #111827; padding: 4mm; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 2.5mm; overflow: hidden; }
+          .smart-label-page { width: 99mm; height: 59mm; margin: 0; page-break-inside: avoid; break-inside: avoid; page-break-after: always; break-after: page; border: 2px solid #111827; padding: 3mm; display: grid; grid-template-rows: auto minmax(0, 1fr) 19mm; gap: 1.5mm; overflow: hidden; }
           .smart-label-page:last-child { page-break-after: auto; break-after: auto; }
           @media print {
             html, body { width: 100mm; height: auto; min-height: 0; overflow: visible; }
           }
-          header { display: flex; justify-content: space-between; gap: 4mm; align-items: flex-start; border-bottom: 1.5px solid #111827; padding-bottom: 2mm; }
-          footer { display: flex; justify-content: space-between; gap: 3mm; align-items: center; border-top: 1.5px solid #111827; padding-top: 1.5mm; font-size: 8pt; }
-          .smart-label-title span, footer span { font-size: 8pt; text-transform: uppercase; color: #374151; }
-          .smart-label-title strong { display: block; font-size: 19pt; line-height: 1; letter-spacing: 0; }
-          .smart-label-metrics { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; min-width: 38mm; border: 2px solid #111827; border-radius: 4px; padding: 1.5mm 2.5mm; gap: 2mm; text-align: center; white-space: nowrap; }
-          .smart-label-metrics i { display: block; width: 1.5px; height: 12mm; background: #111827; }
-          .smart-label-metric span { display: block; font-size: 7.5pt; line-height: 1; text-transform: uppercase; color: #111827; font-weight: 800; }
-          .smart-label-metric strong { display: block; margin-top: 1mm; font-size: 22pt; line-height: 0.9; font-weight: 900; letter-spacing: 0; }
-          .smart-label-body { display: grid; grid-template-columns: 52% 1fr; gap: 5mm; align-items: center; min-height: 0; }
-          h1 { margin: 0 0 1.5mm; font-size: 18pt; line-height: 1.05; }
-          p { margin: 1mm 0; font-size: 10pt; line-height: 1.12; }
-          .smart-label-code { border-left: 1.5px solid #111827; padding-left: 3mm; display: grid; align-content: center; justify-items: center; min-width: 0; }
-          svg { width: 100%; height: auto; max-height: 24mm; border: 0; padding: 0; }
+          header { display: grid; grid-template-columns: minmax(0, 1fr) 42mm; gap: 3mm; align-items: stretch; border-bottom: 1.5px solid #111827; padding-bottom: 1.5mm; min-height: 0; }
+          .smart-label-title span { display: block; font-size: 7.5pt; line-height: 1; text-transform: uppercase; color: #374151; }
+          .smart-label-title strong { display: block; margin-top: 1mm; font-size: 18pt; line-height: 0.92; letter-spacing: 0; }
+          .smart-label-metrics { display: grid; grid-template-columns: 1fr 1.5px 1fr; align-items: center; border: 2px solid #111827; border-radius: 4px; padding: 1.2mm 2mm; gap: 2mm; text-align: center; white-space: nowrap; }
+          .smart-label-metrics i { display: block; width: 1.5px; height: 10mm; background: #111827; }
+          .smart-label-metric span { display: block; font-size: 7pt; line-height: 1; text-transform: uppercase; color: #111827; font-weight: 800; }
+          .smart-label-metric strong { display: block; margin-top: 0.8mm; font-size: 20pt; line-height: 0.9; font-weight: 900; letter-spacing: 0; }
+          .smart-label-body { min-height: 0; overflow: hidden; }
+          .smart-label-body main { min-width: 0; }
+          h1 { margin: 0 0 1mm; font-size: 16pt; line-height: 0.98; max-height: 10mm; overflow: hidden; }
+          .smart-label-details { display: grid; grid-template-columns: minmax(0, 1fr) 34mm; column-gap: 3mm; row-gap: 0.5mm; align-items: start; }
+          .smart-label-details p { margin: 0; font-size: 8.5pt; line-height: 1.08; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+          .smart-label-address { grid-row: span 2; white-space: normal !important; max-height: 8mm; }
+          .smart-label-code { border-top: 1.5px solid #111827; padding-top: 1mm; display: grid; grid-template-rows: minmax(0, 1fr) auto; justify-items: stretch; min-width: 0; min-height: 0; overflow: hidden; }
+          .smart-label-code svg { display: block; width: 100%; height: 15.5mm; border: 0; padding: 0; }
+          .smart-label-code > span { margin-top: -0.5mm; text-align: center; font-size: 7pt; line-height: 1; font-weight: 800; letter-spacing: 0.4px; }
         </style>
       </head>
       <body>
