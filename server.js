@@ -18,7 +18,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-114";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-115";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -1907,6 +1907,41 @@ function supplierDuplicateCandidates(state, supplier) {
   });
 }
 
+function supplierDependencyReport(state, supplier) {
+  const aliases = [supplier.name, supplier.razon_social, supplier.nombre_comercial, supplier.cuit]
+    .map(normalizeSearchText)
+    .filter(Boolean);
+  const linked = (value) => aliases.includes(normalizeSearchText(value));
+  const products = (Array.isArray(state.products) ? state.products : [])
+    .filter((item) => linked(item.proveedor || item.supplier || item.proveedor_nombre || item.supplierName));
+  const movements = (Array.isArray(state.supplierMovements) ? state.supplierMovements : [])
+    .filter((item) => linked(item.supplier || item.proveedor || item.account));
+  const stockMovements = (Array.isArray(state.stockMovements) ? state.stockMovements : [])
+    .filter((item) => linked(item.supplier || item.proveedor || item.account));
+  const embeddedMovements = Array.isArray(supplier.movements) ? supplier.movements : [];
+  const balance = Math.max(0, numeric(supplier.balance ?? supplier.saldo_pendiente, 0));
+  const counts = {
+    products: products.length,
+    remits: movements.filter((item) => normalizeSearchText(item.type).includes("remito")).length,
+    payments: movements.filter((item) => normalizeSearchText(item.type).includes("pago")).length,
+    supplierMovements: movements.length,
+    embeddedMovements: embeddedMovements.length,
+    stockMovements: stockMovements.length
+  };
+  const hasTrace = Object.values(counts).some((value) => value > 0) || balance > 0;
+  return {
+    supplier: supplier.name,
+    counts,
+    balance,
+    hasTrace,
+    canDeletePermanently: !hasTrace,
+    recommendedAction: hasTrace ? "archive" : "delete",
+    message: hasTrace
+      ? "El proveedor posee relaciones operativas. Para no romper la trazabilidad solo puede inactivarse."
+      : "El proveedor no posee relaciones operativas y puede eliminarse de forma permanente."
+  };
+}
+
 function nextProductCode(state, offset = 0) {
   const numericCodes = (Array.isArray(state.products) ? state.products : [])
     .map((product) => String(product.codigo_producto || product.code || "").trim())
@@ -3746,7 +3781,23 @@ function roundPriceValue(value, rounding) {
   return Math.ceil(amount / step) * step;
 }
 
-function priceListProductMatches(product, input = {}) {
+function supplierMatchAliases(state, selectedSupplier) {
+  const selected = normalizeSearchText(selectedSupplier);
+  if (!selected) return [];
+  const supplier = (Array.isArray(state && state.suppliers) ? state.suppliers : [])
+    .map(normalizeSupplierServerRecord)
+    .find((item) => [item.name, item.razon_social, item.nombre_comercial, item.cuit]
+      .some((value) => normalizeSearchText(value) === selected));
+  return Array.from(new Set([
+    selectedSupplier,
+    supplier && supplier.name,
+    supplier && supplier.razon_social,
+    supplier && supplier.nombre_comercial,
+    supplier && supplier.cuit
+  ].map(normalizeSearchText).filter(Boolean)));
+}
+
+function priceListProductMatches(state, product, input = {}) {
   const operation = String(input.operation || input.mode || "general").toLowerCase();
   const productKey = normalizeSearchText(input.productKey || input.productCode || input.product || "");
   if (operation === "individual") {
@@ -3760,7 +3811,10 @@ function priceListProductMatches(product, input = {}) {
   }
   if (operation === "rubro") return sameText(product.rubro, input.rubro);
   if (operation === "marca") return sameText(product.marca, input.marca);
-  if (operation === "proveedor") return sameText(product.proveedor || product.supplier, input.proveedor || input.supplier);
+  if (operation === "proveedor") {
+    const productSupplier = normalizeSearchText(product.proveedor || product.supplier || product.proveedor_nombre || product.supplierName);
+    return supplierMatchAliases(state, input.proveedor || input.supplier).includes(productSupplier);
+  }
   return true;
 }
 
@@ -3771,7 +3825,7 @@ function computePriceListSimulation(state, input = {}) {
   const increasePct = numeric(input.increasePct ?? input.porcentaje_aumento, 0);
   const marginPct = numeric(input.marginPct ?? input.porcentaje_margen, 0);
   const fixedPrice = numeric(input.fixedPrice ?? input.price ?? input.precio_venta, NaN);
-  const products = (Array.isArray(state.products) ? state.products : []).filter((product) => priceListProductMatches(product, { ...input, operation }));
+  const products = (Array.isArray(state.products) ? state.products : []).filter((product) => priceListProductMatches(state, product, { ...input, operation }));
   const items = products.map((product) => {
     const previousPrice = currentProductPrice(product);
     const cost = Math.max(0, numeric(product.costo ?? product.cost, 0));
@@ -6617,6 +6671,87 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/suppliers/manage" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Gestion de proveedores permitida solo para administracion." });
+        return;
+      }
+      const input = JSON.parse(await readBody(req) || "{}");
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      try {
+        currentState.suppliers = Array.isArray(currentState.suppliers) ? currentState.suppliers.map(normalizeSupplierServerRecord) : [];
+        const supplierName = String(input.supplier || input.name || "").trim();
+        const supplierIndex = currentState.suppliers.findIndex((item) => sameText(item.name, supplierName)
+          || sameText(item.razon_social, supplierName)
+          || sameText(item.nombre_comercial, supplierName));
+        if (supplierIndex < 0) throw new Error("Proveedor no encontrado.");
+        const supplier = currentState.suppliers[supplierIndex];
+        const report = supplierDependencyReport(currentState, supplier);
+        const action = String(input.action || "inspect").trim().toLowerCase();
+        if (action === "inspect") {
+          sendJson(res, 200, { ok: true, report });
+          return;
+        }
+        if (!verifyCurrentUserPassword(sessionUser, input.adminPassword || input.admin_password || "")) {
+          sendJson(res, 403, { ok: false, error: "Clave de Administracion incorrecta." });
+          return;
+        }
+        const motive = String(input.motive || input.motivo || "").trim();
+        if (!motive) throw new Error("Indicar el motivo de la operacion.");
+        const previousSupplier = cloneAuditValue(supplier);
+        const at = new Date().toISOString();
+        let managedSupplier = null;
+        if (action === "delete") {
+          if (!report.canDeletePermanently) {
+            sendJson(res, 409, { ok: false, error: report.message, report });
+            return;
+          }
+          currentState.suppliers.splice(supplierIndex, 1);
+        } else if (action === "archive") {
+          supplier.estado_operativo = "Inactivo";
+          supplier.archivedAt = at;
+          supplier.archivedBy = sessionUser.name;
+          supplier.archiveReason = motive;
+          supplier.updatedAt = at;
+          supplier.updatedBy = sessionUser.name;
+          managedSupplier = supplier;
+        } else {
+          throw new Error("Accion de proveedor no valida.");
+        }
+        currentState.activity = Array.isArray(currentState.activity) ? currentState.activity : [];
+        currentState.activity.unshift({
+          type: "Proveedores",
+          title: `Proveedor ${action === "delete" ? "eliminado" : "inactivado"}: ${supplier.name}`,
+          text: `${motive}. ${report.message}`
+        });
+        writeStateResponse(res, currentState, { supplier: managedSupplier, report, action }, auditEntry(req, sessionUser, input, {
+          action: action === "delete" ? "PROVEEDOR_ELIMINADO" : "PROVEEDOR_INACTIVADO",
+          entityType: "proveedor",
+          entityId: supplier.name,
+          entityLabel: supplier.name,
+          previousValue: previousSupplier,
+          newValue: managedSupplier,
+          note: `${motive}. Dependencias: ${JSON.stringify(report.counts)}. Saldo: ${report.balance}.`
+        }), notificationEntry(req, sessionUser, input, {
+          action: action === "delete" ? "PROVEEDOR_ELIMINADO" : "PROVEEDOR_INACTIVADO",
+          category: "Proveedores",
+          title: `Proveedor ${action === "delete" ? "eliminado" : "inactivado"}`,
+          text: `${supplier.name}. ${motive}`,
+          tone: action === "delete" ? "warn" : "info",
+          entityType: "proveedor",
+          entityId: supplier.name,
+          entityLabel: supplier.name,
+          audience: ["admin"]
+        }), sessionUser);
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo gestionar el proveedor." });
+      }
+      return;
+    }
+
     if (requestUrl.pathname === "/api/suppliers/remits" && req.method === "POST") {
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
@@ -6639,6 +6774,9 @@ const server = http.createServer(async (req, res) => {
         let supplier = currentState.suppliers.find((item) => sameText(item.name, supplierName) || sameText(item.razon_social, supplierName));
         if (!supplier) {
           throw new Error("Proveedor no encontrado. Crear proveedor primero con + Nuevo proveedor.");
+        }
+        if (normalizeSearchText(supplier.estado_operativo).includes("inactiv")) {
+          throw new Error("El proveedor esta inactivo. Reactivarlo desde Editar antes de cargar nuevos remitos.");
         }
         const duplicateRemit = (Array.isArray(currentState.supplierMovements) ? currentState.supplierMovements : []).find((movement) =>
           sameText(movement.supplier, supplier.name) && sameText(movement.remitNumber, remitNumber)

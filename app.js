@@ -180,7 +180,7 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-114";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-115";
 const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "27/08/2026 01:32 ART";
 const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-27T01:32:11-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
@@ -1799,6 +1799,20 @@ function currentUserPriceListLabel() {
   return `${assignment.name}${assignment.locked ? " bloqueada" : ""}`;
 }
 
+function supplierMatchAliasesLocal(selectedSupplier) {
+  const selected = normalizeSearchText(selectedSupplier);
+  if (!selected) return [];
+  const supplier = (state.suppliers || []).find((item) => [item.name, item.razon_social, item.nombre_comercial, item.cuit]
+    .some((value) => normalizeSearchText(value) === selected));
+  return Array.from(new Set([
+    selectedSupplier,
+    supplier && supplier.name,
+    supplier && supplier.razon_social,
+    supplier && supplier.nombre_comercial,
+    supplier && supplier.cuit
+  ].map(normalizeSearchText).filter(Boolean)));
+}
+
 function priceListProductMatches(product, input = {}) {
   const operation = String(input.operation || "general").toLowerCase();
   const productKey = normalizeSearchText(input.productKey || input.productCode || input.product || "");
@@ -1809,7 +1823,10 @@ function priceListProductMatches(product, input = {}) {
   }
   if (operation === "rubro") return normalizeSearchText(product.rubro) === normalizeSearchText(input.rubro);
   if (operation === "marca") return normalizeSearchText(product.marca) === normalizeSearchText(input.marca);
-  if (operation === "proveedor") return normalizeSearchText(product.proveedor || product.supplier) === normalizeSearchText(input.proveedor || input.supplier);
+  if (operation === "proveedor") {
+    const productSupplier = normalizeSearchText(product.proveedor || product.supplier || product.proveedor_nombre || product.supplierName);
+    return supplierMatchAliasesLocal(input.proveedor || input.supplier).includes(productSupplier);
+  }
   return true;
 }
 
@@ -10838,7 +10855,8 @@ async function applyPriceListFromForm() {
   try {
     const input = priceListFormInput();
     validatePriceListInput(input, { requireMotive: true });
-    const simulation = priceListLastSimulation || simulatePriceListChangeLocal(input);
+    const simulation = simulatePriceListChangeLocal(input);
+    priceListLastSimulation = simulation;
     if (!simulation.affected) {
       window.alert("La seleccion no afecta productos.");
       return;
@@ -12605,7 +12623,7 @@ function renderSuppliers() {
     const mixedEntity = mixedEntityForSupplier(supplier);
     return `
     <tr>
-      <td><strong>${escapeHtml(supplier.name)}</strong><small>${escapeHtml(supplier.nombre_comercial || supplier.estado_operativo || "")}</small>${mixedEntity ? '<small><span class="tag info">Tambien cliente</span></small>' : ""}</td>
+      <td><strong>${escapeHtml(supplier.name)}</strong><small>${escapeHtml(supplier.nombre_comercial || "")}</small><small><span class="tag ${normalizeSearchText(supplier.estado_operativo).includes("inactiv") ? "danger" : "ok"}">${escapeHtml(supplier.estado_operativo || "Activo")}</span></small>${mixedEntity ? '<small><span class="tag info">Tambien cliente</span></small>' : ""}</td>
       <td><strong>${escapeHtml(supplier.cuit || "Sin CUIT")}</strong><small>${escapeHtml(supplier.condicion_pago || "Sin condicion")}</small></td>
       <td>${escapeHtml(supplier.contact)}</td>
       <td>${escapeHtml(supplier.sector)}</td>
@@ -12615,6 +12633,7 @@ function renderSuppliers() {
       <td><span class="tag ${supplierStatusClass(supplier.status)}">${escapeHtml(supplier.status)}</span></td>
       <td>
         <button class="mini-btn" type="button" data-supplier-edit="${escapeHtml(supplier.name)}">Editar</button>
+        <button class="mini-btn danger-mini" type="button" data-supplier-manage="${escapeHtml(supplier.name)}">Eliminar / inactivar</button>
         <button class="mini-btn" type="button" data-supplier-account="${escapeHtml(supplier.name)}">Cuenta</button>
         <button class="mini-btn primary-mini" type="button" data-supplier-payment="${escapeHtml(supplier.name)}">Pago</button>
         ${mixedEntity ? `<button class="mini-btn" type="button" data-mixed-entity="${escapeHtml(mixedEntity.key)}">Ficha mixta</button>` : ""}
@@ -12757,6 +12776,58 @@ async function submitSupplier(event) {
   } finally {
     submit.disabled = false;
     submit.textContent = payload.originalName ? "Guardar cambios" : "Guardar proveedor";
+  }
+}
+
+function supplierDependencySummary(report) {
+  const counts = report && report.counts || {};
+  return [
+    `Productos vinculados: ${numeric(counts.products, 0)}`,
+    `Remitos: ${numeric(counts.remits, 0)}`,
+    `Pagos: ${numeric(counts.payments, 0)}`,
+    `Movimientos de stock: ${numeric(counts.stockMovements, 0)}`,
+    `Saldo pendiente: ${money.format(report && report.balance || 0)}`
+  ].join("\n");
+}
+
+async function manageSupplier(supplierName) {
+  if (!isAdminUser()) {
+    window.alert("Solo Administracion puede eliminar o inactivar proveedores.");
+    return;
+  }
+  try {
+    const inspection = await postOperationalAction("api/suppliers/manage", { supplier: supplierName, action: "inspect" });
+    const report = inspection.report || {};
+    const action = report.canDeletePermanently ? "delete" : "archive";
+    const verb = action === "delete" ? "eliminar definitivamente" : "inactivar conservando la trazabilidad";
+    const accepted = window.confirm([
+      report.message || "Revisar dependencias del proveedor.",
+      "",
+      supplierDependencySummary(report),
+      "",
+      `Accion permitida: ${verb}.`,
+      "Desea continuar?"
+    ].join("\n"));
+    if (!accepted) return;
+    const motive = String(window.prompt("Indicar motivo obligatorio:", "Depuracion controlada de proveedores") || "").trim();
+    if (!motive) throw new Error("La operacion fue cancelada: falta el motivo.");
+    const adminPassword = String(window.prompt("Confirmar clave del administrador:", "") || "");
+    if (!adminPassword) throw new Error("La operacion fue cancelada: falta la clave administrativa.");
+    const response = await postOperationalAction("api/suppliers/manage", {
+      supplier: supplierName,
+      action,
+      motive,
+      adminPassword
+    });
+    if (response.state) {
+      state = normalizeState(response.state);
+      saveState();
+      applyStateVisibility();
+    }
+    showCompactNotice(action === "delete" ? "Proveedor eliminado sin vinculos historicos." : "Proveedor inactivado; la trazabilidad fue preservada.", "ok");
+    renderSuppliers();
+  } catch (error) {
+    window.alert(error.message || "No se pudo gestionar el proveedor.");
   }
 }
 
@@ -13114,7 +13185,7 @@ function updateSupplierPaymentFileStatus() {
 function populateSupplierRemitOptions(selectedName = "") {
   const select = byId("supplierRemitSupplier");
   if (!select) return;
-  select.innerHTML = state.suppliers.map((supplier) => `
+  select.innerHTML = state.suppliers.filter((supplier) => !normalizeSearchText(supplier.estado_operativo).includes("inactiv")).map((supplier) => `
     <option value="${escapeHtml(supplier.name)}" ${sameSupplierName(supplier.name, selectedName) ? "selected" : ""}>${escapeHtml(supplier.name)}</option>
   `).join("");
 }
@@ -16633,6 +16704,10 @@ byId("priceListOperation").addEventListener("change", () => {
   renderPriceListOperationFields();
   renderPriceListSimulation();
 });
+byId("priceListForm").addEventListener("input", () => {
+  priceListLastSimulation = null;
+  renderPriceListSimulation();
+});
 byId("simulatePriceListBtn").addEventListener("click", simulatePriceListFromForm);
 byId("applyPriceListBtn").addEventListener("click", applyPriceListFromForm);
 byId("assignSellerPriceListBtn").addEventListener("click", assignSellerPriceListFromPanel);
@@ -17958,6 +18033,12 @@ document.addEventListener("click", async (event) => {
   if (supplierEditButton) {
     const supplier = (state.suppliers || []).find((item) => item.name === supplierEditButton.dataset.supplierEdit);
     if (supplier) openSupplierDialog(supplier);
+    return;
+  }
+
+  const supplierManageButton = event.target.closest("[data-supplier-manage]");
+  if (supplierManageButton) {
+    await manageSupplier(supplierManageButton.dataset.supplierManage);
     return;
   }
 

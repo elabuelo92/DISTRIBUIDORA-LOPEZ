@@ -9,7 +9,8 @@
     "test:client-create": "node scripts/smoke-client-create-v109.js",
     "test:client-portfolio": "node scripts/smoke-client-portfolio-v110.js",
     "test:preventa-commissions": "node scripts/smoke-preventa-commissions-v111.js && node scripts/smoke-sales-policy-v111.js",
-    "test:order-workflow": "node scripts/smoke-order-workflow-v114.js"
+    "test:order-workflow": "node scripts/smoke-order-workflow-v114.js",
+    "test:suppliers-prices": "node scripts/smoke-suppliers-prices-v115.js"
   },
   "engines": {
     "node": ">=18"
