@@ -37,7 +37,7 @@ Al imprimir una etiqueta desde el sistema seleccionar:
 
 - Impresora: XPrinter instalada.
 - Papel: `DL Etiqueta 100x60`.
-- Orientacion: horizontal.
+- Orientacion: vertical / retrato o automatica. El papel ya mide 100 mm de ancho por 60 mm de alto; seleccionar horizontal nuevamente lo rota a 60 x 100 y puede dividir una etiqueta entre dos soportes fisicos.
 - Escala: `100%`.
 - Margenes: ninguno / `0`.
 - Paginas por hoja: `1`.
@@ -76,7 +76,8 @@ Guardar o enviar la salida. Los nombres internos de papel, sensor, velocidad y d
 
 ## 6. Como interpretar el defecto
 
-- Sale girada 90 grados: orientacion incorrecta.
+- El contenido se divide entre dos etiquetas, como una mitad en cada una: papel 100 x 60 combinado incorrectamente con orientacion horizontal. Usar 100 x 60 y retrato/automatica.
+- Sale girada 90 grados pero dentro de una sola etiqueta: orientacion incorrecta.
 - Sale chica o ampliada: escala distinta de 100% o ajuste automatico activo.
 - Todo sale corrido siempre igual: margenes u offset del driver.
 - La primera sale bien y las siguientes se desplazan: falta calibrar el sensor de separacion/gap.
