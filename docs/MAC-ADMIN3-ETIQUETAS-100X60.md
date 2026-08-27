@@ -43,6 +43,7 @@ Al imprimir una etiqueta desde el sistema seleccionar:
 - Paginas por hoja: `1`.
 - Encabezados y pies: desactivados.
 - Ajustar al papel / Fit to page: desactivado.
+- En Safari, `Ajustar al tamano del papel` y `Solo reducir` deben quedar apagados.
 - Doble faz: desactivado.
 
 Guardar como preset:

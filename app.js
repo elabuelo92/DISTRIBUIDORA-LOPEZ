@@ -180,7 +180,7 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-116";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-117";
 const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "27/08/2026 14:53 ART";
 const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-27T14:53:17-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
@@ -6552,9 +6552,13 @@ function printOrderLabel(order) {
         <style>
           @page { size: 100mm 60mm; margin: 0; }
           * { box-sizing: border-box; }
-          body { margin: 0; font-family: Arial, sans-serif; color: #111827; }
-          .smart-label-page { width: 100mm; height: 60mm; page-break-after: always; border: 2px solid #111827; padding: 4mm; display: grid; grid-template-rows: auto 1fr auto; gap: 2.5mm; overflow: hidden; }
-          .smart-label-page:last-child { page-break-after: auto; }
+          html, body { width: 100mm; margin: 0; padding: 0; }
+          body { font-family: Arial, sans-serif; color: #111827; overflow: hidden; }
+          .smart-label-page { width: 99mm; height: 59mm; margin: 0; page-break-inside: avoid; break-inside: avoid; page-break-after: always; break-after: page; border: 2px solid #111827; padding: 4mm; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 2.5mm; overflow: hidden; }
+          .smart-label-page:last-child { page-break-after: auto; break-after: auto; }
+          @media print {
+            html, body { width: 100mm; height: auto; min-height: 0; overflow: visible; }
+          }
           header { display: flex; justify-content: space-between; gap: 4mm; align-items: flex-start; border-bottom: 1.5px solid #111827; padding-bottom: 2mm; }
           footer { display: flex; justify-content: space-between; gap: 3mm; align-items: center; border-top: 1.5px solid #111827; padding-top: 1.5mm; font-size: 8pt; }
           .smart-label-title span, footer span { font-size: 8pt; text-transform: uppercase; color: #374151; }
