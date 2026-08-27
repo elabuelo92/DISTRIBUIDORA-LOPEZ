@@ -18,7 +18,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-113";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-114";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -6063,7 +6063,7 @@ const server = http.createServer(async (req, res) => {
       const currentState = currentPayload.state || {};
       const code = decodeURIComponent(orderCommercialApprovalMatch[1]);
       try {
-        const previousOrder = entitySnapshot(currentState, "pedido", code);
+        const previousOrder = JSON.parse(JSON.stringify(entitySnapshot(currentState, "pedido", code)));
         const result = orderEngine.resolveCommercialApproval(currentState, code, input, {
           user: sessionUser.name,
           username: sessionUser.username,
@@ -6111,7 +6111,7 @@ const server = http.createServer(async (req, res) => {
       const currentState = currentPayload.state || {};
       const code = decodeURIComponent(orderEditMatch[1]);
       try {
-        const previousOrder = entitySnapshot(currentState, "pedido", code);
+        const previousOrder = JSON.parse(JSON.stringify(entitySnapshot(currentState, "pedido", code)));
         const fullUser = fullUserByUsername(sessionUser.username) || sessionUser;
         if (orderEditHasEconomicChange(previousOrder, input) && !userCanEditOrderEconomics(fullUser)) {
           sendJson(res, 403, { ok: false, error: "Modificar precios o descuentos requiere autorizacion administrativa especifica." });
@@ -6149,6 +6149,141 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/orders/bulk-workflow" && req.method === "POST") {
+      const performanceStartedAt = performance.now();
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (!["admin", "depot"].includes(sessionUser.role)) {
+        sendJson(res, 403, { ok: false, error: "Operacion permitida solo para administradores o deposito autorizado." });
+        return;
+      }
+      const body = await readBody(req);
+      const input = JSON.parse(body || "{}");
+      const orderCodes = [...new Set((Array.isArray(input.orderCodes) ? input.orderCodes : []).map((code) => String(code || "").trim()).filter(Boolean))].slice(0, 250);
+      const action = String(input.action || "").trim();
+      const allowedActions = new Set(["preparation", "assembly", "labels", "verify-ready"]);
+      if (!orderCodes.length) {
+        sendJson(res, 400, { ok: false, error: "Seleccionar al menos un pedido." });
+        return;
+      }
+      if (!allowedActions.has(action)) {
+        sendJson(res, 400, { ok: false, error: "Accion masiva no permitida. Despacho requiere etiqueta, scanner y hoja de ruta." });
+        return;
+      }
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      const changedOrders = [];
+      const processed = [];
+      const errors = [];
+      const audits = [];
+      const cloneValue = (value) => JSON.parse(JSON.stringify(value));
+
+      orderCodes.forEach((code) => {
+        const order = (currentState.orders || []).find((item) => String(item.code || "") === code);
+        if (!order) {
+          errors.push({ code, error: "Pedido no encontrado." });
+          return;
+        }
+        const previousOrder = cloneValue(order);
+        try {
+          let resultOrder = order;
+          let auditAction = "PEDIDO_FLUJO_VERIFICADO";
+          let note = "Etapa verificada sin cambios.";
+          if (action === "preparation") {
+            if (order.status === orderEngine.STATUS.READY) {
+              processed.push({ code, status: order.status, changed: false });
+              return;
+            }
+            if (order.status !== orderEngine.STATUS.PENDING) throw new Error(`El pedido esta en ${order.status}; solo un Pendiente puede pasar a preparacion.`);
+            resultOrder = orderEngine.advanceOrder(currentState, code, sessionUser.name);
+            auditAction = "PEDIDO_AVANZADO";
+            note = `Pedido avanzado a ${resultOrder.status}.`;
+          } else if (action === "assembly") {
+            if (order.status === orderEngine.STATUS.ASSEMBLY) {
+              processed.push({ code, status: order.status, changed: false });
+              return;
+            }
+            if (order.status !== orderEngine.STATUS.READY) throw new Error(`Primero marcar el pedido en ${orderEngine.STATUS.READY}.`);
+            resultOrder = orderEngine.advanceOrder(currentState, code, sessionUser.name);
+            auditAction = "PEDIDO_AVANZADO";
+            note = `Pedido avanzado a ${resultOrder.status}.`;
+          } else if (action === "labels") {
+            if ([orderEngine.STATUS.LABELED, orderEngine.STATUS.READY_DISPATCH].includes(order.status)) {
+              processed.push({ code, status: order.status, changed: false });
+              return;
+            }
+            if (order.status !== orderEngine.STATUS.ASSEMBLY) throw new Error(`Primero marcar el pedido en ${orderEngine.STATUS.ASSEMBLY}.`);
+            const assembly = order.assembly || {};
+            const packagesByOrder = input.packagesByOrder && typeof input.packagesByOrder === "object" ? input.packagesByOrder : {};
+            const packages = Number(packagesByOrder[code] || assembly.bultosConfirmed || 1);
+            resultOrder = orderEngine.generateOrderLabel(currentState, code, {
+              packages,
+              observations: assembly.observations || "Etiqueta generada por operacion masiva",
+              printer: String(input.printer || ""),
+              printed: true
+            }, {
+              user: sessionUser.name,
+              username: sessionUser.username,
+              role: sessionUser.role,
+              ip: clientIp(req)
+            }).order;
+            auditAction = "PEDIDO_ETIQUETA_GENERADA";
+            note = `Etiqueta generada. Bultos ${packages}.`;
+          } else if (action === "verify-ready") {
+            if (order.status !== orderEngine.STATUS.READY_DISPATCH) {
+              throw new Error(`Escanear fisicamente la etiqueta. El pedido permanece en ${order.status}.`);
+            }
+            processed.push({ code, status: order.status, changed: false });
+            return;
+          }
+          changedOrders.push(resultOrder);
+          processed.push({ code, status: resultOrder.status, changed: true });
+          audits.push(auditEntry(req, sessionUser, input, {
+            action: auditAction,
+            entityType: "pedido",
+            entityId: code,
+            entityLabel: resultOrder.client || code,
+            previousValue: previousOrder,
+            newValue: resultOrder,
+            note
+          }));
+        } catch (error) {
+          errors.push({ code, error: error.message || "No se pudo procesar el pedido." });
+        }
+      });
+
+      const responseData = {
+        action,
+        requested: orderCodes.length,
+        processed,
+        changed: changedOrders.length,
+        orders: changedOrders,
+        errors
+      };
+      if (!changedOrders.length) {
+        sendJson(res, 200, {
+          ok: true,
+          version: currentPayload.version || readStateVersionFast(),
+          compact: true,
+          ...responseData,
+          performance: { totalMs: Math.round((performance.now() - performanceStartedAt) * 10) / 10 }
+        });
+        return;
+      }
+      writeCompactStateResponse(res, currentState, responseData, audits, notificationEntry(req, sessionUser, input, {
+        action: "PEDIDOS_FLUJO_MASIVO",
+        category: "Deposito",
+        title: `Operacion de deposito: ${changedOrders.length} pedidos`,
+        text: `${changedOrders.length}/${orderCodes.length} pedidos actualizados sin omitir controles de etiqueta y scanner.`,
+        tone: errors.length ? "warn" : "ok",
+        entityType: "pedido",
+        entityId: "bulk",
+        entityLabel: "Operacion masiva de deposito",
+        audience: ["admin"]
+      }), { performanceStartedAt, atomic: true });
+      return;
+    }
+
     const orderLabelMatch = requestUrl.pathname.match(/^\/api\/orders\/([^/]+)\/(label|scan)$/);
     if (orderLabelMatch && req.method === "POST") {
       const sessionUser = requireUser(req, res);
@@ -6164,7 +6299,7 @@ const server = http.createServer(async (req, res) => {
       const code = decodeURIComponent(orderLabelMatch[1]);
       const action = orderLabelMatch[2];
       try {
-        const previousOrder = entitySnapshot(currentState, "pedido", code);
+        const previousOrder = JSON.parse(JSON.stringify(entitySnapshot(currentState, "pedido", code)));
         const context = {
           user: sessionUser.name,
           username: sessionUser.username,
@@ -6176,7 +6311,7 @@ const server = http.createServer(async (req, res) => {
           ? orderEngine.generateOrderLabel(currentState, code, input, context)
           : orderEngine.scanOrderLabel(currentState, code, input, context);
         const auditAction = action === "label" ? "PEDIDO_ETIQUETA_GENERADA" : "PEDIDO_ETIQUETA_ESCANEADA";
-        writeStateResponse(res, currentState, result, auditEntry(req, sessionUser, input, {
+        writeCompactStateResponse(res, currentState, result, auditEntry(req, sessionUser, input, {
           action: auditAction,
           entityType: "pedido",
           entityId: code,
@@ -6198,7 +6333,7 @@ const server = http.createServer(async (req, res) => {
           entityId: code,
           entityLabel: result.order && result.order.client || code,
           audience: ["admin"]
-        }), sessionUser);
+        }), { atomic: true });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo procesar la etiqueta." });
       }
@@ -6223,7 +6358,7 @@ const server = http.createServer(async (req, res) => {
       const currentState = currentPayload.state || {};
       const code = decodeURIComponent(orderActionMatch[1]);
       try {
-        const previousOrder = entitySnapshot(currentState, "pedido", code);
+        const previousOrder = JSON.parse(JSON.stringify(entitySnapshot(currentState, "pedido", code)));
         let order;
         if (orderActionMatch[2] === "advance") {
           const currentOrder = (currentState.orders || []).find((item) => item.code === code);
@@ -6236,7 +6371,7 @@ const server = http.createServer(async (req, res) => {
         } else {
           order = orderEngine.cancelOrder(currentState, code, sessionUser.name);
         }
-        writeStateResponse(res, currentState, { order }, auditEntry(req, sessionUser, input, {
+        writeCompactStateResponse(res, currentState, { order }, auditEntry(req, sessionUser, input, {
           action: orderActionMatch[2] === "advance" ? "PEDIDO_AVANZADO" : orderActionMatch[2] === "priority" ? "PEDIDO_PRIORIDAD" : "PEDIDO_CANCELADO",
           entityType: "pedido",
           entityId: code,
@@ -6256,7 +6391,7 @@ const server = http.createServer(async (req, res) => {
             entityId: code,
             entityLabel: order && order.client || code,
             audience: ["admin"]
-          }), sessionUser);
+          }), { atomic: true });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo modificar el pedido." });
       }

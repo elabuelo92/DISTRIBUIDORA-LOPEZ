@@ -180,9 +180,9 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-113";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "27/08/2026 00:15 ART";
-const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-27T00:15:17-03:00";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-114";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "27/08/2026 01:32 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-27T01:32:11-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
 
@@ -2224,6 +2224,20 @@ function applyServerStatePayload(payload) {
   applyPresenceToState();
   syncReady = true;
   persistLocalMeta("server-payload");
+  scheduleRenderForCurrentUser();
+}
+
+function applyOrderPatches(orders, version) {
+  const patches = Array.isArray(orders) ? orders.filter((order) => order && order.code) : [];
+  if (version) syncVersion = Math.max(Number(syncVersion || 0), Number(version || 0));
+  if (!patches.length) return;
+  const byCode = new Map(patches.map((order) => [String(order.code), order]));
+  state.orders = (state.orders || []).map((order) => byCode.get(String(order.code)) || order);
+  byCode.forEach((order, code) => {
+    if (!(state.orders || []).some((item) => String(item.code) === code)) state.orders.push(order);
+  });
+  state.shortages = OrderEngine.buildShortageList(state);
+  persistLocalMeta("order-patches");
   scheduleRenderForCurrentUser();
 }
 
@@ -7883,66 +7897,12 @@ function orderCanBulkPrint(order) {
   return orderCanPrintInvoice(order);
 }
 
-async function advanceOrderUntil(orderCode, targetStatus) {
-  let guard = 0;
-  while (guard < 8) {
-    const order = state.orders.find((item) => item.code === orderCode);
-    if (!order) throw new Error("Pedido no encontrado.");
-    if (order.status === targetStatus) return order;
-    const next = nextOrderStatus(order.status);
-    if (!next) throw new Error(`No se puede avanzar desde ${order.status}.`);
-    if (order.status === ORDER_STATUS.PENDING && orderSupplySummary(order).missing > 0) {
-      throw new Error("Pedido con abastecimiento pendiente.");
-    }
-    if ([ORDER_STATUS.LABELED, ORDER_STATUS.READY_DISPATCH].includes(order.status) && targetStatus !== order.status) {
-      throw new Error("Este estado requiere etiqueta/escaneo especifico.");
-    }
-    await postOperationalAction(`api/orders/${encodeURIComponent(orderCode)}/advance`, {});
-    guard += 1;
-  }
-  throw new Error("No se pudo alcanzar el estado solicitado.");
-}
-
-async function bulkGenerateLabel(order) {
-  const info = orderAssemblyInfo(order);
-  await postOperationalAction(`api/orders/${encodeURIComponent(order.code)}/label`, {
-    bultos: info.bultos || 1,
-    observations: info.observations || "Etiqueta generada por operacion masiva",
-    printer: localStorage.getItem("dlLabelPrinter") || ""
-  });
-}
-
-async function processSingleBulkOrder(order, action, targetStatus) {
-  if (targetStatus === ORDER_STATUS.READY) {
-    await advanceOrderUntil(order.code, ORDER_STATUS.READY);
-    return;
-  }
-  if (action === "labels" || action === "state-etiquetado" || targetStatus === ORDER_STATUS.LABELED) {
-    if (order.status !== ORDER_STATUS.ASSEMBLY && order.status !== ORDER_STATUS.LABELED && order.status !== ORDER_STATUS.READY_DISPATCH) {
-      await advanceOrderUntil(order.code, ORDER_STATUS.ASSEMBLY);
-    }
-    const updated = state.orders.find((item) => item.code === order.code) || order;
-    if (!orderAssemblyInfo(updated).generated) await bulkGenerateLabel(updated);
-    return;
-  }
-  if (action === "state-listo" || targetStatus === ORDER_STATUS.READY_DISPATCH) {
-    if (order.status !== ORDER_STATUS.READY_DISPATCH) {
-      await processSingleBulkOrder(order, "state-etiquetado", ORDER_STATUS.LABELED);
-      const updated = state.orders.find((item) => item.code === order.code) || order;
-      await postOperationalAction(`api/orders/${encodeURIComponent(order.code)}/scan`, {
-        scanValue: orderAssemblyInfo(updated).scanCode || order.code
-      });
-    }
-    return;
-  }
-  if (action === "state-armado" || targetStatus === ORDER_STATUS.ASSEMBLY) {
-    await advanceOrderUntil(order.code, ORDER_STATUS.ASSEMBLY);
-    return;
-  }
-  if (targetStatus === ORDER_STATUS.DISPATCHED) {
-    await processSingleBulkOrder(order, "state-listo", ORDER_STATUS.READY_DISPATCH);
-    await advanceOrderUntil(order.code, ORDER_STATUS.DISPATCHED);
-  }
+function bulkWorkflowAction(action, targetStatus) {
+  if (action === "state-preparacion" || targetStatus === ORDER_STATUS.READY) return "preparation";
+  if (action === "state-armado" || targetStatus === ORDER_STATUS.ASSEMBLY) return "assembly";
+  if (action === "labels" || action === "state-etiquetado" || targetStatus === ORDER_STATUS.LABELED) return "labels";
+  if (action === "state-listo" || targetStatus === ORDER_STATUS.READY_DISPATCH) return "verify-ready";
+  return "";
 }
 
 async function runBulkOrderAction(action) {
@@ -8013,20 +7973,24 @@ async function runBulkOrderAction(action) {
   }
   const label = action === "labels" ? "generar etiquetas" : `cambiar a ${targetStatus}`;
   if (!window.confirm(`Se van a procesar ${orders.length} pedidos para ${label}. Desea continuar?`)) return;
-  const started = performance.now();
-  const errors = [];
-  for (let index = 0; index < orders.length; index += 1) {
-    const order = orders[index];
-    setOrdersBulkStatus(`Procesando pedido ${index + 1} de ${orders.length}: ${order.code}`, "info");
-    try {
-      await processSingleBulkOrder(order, action, targetStatus);
-    } catch (error) {
-      errors.push(`${order.code}: ${error.message || "error"}`);
-    }
+  const workflowAction = bulkWorkflowAction(action, targetStatus);
+  if (!workflowAction) {
+    setOrdersBulkStatus("Ese cambio no puede aplicarse en forma directa. Completar armado, etiqueta, scanner y luego asignar la ruta.", "warn");
+    return;
   }
+  const started = performance.now();
+  setOrdersBulkStatus(`Procesando ${orders.length} pedidos en una sola operacion...`, "info");
+  const payload = await postOperationalAction("api/orders/bulk-workflow", {
+    orderCodes: orders.map((order) => order.code),
+    action: workflowAction,
+    printer: localStorage.getItem("dlLabelPrinter") || ""
+  }, { timeoutMs: 30000 });
+  applyOrderPatches(payload.orders, payload.version);
+  const errors = (payload.errors || []).map((item) => `${item.code}: ${item.error}`);
   const seconds = Math.round((performance.now() - started) / 100) / 10;
   if (!errors.length) selectedOrderCodes.clear();
-  setOrdersBulkStatus(`Procesados ${orders.length - errors.length}/${orders.length}. Errores: ${errors.length}. Tiempo ${seconds}s.${errors.length ? ` ${errors.slice(0, 3).join(" | ")}` : ""}`, errors.length ? "warn" : "ok");
+  const serverMs = numeric(payload.performance && payload.performance.totalMs, 0);
+  setOrdersBulkStatus(`Procesados ${orders.length - errors.length}/${orders.length}. Errores: ${errors.length}. Tiempo ${seconds}s${serverMs ? ` (servidor ${Math.round(serverMs)} ms)` : ""}.${errors.length ? ` ${errors.slice(0, 3).join(" | ")}` : ""}`, errors.length ? "warn" : "ok");
   renderForCurrentUser();
 }
 
@@ -8477,7 +8441,7 @@ function renderAssemblyDepot() {
           <button class="secondary-btn" type="button" data-assembly-bulk-action="state-preparacion">Marcar en preparacion</button>
           <button class="secondary-btn" type="button" data-assembly-bulk-action="state-armado">Marcar armado</button>
           <button class="secondary-btn" type="button" data-assembly-bulk-action="state-etiquetado">Marcar etiquetado</button>
-          <button class="secondary-btn" type="button" data-assembly-bulk-action="state-listo">Listo despacho</button>
+          <button class="secondary-btn" type="button" data-assembly-bulk-action="state-listo" title="Comprueba que la etiqueta haya sido escaneada físicamente">Verificar scanner</button>
           <button class="secondary-btn" type="button" data-assembly-bulk-action="export-assembly">Exportar armado</button>
         </div>
       </div>
@@ -15269,6 +15233,7 @@ async function submitOrderLabel(event) {
       observations: byId("orderLabelObservations").value.trim(),
       printed: print
     });
+    applyOrderPatches(payload.order ? [payload.order] : [], payload.version);
     if (print) printOrderLabel(payload.order);
     byId("orderLabelDialog").close("default");
   } catch (error) {
@@ -15319,6 +15284,7 @@ async function submitOrderScan(event) {
     const payload = await postOperationalAction(`api/orders/${encodeURIComponent(orderScanTargetCode)}/scan`, {
       scanValue: byId("orderScanValue").value.trim()
     });
+    applyOrderPatches(payload.order ? [payload.order] : [], payload.version);
     if (payload.pendingPackages > 0) {
       byId("orderScanMessage").textContent = `Bulto registrado. Faltan ${payload.pendingPackages} por escanear.`;
       const refreshed = state.orders.find((item) => item.code === orderScanTargetCode);
@@ -17966,7 +17932,8 @@ document.addEventListener("click", async (event) => {
   if (!nextStatus) return;
   button.disabled = true;
   try {
-    await postOperationalAction(`api/orders/${encodeURIComponent(order.code)}/advance`, {});
+    const payload = await postOperationalAction(`api/orders/${encodeURIComponent(order.code)}/advance`, {});
+    applyOrderPatches(payload.order ? [payload.order] : [], payload.version);
   } catch (error) {
     window.alert(error.message || "No se pudo avanzar el pedido.");
   } finally {
@@ -18168,9 +18135,10 @@ document.addEventListener("click", async (event) => {
   const order = state.orders.find((item) => item.code === button.dataset.orderUrgent);
   if (!order) return;
   try {
-    await postOperationalAction(`api/orders/${encodeURIComponent(order.code)}/priority`, {
+    const payload = await postOperationalAction(`api/orders/${encodeURIComponent(order.code)}/priority`, {
       priority: order.priority === "Urgente" ? "Normal" : "Urgente"
     });
+    applyOrderPatches(payload.order ? [payload.order] : [], payload.version);
   } catch (error) {
     window.alert(error.message || "No se pudo cambiar la prioridad.");
   }
@@ -18182,7 +18150,8 @@ document.addEventListener("click", async (event) => {
   const order = state.orders.find((item) => item.code === button.dataset.orderCancel);
   if (!order || !window.confirm(`Cancelar ${order.code} y liberar todas sus reservas?`)) return;
   try {
-    await postOperationalAction(`api/orders/${encodeURIComponent(order.code)}/cancel`, {});
+    const payload = await postOperationalAction(`api/orders/${encodeURIComponent(order.code)}/cancel`, {});
+    applyOrderPatches(payload.order ? [payload.order] : [], payload.version);
   } catch (error) {
     window.alert(error.message || "No se pudo cancelar el pedido.");
   }
