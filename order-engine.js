@@ -128,6 +128,12 @@
     return Math.max(0, numeric(value, 0));
   }
 
+  function nonNegativeOrFallback(value, fallback = 0) {
+    if (value === undefined || value === null || value === "") return Math.max(0, numeric(fallback, 0));
+    const number = Number(value);
+    return Number.isFinite(number) ? Math.max(0, number) : Math.max(0, numeric(fallback, 0));
+  }
+
   function clone(value) {
     return JSON.parse(JSON.stringify(value || null));
   }
@@ -320,7 +326,7 @@
     if (cancelled) return 0;
     const unitPrice = positive(item.unitPrice ?? item.price);
     const requestedQty = positive(item.requestedQty ?? item.qty ?? item.cantidad);
-    const lineTotal = positive(item.lineTotal) || requestedQty * unitPrice;
+    const lineTotal = nonNegativeOrFallback(item.lineTotal, requestedQty * unitPrice);
     const returnedQty = positive(item.returnedQty);
     const returnedAmount = positive(item.returnedAmount) || returnedQty * unitPrice;
     if (role === "driver") {
@@ -743,15 +749,27 @@
     const reservedQty = legacy ? 0 : Math.min(requestedQty, positive(item.reservedQty ?? item.reserved));
     const missingQty = legacy ? 0 : Math.max(0, requestedQty - reservedQty);
     const unitPrice = positive(item.unitPrice ?? item.price ?? (product && productUnitPrice(product)));
+    const originalUnitPrice = positive(item.originalUnitPrice ?? item.precioOriginal ?? unitPrice);
+    const discountPct = Math.min(100, positive(item.discountPct ?? item.discount ?? item.descuento));
+    const grossTotal = requestedQty * unitPrice;
+    const discountAmount = nonNegativeOrFallback(
+      item.discountAmount,
+      Math.round(grossTotal * discountPct) / 100
+    );
+    const lineTotal = nonNegativeOrFallback(item.lineTotal ?? item.total, Math.max(0, grossTotal - discountAmount));
     const priceList = productPriceListMeta(product);
     return {
+      ...item,
       productCode: product ? productCode(product) : String(item.productCode || item.codigo_producto || ""),
       name: product ? productName(product) : String(item.name || item.product || "Producto sin identificar"),
       requestedQty,
       reservedQty,
       missingQty,
       unitPrice,
-      lineTotal: positive(item.lineTotal) || requestedQty * unitPrice,
+      originalUnitPrice,
+      discountPct,
+      discountAmount,
+      lineTotal,
       priceListId: String(item.priceListId || priceList.priceListId || ""),
       priceListName: String(item.priceListName || priceList.priceListName || "Lista vigente")
     };
@@ -961,7 +979,7 @@
       sellerUsername: String(order.sellerUsername || order.seller_username || ""),
       items,
       products: items.length ? formatItems(items) : String(order.products || ""),
-      amount: positive(order.amount) || items.reduce((sum, item) => sum + item.lineTotal, 0),
+      amount: nonNegativeOrFallback(order.amount, items.reduce((sum, item) => sum + item.lineTotal, 0)),
       status,
       priority: String(order.priority || "Normal"),
       source: String(order.source || (order.origin === "preventa" ? "mobile" : "dashboard")),
@@ -984,11 +1002,42 @@
       normalized.assembly.label.id = normalized.assembly.label.id || `ETQ-${normalized.code}`;
       normalized.assembly.label.scanCode = String(normalized.assembly.label.scanCode || normalized.code || "").replace(/-/g, "");
     }
+    let repairedApprovedAmounts = false;
+    if (normalized.commercialApproval && String(normalized.commercialApproval.status || "") === "Aprobada") {
+      try {
+        const beforeApproval = JSON.stringify({
+          amount: normalized.amount,
+          items: normalized.items.map((item) => ({
+            productCode: item.productCode,
+            unitPrice: item.unitPrice,
+            discountPct: item.discountPct,
+            discountAmount: item.discountAmount,
+            lineTotal: item.lineTotal
+          }))
+        });
+        applyCommercialApprovalToOrder(normalized);
+        const afterApproval = JSON.stringify({
+          amount: normalized.amount,
+          items: normalized.items.map((item) => ({
+            productCode: item.productCode,
+            unitPrice: item.unitPrice,
+            discountPct: item.discountPct,
+            discountAmount: item.discountAmount,
+            lineTotal: item.lineTotal
+          }))
+        });
+        repairedApprovedAmounts = beforeApproval !== afterApproval;
+      } catch (_error) {
+        // Registros historicos incompletos permanecen consultables sin bloquear la carga general.
+      }
+    }
     normalized.trace = normalizeTrace(order.trace, normalized, status);
     if (!normalized.trace.some((entry) => entry.status === status)) {
       normalized.trace.push(traceEntry(status, "Sistema", isLegacy ? "Pedido historico migrado" : "Estado actual", normalized.updatedAt));
     }
-    normalized.commissions = normalizeOrderCommissions(state, normalized);
+    normalized.commissions = repairedApprovedAmounts
+      ? calculateOrderCommissions(state, normalized, { includeDriver: DRIVER_COMMISSION_STATUSES.has(normalized.status) })
+      : normalizeOrderCommissions(state, normalized);
     return normalized;
   }
 

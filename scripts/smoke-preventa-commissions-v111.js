@@ -103,6 +103,56 @@ const discounted = engine.calculateOrderCommissions(state, order([
 assert.equal(discounted.seller.baseAmount, 900, "base neta con descuento");
 assert.equal(discounted.seller.total, 45);
 
+const fullyDiscounted = engine.calculateOrderCommissions(state, order([
+  line("GEN-1", "Producto general", 10, 100, { discountPct: 100, discountAmount: 1000, lineTotal: 0 })
+]));
+assert.equal(fullyDiscounted.seller.baseAmount, 0, "descuento total conserva base cero");
+assert.equal(fullyDiscounted.seller.total, 0, "descuento total no genera comision");
+
+const approvalState = commissionState();
+const approvedOrder = engine.createOrder(approvalState, {
+  code: "PED-APPROVAL-100",
+  client: "Cliente prueba",
+  seller: "Vendedor cobertura",
+  sellerUsername: "cobertura",
+  paymentMethod: "Contado",
+  items: [{ productCode: "GEN-1", qty: 2, unitPrice: 100 }],
+  commercialRequest: {
+    type: "general_discount",
+    productCode: "GEN-1",
+    productName: "Producto general",
+    proposedValue: 100,
+    discountPct: 100,
+    motive: "Mercaderia abonada previamente"
+  }
+}, "Vendedor cobertura");
+const approvalResult = engine.resolveCommercialApproval(approvalState, approvedOrder.code, {
+  decision: "approve",
+  motive: "Autorizado para prueba"
+}, { user: "Admin", username: "admin", role: "admin" });
+assert.equal(approvalResult.order.amount, 0, "la aprobacion aplica el descuento total");
+assert.equal(approvalResult.order.items[0].lineTotal, 0, "la linea aprobada queda en cero");
+assert.equal(approvalResult.order.commissions.seller.total, 0, "la aprobacion recalcula la comision");
+engine.migrateState(approvalState);
+const migratedApprovedOrder = approvalState.orders.find((item) => item.code === approvedOrder.code);
+assert.equal(migratedApprovedOrder.amount, 0, "la normalizacion conserva el total aprobado en cero");
+assert.equal(migratedApprovedOrder.items[0].discountPct, 100, "la normalizacion conserva el descuento aprobado");
+assert.equal(migratedApprovedOrder.items[0].lineTotal, 0, "la normalizacion no restaura el importe bruto");
+assert.equal(migratedApprovedOrder.commissions.seller.total, 0, "la normalizacion conserva la comision en cero");
+
+migratedApprovedOrder.items.forEach((item) => {
+  delete item.discountPct;
+  delete item.discountAmount;
+  item.lineTotal = item.requestedQty * item.unitPrice;
+});
+migratedApprovedOrder.amount = 200;
+migratedApprovedOrder.commissions = engine.calculateOrderCommissions(approvalState, migratedApprovedOrder);
+engine.migrateState(approvalState);
+const repairedHistoricalOrder = approvalState.orders.find((item) => item.code === approvedOrder.code);
+assert.equal(repairedHistoricalOrder.amount, 0, "repara un pedido historico aprobado que recupero el bruto");
+assert.equal(repairedHistoricalOrder.items[0].discountPct, 100, "recupera el descuento aprobado desde la solicitud auditada");
+assert.equal(repairedHistoricalOrder.commissions.seller.total, 0, "repara la comision historica inconsistente");
+
 const cancelled = engine.calculateOrderCommissions(state, order([
   line("GEN-1", "Producto general", 10, 100)
 ], { status: engine.STATUS.CANCELLED }));
@@ -126,11 +176,13 @@ assert.deepEqual(engine.assertPreventaStockPolicy(stockState, quote.items), []);
 
 console.log(JSON.stringify({
   ok: true,
-  version: "8790-111",
+  version: "8790-113",
   general: general.seller.total,
   cigarettes: cigarettes.seller.total,
   mixed: mixed.seller.total,
   discounted: discounted.seller.total,
+  fullyDiscounted: fullyDiscounted.seller.total,
+  approvedDiscount: repairedHistoricalOrder.amount,
   cancelled: cancelled.seller.total,
   returned: returned.seller.total,
   effectiveSeller: general.seller.user,
