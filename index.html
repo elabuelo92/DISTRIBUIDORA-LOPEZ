@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-117-r20260827b">
+    <link rel="manifest" href="manifest.json?v=8790-118-r20260828a">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-117-r20260827b">
+    <link rel="stylesheet" href="styles.css?v=8790-118-r20260828a">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -120,6 +120,7 @@
           <button class="nav-item" data-view="armado"><span class="icon" aria-hidden="true">ARM</span>Armado / Deposito</button>
           <button class="nav-item" data-view="reparto"><span class="icon" aria-hidden="true">RUT</span>Reparto</button>
           <button class="nav-item" data-view="clientes"><span class="icon" aria-hidden="true">@</span>Clientes</button>
+          <button class="nav-item admin-only" data-view="carteras"><span class="icon" aria-hidden="true">CRT</span>Carteras</button>
           <button class="nav-item" data-view="cuentas"><span class="icon" aria-hidden="true">$</span>Cuentas</button>
           <button class="nav-item" data-view="stock"><span class="icon" aria-hidden="true">STK</span>Stock e Inventario</button>
           <button class="nav-item admin-only" data-view="control-stock"><span class="icon" aria-hidden="true">INV</span>Control fisico</button>
@@ -158,8 +159,8 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-117</strong>
-              <small data-version-build>Actualizada 27/08/2026 14:35</small>
+              <strong data-version-value>8790-118</strong>
+              <small data-version-build>Actualizada 28/08/2026 16:14</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
             <button class="ghost-btn app-back-btn" id="appBackBtn" type="button">Volver</button>
@@ -1012,11 +1013,16 @@
                 <select id="clientBulkSeller" aria-label="Nuevo vendedor"><option value="">Vendedor: sin cambios</option></select>
                 <input id="clientBulkRoute" type="text" placeholder="Ruta: sin cambios">
                 <input id="clientBulkZone" type="text" placeholder="Zona: sin cambios">
-                <select id="clientBulkDay" aria-label="Nuevo dia de visita">
-                  <option value="">Dia: sin cambios</option>
-                  <option value="Lunes">Lunes</option><option value="Martes">Martes</option><option value="Miercoles">Miercoles</option>
-                  <option value="Jueves">Jueves</option><option value="Viernes">Viernes</option><option value="Sabado">Sabado</option>
-                  <option value="Fuera de Ruta">Fuera de Ruta</option>
+                <label class="bulk-multi-select">Dias: sin cambios
+                  <select id="clientBulkDay" multiple size="3" aria-label="Nuevos dias de visita">
+                    <option value="Lunes">Lunes</option><option value="Martes">Martes</option><option value="Miercoles">Miercoles</option>
+                    <option value="Jueves">Jueves</option><option value="Viernes">Viernes</option><option value="Sabado">Sabado</option><option value="Domingo">Domingo</option>
+                  </select>
+                </label>
+                <select id="clientBulkStatus" aria-label="Nuevo estado">
+                  <option value="">Estado: sin cambios</option>
+                  <option value="Activo">Activar</option>
+                  <option value="Inactivo">Inactivar</option>
                 </select>
                 <input id="clientBulkMotive" type="text" placeholder="Motivo obligatorio">
                 <input id="clientBulkPassword" type="password" autocomplete="current-password" placeholder="Clave administrador">
@@ -1043,6 +1049,89 @@
               </table>
             </div>
             <div class="list-pager clients-pager" id="clientsPager" aria-live="polite"></div>
+          </div>
+        </section>
+
+        <section class="view" id="carteras">
+          <div class="table-panel commercial-portfolios-panel">
+            <div class="table-header">
+              <div>
+                <h2>Carteras y Rutas Comerciales</h2>
+                <p>Control de integridad entre clientes, vendedores y Preventa. No incluye rutas de reparto.</p>
+              </div>
+              <div class="table-actions">
+                <button class="secondary-btn" id="refreshPortfolioDiagnostics" type="button">Actualizar control</button>
+                <button class="secondary-btn" id="downloadClientPortfolioTemplate" type="button">Descargar para edicion</button>
+                <button class="secondary-btn" id="openClientPortfolioImport" type="button">Importar cartera</button>
+                <button class="secondary-btn" type="button" data-portfolio-export="xlsx">XLSX</button>
+                <button class="secondary-btn" type="button" data-portfolio-export="pdf">PDF</button>
+                <button class="secondary-btn" type="button" data-portfolio-export="csv">CSV</button>
+                <button class="secondary-btn" type="button" data-portfolio-export="print">Imprimir</button>
+                <button class="primary-btn" id="fixPortfolioSelection" type="button" disabled>Corregir seleccionados</button>
+              </div>
+            </div>
+            <div class="portfolio-diagnostic-summary" id="portfolioDiagnosticSummary" aria-live="polite"></div>
+            <div class="data-filter-bar">
+              <label class="data-search-box">
+                <span>Buscar en cartera</span>
+                <input id="portfolioDiagnosticSearch" type="search" autocomplete="off" placeholder="Cliente, vendedor, ruta, zona o problema">
+              </label>
+              <select id="portfolioDiagnosticSeverity" aria-label="Filtrar por resultado">
+                <option value="all">Todos los resultados</option>
+                <option value="error">Errores</option>
+                <option value="warning">Advertencias</option>
+                <option value="ok">Correctos</option>
+              </select>
+              <select id="portfolioDiagnosticIssue" aria-label="Filtrar por inconsistencia">
+                <option value="all">Todas las inconsistencias</option>
+                <option value="NO_SELLER">Sin vendedor</option>
+                <option value="NO_ROUTE">Sin ruta</option>
+                <option value="NO_VISIT_DAY">Sin dia</option>
+                <option value="NO_GPS">Sin GPS</option>
+                <option value="ORPHAN_SELLER">Vendedor inexistente</option>
+                <option value="INACTIVE_SELLER">Vendedor inactivo</option>
+                <option value="POSSIBLE_DUPLICATE">Posible duplicado</option>
+              </select>
+              <select id="portfolioSellerFilter" aria-label="Filtrar por vendedor"><option value="all">Todos los vendedores</option></select>
+              <select id="portfolioDayFilter" aria-label="Filtrar por dia"><option value="all">Todos los dias</option></select>
+              <select id="portfolioRouteFilter" aria-label="Filtrar por ruta"><option value="all">Todas las rutas</option></select>
+              <select id="portfolioZoneFilter" aria-label="Filtrar por zona"><option value="all">Todas las zonas</option></select>
+              <select id="portfolioStatusFilter" aria-label="Filtrar por estado"><option value="all">Activos e inactivos</option><option value="active">Activos</option><option value="inactive">Inactivos</option></select>
+              <select id="portfolioGpsFilter" aria-label="Filtrar por GPS"><option value="all">Con y sin GPS</option><option value="with">Con GPS</option><option value="without">Sin GPS</option></select>
+              <select id="portfolioHoursFilter" aria-label="Filtrar por horario"><option value="all">Con y sin horario</option><option value="with">Con horario</option><option value="without">Sin horario</option></select>
+              <input id="portfolioDateFrom" type="date" aria-label="Periodo desde">
+              <input id="portfolioDateTo" type="date" aria-label="Periodo hasta">
+              <select id="portfolioSort" aria-label="Ordenar cartera"><option value="client">Ordenar: cliente</option><option value="seller">Vendedor</option><option value="route">Ruta</option><option value="day">Dia</option><option value="order">Orden de visita</option><option value="status">Estado</option></select>
+              <button class="ghost-btn" id="clearPortfolioDiagnosticFilters" type="button">Limpiar</button>
+            </div>
+            <div class="responsive-table">
+              <table>
+                <thead><tr>
+                  <th><input id="selectVisiblePortfolioDiagnostics" type="checkbox" aria-label="Seleccionar resultados visibles"></th>
+                  <th>Resultado</th><th>Codigo / Cliente</th><th>Vendedor titular</th><th>Direccion / Telefono</th><th>Zona</th><th>Ruta comercial</th><th>Dias / Orden</th><th>Horario</th><th>GPS</th><th>Estado / Saldo</th><th>Diagnostico</th><th>Accion</th>
+                </tr></thead>
+                <tbody id="portfolioDiagnosticTable"></tbody>
+              </table>
+            </div>
+            <div class="list-pager" id="portfolioDiagnosticStatus">Control pendiente de ejecutar.</div>
+            <section class="commercial-route-sheet">
+              <div class="table-header">
+                <div><h3>Hoja de Ruta Comercial Diaria</h3><p>Planificacion de visitas de Preventa. No corresponde a Reparto.</p></div>
+                <div class="table-actions">
+                  <button class="secondary-btn" type="button" data-commercial-route-export="xlsx">Excel</button>
+                  <button class="secondary-btn" type="button" data-commercial-route-export="pdf">PDF</button>
+                  <button class="secondary-btn" type="button" data-commercial-route-export="print">Imprimir</button>
+                </div>
+              </div>
+              <div class="data-filter-bar">
+                <select id="commercialRouteSeller"><option value="">Seleccionar vendedor</option></select>
+                <input id="commercialRouteDate" type="date" aria-label="Fecha de hoja comercial">
+                <select id="commercialRouteRoute"><option value="all">Todas las rutas comerciales</option></select>
+                <select id="commercialRouteZone"><option value="all">Todas las zonas</option></select>
+              </div>
+              <div class="portfolio-diagnostic-summary" id="commercialRouteSummary"></div>
+              <div class="responsive-table"><table><thead><tr><th>Orden</th><th>Codigo</th><th>Cliente</th><th>Direccion</th><th>Horario</th><th>Telefono</th><th>Estado</th><th>Ubicacion</th></tr></thead><tbody id="commercialRouteTable"></tbody></table></div>
+            </section>
           </div>
         </section>
 
@@ -2578,7 +2667,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-117</span>
+          <span id="appFooterVersion">Version del sistema: 8790-118</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -2885,10 +2974,18 @@
           </label>
         </div>
         <div class="form-grid">
-          <label>
-            Dia visita
-            <input name="dia_visita" placeholder="Ej: 2/7 LuVi">
-          </label>
+          <fieldset class="visit-days-editor">
+            <legend>Dias y orden de visita</legend>
+            <div class="visit-days-grid">
+              <label><input type="checkbox" name="dias_visita" value="Lunes"> Lunes <input name="orden_Lunes" type="number" min="1" step="1" placeholder="Orden"></label>
+              <label><input type="checkbox" name="dias_visita" value="Martes"> Martes <input name="orden_Martes" type="number" min="1" step="1" placeholder="Orden"></label>
+              <label><input type="checkbox" name="dias_visita" value="Miercoles"> Miercoles <input name="orden_Miercoles" type="number" min="1" step="1" placeholder="Orden"></label>
+              <label><input type="checkbox" name="dias_visita" value="Jueves"> Jueves <input name="orden_Jueves" type="number" min="1" step="1" placeholder="Orden"></label>
+              <label><input type="checkbox" name="dias_visita" value="Viernes"> Viernes <input name="orden_Viernes" type="number" min="1" step="1" placeholder="Orden"></label>
+              <label><input type="checkbox" name="dias_visita" value="Sabado"> Sabado <input name="orden_Sabado" type="number" min="1" step="1" placeholder="Orden"></label>
+              <label><input type="checkbox" name="dias_visita" value="Domingo"> Domingo <input name="orden_Domingo" type="number" min="1" step="1" placeholder="Orden"></label>
+            </div>
+          </fieldset>
           <label>
             Frecuencia
             <input name="frecuencia_visita" placeholder="Ej: 7 dias">
@@ -4153,6 +4250,27 @@
       </form>
     </dialog>
 
+    <dialog id="clientPortfolioImportDialog">
+      <form id="clientPortfolioImportForm" class="modal-card portfolio-import-card">
+        <div class="modal-header">
+          <div><p class="eyebrow">Carteras comerciales</p><h2>Importar cartera homologada</h2></div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <p class="empty-note">La clave es ID_Cliente. Las celdas vacias no borran datos y nunca se crean o eliminan clientes automaticamente.</p>
+        <label>Archivo Excel<input id="clientPortfolioImportFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required></label>
+        <button class="secondary-btn" id="clientPortfolioPreviewBtn" type="button">Validar y previsualizar</button>
+        <div class="portfolio-preview-summary" id="clientPortfolioPreviewSummary"></div>
+        <div class="responsive-table portfolio-preview-table-wrap" id="clientPortfolioPreviewWrap" hidden>
+          <table><thead><tr><th>Fila</th><th>ID / Cliente</th><th>Accion</th><th>Diferencias</th></tr></thead><tbody id="clientPortfolioPreviewTable"></tbody></table>
+        </div>
+        <label>Motivo administrativo<textarea id="clientPortfolioImportMotive" rows="2" required placeholder="Ej.: Reasignacion semanal de carteras"></textarea></label>
+        <label>Clave de administrador<input id="clientPortfolioImportPassword" type="password" autocomplete="current-password" required></label>
+        <label class="check-option"><input id="clientPortfolioImportConfirmed" type="checkbox"> Revise las diferencias y autorizo aplicar los cambios.</label>
+        <p class="login-message" id="clientPortfolioImportMessage"></p>
+        <menu><button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button><button class="primary-btn" id="clientPortfolioApplyBtn" type="submit" disabled>Aplicar cambios</button></menu>
+      </form>
+    </dialog>
+
     <dialog id="portfolioImportDialog">
       <form id="portfolioImportForm" class="modal-card portfolio-import-card">
         <div class="modal-header">
@@ -4182,14 +4300,14 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-117-r20260827b"></script>
-    <script src="maps-config.js?v=8790-117-r20260827b"></script>
-    <script src="order-engine.js?v=8790-117-r20260827b"></script>
-    <script src="account-engine.js?v=8790-117-r20260827b"></script>
-    <script src="delivery-engine.js?v=8790-117-r20260827b"></script>
-    <script src="legal-engine.js?v=8790-117-r20260827b"></script>
-    <script src="client-portfolio-engine.js?v=8790-117-r20260827b"></script>
-    <script src="app.js?v=8790-117-r20260827b"></script>
+    <script src="config.js?v=8790-118-r20260828a"></script>
+    <script src="maps-config.js?v=8790-118-r20260828a"></script>
+    <script src="order-engine.js?v=8790-118-r20260828a"></script>
+    <script src="account-engine.js?v=8790-118-r20260828a"></script>
+    <script src="delivery-engine.js?v=8790-118-r20260828a"></script>
+    <script src="legal-engine.js?v=8790-118-r20260828a"></script>
+    <script src="client-portfolio-engine.js?v=8790-118-r20260828a"></script>
+    <script src="app.js?v=8790-118-r20260828a"></script>
   </body>
 </html>
 

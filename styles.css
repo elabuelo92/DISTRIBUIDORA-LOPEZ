@@ -1812,6 +1812,127 @@ h2 {
   margin-top: 12px;
 }
 
+.portfolio-diagnostic-summary {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(110px, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.portfolio-summary-card {
+  min-height: 76px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--muted);
+  border-radius: 6px;
+  background: var(--surface);
+  display: grid;
+  align-content: center;
+  gap: 4px;
+}
+
+.portfolio-summary-card small {
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.portfolio-summary-card strong {
+  color: var(--ink);
+  font-size: 24px;
+}
+
+.portfolio-summary-card.ok { border-left-color: var(--success); }
+.portfolio-summary-card.warn { border-left-color: var(--warning); }
+.portfolio-summary-card.danger { border-left-color: var(--danger); }
+.portfolio-summary-card.info { border-left-color: var(--primary); }
+
+.portfolio-issues {
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
+}
+
+.portfolio-issue {
+  display: block;
+  padding-left: 8px;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.portfolio-issue.error { border-left-color: var(--danger); color: var(--danger); }
+.portfolio-issue.warning { border-left-color: var(--warning); color: var(--ink); }
+.portfolio-issue.ok { border-left-color: var(--success); }
+
+.bulk-multi-select,
+.visit-days-editor {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.bulk-multi-select {
+  padding: 7px 9px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.bulk-multi-select select {
+  width: 100%;
+  margin-top: 5px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.visit-days-editor {
+  margin: 0;
+  padding: 10px;
+}
+
+.visit-days-editor legend {
+  padding: 0 5px;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.visit-days-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(150px, 1fr));
+  gap: 7px;
+}
+
+.visit-days-grid label {
+  display: grid;
+  grid-template-columns: auto 1fr minmax(68px, 90px);
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.visit-days-grid input[type="number"] {
+  min-width: 0;
+  padding: 6px;
+}
+
+.commercial-route-sheet {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 2px solid var(--line);
+}
+
+@media (max-width: 1200px) {
+  .portfolio-diagnostic-summary { grid-template-columns: repeat(4, minmax(120px, 1fr)); }
+}
+
+@media (max-width: 720px) {
+  .portfolio-diagnostic-summary { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+}
+
 @keyframes clients-spin {
   to { transform: rotate(360deg); }
 }

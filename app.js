@@ -71,6 +71,7 @@ const titles = {
   armado: "Armado / Deposito",
   reparto: "Reparto y cobranza",
   clientes: "Clientes",
+  carteras: "Carteras y rutas comerciales",
   cuentas: "Cuentas corrientes",
   stock: "Stock e Inventario",
   "control-stock": "Control fisico",
@@ -180,7 +181,7 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-117";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-118";
 const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "27/08/2026 14:53 ART";
 const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-27T14:53:17-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
@@ -298,6 +299,7 @@ let mobileClient = "Autoservicio La Esquina";
 let mobileCart = {};
 let mobileProduct = "";
 let productPortfolioPreview = null;
+let clientPortfolioImportPreview = null;
 let mobileWorkday = defaultMobileWorkday();
 let mobileClientScope = "today";
 let mobilePreventaTab = "order";
@@ -386,6 +388,24 @@ let clientSellerOptions = [];
 let clientPage = 1;
 let currentClientPageRecords = [];
 const selectedClientIds = new Set();
+let portfolioDiagnosticData = null;
+let portfolioDiagnosticSearch = "";
+let portfolioDiagnosticSeverity = "all";
+let portfolioDiagnosticIssue = "all";
+let portfolioSellerFilter = "all";
+let portfolioDayFilter = "all";
+let portfolioRouteFilter = "all";
+let portfolioZoneFilter = "all";
+let portfolioStatusFilter = "all";
+let portfolioGpsFilter = "all";
+let portfolioHoursFilter = "all";
+let portfolioDateFrom = "";
+let portfolioDateTo = "";
+let portfolioSort = "client";
+let portfolioPage = 1;
+let currentPortfolioPageRecords = [];
+const selectedPortfolioDiagnosticIds = new Set();
+const PORTFOLIO_PAGE_SIZE = 50;
 const CLIENTS_PAGE_SIZE = 50;
 const CLIENTS_CACHE_TTL_MS = 15000;
 const CLIENTS_REQUEST_TIMEOUT_MS = 8000;
@@ -1379,6 +1399,9 @@ function normalizeClientRecord(client) {
   const limit = Math.max(0, numeric(client.limite_credito ?? client.limit, 0));
   const latitude = numeric(client.latitud ?? client.latitude ?? client.lat, NaN);
   const longitude = numeric(client.longitud ?? client.longitude ?? client.lng, NaN);
+  const visitDays = typeof ClientPortfolioEngine !== "undefined"
+    ? ClientPortfolioEngine.visitDays(client)
+    : (Array.isArray(client.dias_visita) ? client.dias_visita : []);
   return {
     ...client,
     codigo_cliente: String(client.codigo_cliente || client.code || "").trim(),
@@ -1404,7 +1427,10 @@ function normalizeClientRecord(client) {
     ruta: String(client.ruta || zone).trim(),
     vendedor_asignado: seller,
     seller,
-    dia_visita: String(client.dia_visita || "").trim(),
+    dia_visita: visitDays.join(" / ") || String(client.dia_visita || "").trim(),
+    dias_visita: visitDays,
+    orden_visita: Math.max(0, Math.floor(numeric(client.orden_visita, 0))),
+    ordenes_visita: client.ordenes_visita && typeof client.ordenes_visita === "object" ? client.ordenes_visita : {},
     frecuencia_visita: String(client.frecuencia_visita || "").trim(),
     estado: status,
     status,
@@ -3709,6 +3735,9 @@ function renderActiveView(viewId = activeViewId()) {
       break;
     case "clientes":
       renderClients();
+      break;
+    case "carteras":
+      renderCommercialPortfolioDiagnostics();
       break;
     case "cuentas":
       renderAccounts();
@@ -9745,11 +9774,12 @@ async function applyClientBulkAssignment() {
   const seller = byId("clientBulkSeller").value;
   const route = byId("clientBulkRoute").value.trim();
   const zone = byId("clientBulkZone").value.trim();
-  const day = byId("clientBulkDay").value;
+  const days = Array.from(byId("clientBulkDay").selectedOptions).map((option) => option.value).filter(Boolean);
+  const status = byId("clientBulkStatus").value;
   const motive = byId("clientBulkMotive").value.trim();
   const adminPassword = byId("clientBulkPassword").value;
-  if (![seller, route, zone, day].some(Boolean)) {
-    updateClientBulkUi("Indicar vendedor, ruta, zona o dia.", "danger");
+  if (![seller, route, zone, status].some(Boolean) && !days.length) {
+    updateClientBulkUi("Indicar vendedor, ruta, zona, dias o estado.", "danger");
     return;
   }
   if (!motive || !adminPassword) {
@@ -9761,7 +9791,7 @@ async function applyClientBulkAssignment() {
   updateClientBulkUi(`Actualizando ${selectedClientIds.size} clientes...`, "info");
   try {
     const payload = await postOperationalAction("api/clients/bulk-assign", {
-      clientIds: Array.from(selectedClientIds), seller, route, zone, day, motive, admin_password: adminPassword
+      clientIds: Array.from(selectedClientIds), seller, route, zone, days, status, motive, admin_password: adminPassword
     }, { timeoutMs: 30000 });
     (payload.updated || []).forEach((updated) => {
       const index = findClientForEdit(clientIdentity(updated));
@@ -9771,8 +9801,12 @@ async function applyClientBulkAssignment() {
     const affected = Number(payload.affected || 0);
     selectedClientIds.clear();
     clientPageCache.clear();
+    portfolioDiagnosticData = null;
+    selectedPortfolioDiagnosticIds.clear();
     byId("clientBulkPassword").value = "";
     byId("clientBulkMotive").value = "";
+    Array.from(byId("clientBulkDay").options).forEach((option) => { option.selected = false; });
+    byId("clientBulkStatus").value = "";
     updateClientBulkUi(`${affected} clientes actualizados correctamente.`, "ok");
     await renderClients({ force: true });
   } catch (error) {
@@ -9923,6 +9957,426 @@ function renderClients(options = {}) {
     || Date.now() - cached.fetchedAt > CLIENTS_CACHE_TTL_MS
     || (syncVersion && Number(cached.stateVersion || 0) < Number(syncVersion));
   if (stale) window.requestAnimationFrame(() => loadClientsPage({ background: Boolean(cached) }));
+}
+
+function filteredPortfolioDiagnostics() {
+  const records = portfolioDiagnosticData && Array.isArray(portfolioDiagnosticData.records)
+    ? portfolioDiagnosticData.records
+    : [];
+  const terms = searchTerms(portfolioDiagnosticSearch);
+  return records.filter((record) => {
+    const client = record.client || {};
+    const text = [
+      record.id,
+      record.name,
+      record.seller,
+      record.route,
+      record.zone,
+      ...(record.days || []),
+      ...(record.issues || []).flatMap((issue) => [issue.code, issue.message]),
+      client.telefono,
+      client.domicilio,
+      client.localidad
+    ].filter(Boolean).join(" ");
+    if (terms.length && !matchesSearch(text, terms)) return false;
+    if (portfolioDiagnosticSeverity !== "all" && record.severity !== portfolioDiagnosticSeverity) return false;
+    if (portfolioDiagnosticIssue !== "all" && !(record.issues || []).some((issue) => issue.code === portfolioDiagnosticIssue)) return false;
+    if (portfolioSellerFilter !== "all" && record.seller !== portfolioSellerFilter) return false;
+    if (portfolioDayFilter !== "all" && !(record.days || []).includes(portfolioDayFilter)) return false;
+    if (portfolioRouteFilter !== "all" && record.route !== portfolioRouteFilter) return false;
+    if (portfolioZoneFilter !== "all" && record.zone !== portfolioZoneFilter) return false;
+    if (portfolioStatusFilter === "active" && !record.active) return false;
+    if (portfolioStatusFilter === "inactive" && record.active) return false;
+    if (portfolioGpsFilter === "with" && !record.gps) return false;
+    if (portfolioGpsFilter === "without" && record.gps) return false;
+    const hasHours = Boolean(String(client.horario_atencion || "").trim());
+    if (portfolioHoursFilter === "with" && !hasHours) return false;
+    if (portfolioHoursFilter === "without" && hasHours) return false;
+    const updatedDate = String(client.updatedAt || "").slice(0, 10);
+    if (portfolioDateFrom && (!updatedDate || updatedDate < portfolioDateFrom)) return false;
+    if (portfolioDateTo && (!updatedDate || updatedDate > portfolioDateTo)) return false;
+    return true;
+  }).sort((a, b) => {
+    const value = (record) => {
+      if (portfolioSort === "seller") return record.seller || "ZZZ";
+      if (portfolioSort === "route") return record.route || "ZZZ";
+      if (portfolioSort === "day") return (record.days || ["ZZZ"])[0];
+      if (portfolioSort === "order") {
+        const day = portfolioDayFilter !== "all" ? portfolioDayFilter : (record.days || [])[0];
+        return typeof ClientPortfolioEngine !== "undefined" ? ClientPortfolioEngine.visitOrder(record.client || {}, day, record.route) : Number.POSITIVE_INFINITY;
+      }
+      if (portfolioSort === "status") return record.active ? "0" : "1";
+      return record.name || "";
+    };
+    const left = value(a);
+    const right = value(b);
+    if (typeof left === "number" || typeof right === "number") return numeric(left, Number.MAX_SAFE_INTEGER) - numeric(right, Number.MAX_SAFE_INTEGER);
+    return String(left).localeCompare(String(right), "es", { sensitivity: "base", numeric: true });
+  });
+}
+
+function updatePortfolioFilterOptions() {
+  const records = portfolioDiagnosticData && Array.isArray(portfolioDiagnosticData.records) ? portfolioDiagnosticData.records : [];
+  portfolioSellerFilter = updateDynamicFilter("portfolioSellerFilter", records.map((record) => record.seller), portfolioSellerFilter, "Todos los vendedores");
+  portfolioDayFilter = updateDynamicFilter("portfolioDayFilter", records.flatMap((record) => record.days || []), portfolioDayFilter, "Todos los dias");
+  portfolioRouteFilter = updateDynamicFilter("portfolioRouteFilter", records.map((record) => record.route), portfolioRouteFilter, "Todas las rutas");
+  portfolioZoneFilter = updateDynamicFilter("portfolioZoneFilter", records.map((record) => record.zone), portfolioZoneFilter, "Todas las zonas");
+}
+
+function portfolioDiagnosticTone(severity) {
+  if (severity === "error") return { className: "danger", label: "Error" };
+  if (severity === "warning") return { className: "warn", label: "Revisar" };
+  return { className: "ok", label: "Correcto" };
+}
+
+function updatePortfolioDiagnosticSelection(records = currentPortfolioPageRecords) {
+  const button = byId("fixPortfolioSelection");
+  if (button) {
+    button.disabled = selectedPortfolioDiagnosticIds.size === 0;
+    button.textContent = selectedPortfolioDiagnosticIds.size
+      ? `Corregir seleccionados (${selectedPortfolioDiagnosticIds.size})`
+      : "Corregir seleccionados";
+  }
+  const visibleIds = records.map((record) => record.id).filter(Boolean);
+  const selectedVisible = visibleIds.filter((id) => selectedPortfolioDiagnosticIds.has(id)).length;
+  const selectVisible = byId("selectVisiblePortfolioDiagnostics");
+  if (selectVisible) {
+    selectVisible.checked = visibleIds.length > 0 && selectedVisible === visibleIds.length;
+    selectVisible.indeterminate = selectedVisible > 0 && selectedVisible < visibleIds.length;
+  }
+}
+
+function renderPortfolioDiagnosticSummary() {
+  const target = byId("portfolioDiagnosticSummary");
+  if (!target) return;
+  const summary = portfolioDiagnosticData && portfolioDiagnosticData.summary;
+  if (!summary) {
+    target.innerHTML = '<article class="portfolio-summary-card"><small>Control de cartera</small><strong>Cargando...</strong></article>';
+    return;
+  }
+  const cards = [
+    ["Total", summary.total, "info"],
+    ["Asignados", Math.max(0, summary.total - summary.withoutSeller), "ok"],
+    ["Sin vendedor", summary.withoutSeller, summary.withoutSeller ? "danger" : "ok"],
+    ["Sin ruta", summary.withoutRoute, summary.withoutRoute ? "warn" : "ok"],
+    ["Sin dia", summary.withoutDay, summary.withoutDay ? "warn" : "ok"],
+    ["Sin GPS", summary.withoutGps, summary.withoutGps ? "warn" : "ok"],
+    ["Inactivos", summary.inactive, summary.inactive ? "warn" : "ok"],
+    ["Inconsistencias", summary.errors + summary.warnings, summary.errors ? "danger" : summary.warnings ? "warn" : "ok"]
+  ];
+  target.innerHTML = cards.map(([label, value, tone]) => `
+    <article class="portfolio-summary-card ${tone}"><small>${escapeHtml(label)}</small><strong>${escapeHtml(String(value || 0))}</strong></article>
+  `).join("");
+}
+
+function renderCommercialPortfolioDiagnostics() {
+  if (activeViewId() !== "carteras") return;
+  renderPortfolioDiagnosticSummary();
+  const table = byId("portfolioDiagnosticTable");
+  const status = byId("portfolioDiagnosticStatus");
+  if (!portfolioDiagnosticData) {
+    if (table) table.innerHTML = '<tr><td colspan="13"><div class="clients-local-loader"><span class="clients-spinner"></span><strong>Analizando integridad de carteras...</strong></div></td></tr>';
+    loadCommercialPortfolioDiagnostics();
+    return;
+  }
+  updatePortfolioFilterOptions();
+  const records = filteredPortfolioDiagnostics();
+  const totalPages = Math.max(1, Math.ceil(records.length / PORTFOLIO_PAGE_SIZE));
+  portfolioPage = Math.min(Math.max(1, portfolioPage), totalPages);
+  const pageStart = (portfolioPage - 1) * PORTFOLIO_PAGE_SIZE;
+  currentPortfolioPageRecords = records.slice(pageStart, pageStart + PORTFOLIO_PAGE_SIZE);
+  if (table) table.innerHTML = currentPortfolioPageRecords.length ? currentPortfolioPageRecords.map((record) => {
+    const tone = portfolioDiagnosticTone(record.severity);
+    const client = record.client || {};
+    const issues = (record.issues || []).map((issue) => `<span class="portfolio-issue ${issue.severity}">${escapeHtml(issue.message)}</span>`).join("");
+    return `<tr>
+      <td><input type="checkbox" data-portfolio-diagnostic-select="${escapeHtml(record.id)}" ${selectedPortfolioDiagnosticIds.has(record.id) ? "checked" : ""}></td>
+      <td><span class="tag ${tone.className}">${tone.label}</span></td>
+      <td><strong>${escapeHtml(record.id || "Sin codigo")}</strong><small>${escapeHtml(record.name)}</small></td>
+      <td><strong>${escapeHtml(record.seller || "Sin vendedor")}</strong><small>${record.active ? "Cliente activo" : "Cliente inactivo"}</small></td>
+      <td><strong>${escapeHtml(client.domicilio || "Sin direccion")}</strong><small>${escapeHtml(client.localidad || "Sin localidad")} - ${escapeHtml(client.telefono || "Sin telefono")}</small></td>
+      <td>${escapeHtml(record.zone || "Sin zona")}</td>
+      <td>${escapeHtml(record.route || "Sin ruta")}</td>
+      <td><strong>${escapeHtml((record.days || []).join(" / ") || "Sin dia")}</strong><small>${escapeHtml((record.days || []).map((day) => {
+        const order = typeof ClientPortfolioEngine !== "undefined" ? ClientPortfolioEngine.visitOrder(client, day, record.route) : Number.POSITIVE_INFINITY;
+        return Number.isFinite(order) ? `${day.slice(0, 3).toUpperCase()} ${order}` : "";
+      }).filter(Boolean).join(" / ") || "Sin orden")}</small></td>
+      <td>${escapeHtml(client.horario_atencion || "Sin horario")}</td>
+      <td><span class="tag ${record.gps ? "ok" : "warn"}">${record.gps ? "Cargado" : "Pendiente"}</span></td>
+      <td><span class="tag ${record.active ? "ok" : "warn"}">${record.active ? "Activo" : "Inactivo"}</span><small>Saldo ${money.format(client.account && client.account.currentBalance || 0)}</small></td>
+      <td><div class="portfolio-issues">${issues || '<span class="portfolio-issue ok">Sin inconsistencias</span>'}</div></td>
+      <td><button class="mini-btn" type="button" data-client-edit="${escapeHtml(record.id)}">Editar</button>${record.gps ? `<a class="mini-btn" target="_blank" rel="noopener" href="https://www.google.com/maps?q=${encodeURIComponent(`${client.latitud},${client.longitud}`)}">Maps</a>` : ""}</td>
+    </tr>`;
+  }).join("") : '<tr><td colspan="13" class="stock-empty">No existen clientes para los filtros seleccionados.</td></tr>';
+  if (status) status.innerHTML = `<span>Mostrando ${pageStart + 1}-${Math.min(pageStart + currentPortfolioPageRecords.length, records.length)} de ${records.length} filtrados (${portfolioDiagnosticData.summary.total} totales). Diagnostico generado ${escapeHtml(formatOrderTime(portfolioDiagnosticData.generatedAt))}.</span><span class="pager-controls"><button class="mini-btn" type="button" data-portfolio-page="${portfolioPage - 1}" ${portfolioPage <= 1 ? "disabled" : ""}>Anterior</button><strong>Pagina ${portfolioPage} de ${totalPages}</strong><button class="mini-btn" type="button" data-portfolio-page="${portfolioPage + 1}" ${portfolioPage >= totalPages ? "disabled" : ""}>Siguiente</button></span>`;
+  updatePortfolioDiagnosticSelection(currentPortfolioPageRecords);
+  renderCommercialRouteSheet();
+}
+
+async function loadCommercialPortfolioDiagnostics(options = {}) {
+  if (!isAdminUser()) return;
+  const table = byId("portfolioDiagnosticTable");
+  const status = byId("portfolioDiagnosticStatus");
+  if (options.force) portfolioDiagnosticData = null;
+  if (table && !portfolioDiagnosticData) table.innerHTML = '<tr><td colspan="13"><div class="clients-local-loader"><span class="clients-spinner"></span><strong>Analizando integridad de carteras...</strong></div></td></tr>';
+  try {
+    const response = await fetchWithTimeout(apiUrl("api/commercial-portfolios/diagnostics"), { cache: "no-store" }, 15000);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) throw new Error(payload.error || `HTTP ${response.status}`);
+    portfolioDiagnosticData = payload;
+    selectedPortfolioDiagnosticIds.forEach((id) => {
+      if (!(payload.records || []).some((record) => record.id === id)) selectedPortfolioDiagnosticIds.delete(id);
+    });
+    renderCommercialPortfolioDiagnostics();
+  } catch (error) {
+    if (table) table.innerHTML = `<tr><td colspan="13" class="stock-empty"><strong>No se pudo ejecutar el Control de Cartera.</strong><small>${escapeHtml(error.message || "Error de conexion")}</small></td></tr>`;
+    if (status) status.textContent = "La base no fue modificada. Reintentar cuando el servidor responda.";
+  }
+}
+
+function movePortfolioSelectionToClientAssignment() {
+  if (!selectedPortfolioDiagnosticIds.size) return;
+  selectedClientIds.clear();
+  selectedPortfolioDiagnosticIds.forEach((id) => selectedClientIds.add(id));
+  clientSearchTerm = "";
+  clientStatusFilter = "all";
+  clientSellerFilter = "all";
+  clientZoneFilter = "all";
+  clientAccountFilter = "all";
+  clientPage = 1;
+  switchView("clientes");
+  updateClientBulkUi("Completar la correccion, motivo y clave administrativa.", "info");
+}
+
+function commercialPortfolioExportRows() {
+  return filteredPortfolioDiagnostics().map((record) => {
+    const client = record.client || {};
+    return [
+      record.id,
+      record.name,
+      client.razon_social || "",
+      client.cuit || "",
+      client.telefono || "",
+      client.domicilio || "",
+      client.localidad || "",
+      record.zone,
+      record.route,
+      record.seller,
+      (record.days || []).join(" / "),
+      (record.days || []).map((day) => {
+        const order = ClientPortfolioEngine.visitOrder(client, day, record.route);
+        return Number.isFinite(order) ? `${day}:${order}` : "";
+      }).filter(Boolean).join(" / "),
+      client.horario_atencion || "",
+      client.latitud ?? "",
+      client.longitud ?? "",
+      record.gps ? "GPS cargado" : "Sin GPS",
+      record.active ? "Activo" : "Inactivo",
+      numeric(client.account && client.account.currentBalance, 0)
+    ];
+  });
+}
+
+const COMMERCIAL_PORTFOLIO_HEADERS = ["Codigo", "Cliente", "Razon social", "CUIT", "Telefono", "Direccion", "Localidad", "Zona", "Ruta comercial", "Vendedor titular", "Dias de visita", "Orden por dia", "Horario", "Latitud", "Longitud", "Estado GPS", "Estado cliente", "Saldo"];
+
+function printableTableDocument(title, headers, rows, subtitle) {
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>@page{size:A4 landscape;margin:10mm}body{font-family:Arial,sans-serif;color:#111;font-size:10px}h1{font-size:18px;margin:0 0 4px}p{margin:0 0 12px;color:#555}table{width:100%;border-collapse:collapse}th,td{padding:5px;border:1px solid #bbb;text-align:left;vertical-align:top}th{background:#eee;font-size:9px}footer{margin-top:12px;font-size:8px;color:#666}</style></head><body><h1>${escapeHtml(title)}</h1><p>${escapeHtml(subtitle || "")}</p><table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((value) => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`).join("")}</tbody></table><footer>Documento generado por ${escapeHtml(DEVELOPER_BRAND.name)} - Version ${escapeHtml(APP_VERSION)}</footer><script>window.onload=function(){window.focus();window.print();};<\/script></body></html>`;
+}
+
+function openPrintableReport(title, headers, rows, subtitle) {
+  const popup = window.open("", "_blank", "noopener,noreferrer");
+  if (!popup) throw new Error("El navegador bloqueo la ventana de impresion.");
+  popup.document.open();
+  popup.document.write(printableTableDocument(title, headers, rows, subtitle));
+  popup.document.close();
+}
+
+async function exportCommercialPortfolio(format) {
+  if (!isAdminUser()) return;
+  const rows = commercialPortfolioExportRows();
+  const stamp = reportDateStamp();
+  if (format === "xlsx") {
+    await downloadXlsxReport({ fileName: `cartera-comercial-${stamp}.xlsx`, sheetName: "Cartera comercial", headers: COMMERCIAL_PORTFOLIO_HEADERS, rows });
+    return;
+  }
+  if (format === "csv") {
+    const csv = [COMMERCIAL_PORTFOLIO_HEADERS, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
+    downloadBlob(`cartera-comercial-${stamp}.csv`, new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }));
+    return;
+  }
+  const context = `Filtros activos - vendedor ${portfolioSellerFilter}, dia ${portfolioDayFilter}, ruta ${portfolioRouteFilter}, zona ${portfolioZoneFilter}. Total ${rows.length}.`;
+  if (format === "print") {
+    openPrintableReport("CARTERA COMERCIAL", COMMERCIAL_PORTFOLIO_HEADERS, rows, context);
+    return;
+  }
+  const lines = [context, "", COMMERCIAL_PORTFOLIO_HEADERS.join(" | "), ...rows.map((row) => row.join(" | "))];
+  downloadBlob(`cartera-comercial-${stamp}.pdf`, makeSimplePdf("Distribuidora Lopez - Cartera Comercial", lines));
+}
+
+function commercialRouteDay(dateValue) {
+  if (!dateValue) return "";
+  const names = ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"];
+  const date = new Date(`${dateValue}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? "" : names[date.getDay()];
+}
+
+function commercialRouteStatus(record, dateValue, seller) {
+  const clientKey = normalizeSearchText(record.name);
+  const sellerKey = normalizeSearchText(seller);
+  const sold = (state.orders || []).some((order) => localDateInputValue(order.createdAt || order.receivedAt) === dateValue
+    && normalizeSearchText(order.client) === clientKey && normalizeSearchText(order.seller) === sellerKey);
+  if (sold) return "Vendido";
+  const noPurchase = (state.noPurchaseVisits || []).some((visit) => localDateInputValue(visit.at || visit.date) === dateValue
+    && normalizeSearchText(visit.client) === clientKey && normalizeSearchText(visit.seller || visit.user) === sellerKey);
+  return noPurchase ? "Visitado sin compra" : "Pendiente";
+}
+
+function commercialRouteRows() {
+  const seller = byId("commercialRouteSeller").value;
+  const dateValue = byId("commercialRouteDate").value;
+  const day = commercialRouteDay(dateValue);
+  const route = byId("commercialRouteRoute").value;
+  const zone = byId("commercialRouteZone").value;
+  if (!seller || !day || !portfolioDiagnosticData) return [];
+  return portfolioDiagnosticData.records.filter((record) => record.active
+    && record.seller === seller
+    && (record.days || []).includes(day)
+    && (route === "all" || record.route === route)
+    && (zone === "all" || record.zone === zone))
+    .map((record) => ({
+      ...record,
+      journeyStatus: commercialRouteStatus(record, dateValue, seller),
+      visitOrder: ClientPortfolioEngine.visitOrder(record.client || {}, day, record.route)
+    }))
+    .sort((a, b) => {
+      if (Number.isFinite(a.visitOrder) && !Number.isFinite(b.visitOrder)) return -1;
+      if (!Number.isFinite(a.visitOrder) && Number.isFinite(b.visitOrder)) return 1;
+      if (Number.isFinite(a.visitOrder) && Number.isFinite(b.visitOrder) && a.visitOrder !== b.visitOrder) return a.visitOrder - b.visitOrder;
+      return a.name.localeCompare(b.name, "es", { sensitivity: "base" });
+    });
+}
+
+function renderCommercialRouteSheet() {
+  if (!portfolioDiagnosticData) return;
+  const records = portfolioDiagnosticData.records || [];
+  const sellerSelect = byId("commercialRouteSeller");
+  const routeSelect = byId("commercialRouteRoute");
+  const zoneSelect = byId("commercialRouteZone");
+  const dateInput = byId("commercialRouteDate");
+  if (!dateInput.value) dateInput.value = reportDateStamp();
+  const sellerValue = sellerSelect.value;
+  const routeValue = routeSelect.value || "all";
+  const zoneValue = zoneSelect.value || "all";
+  sellerSelect.innerHTML = '<option value="">Seleccionar vendedor</option>' + Array.from(new Set(records.map((record) => record.seller).filter(Boolean))).sort().map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
+  routeSelect.innerHTML = '<option value="all">Todas las rutas comerciales</option>' + Array.from(new Set(records.map((record) => record.route).filter(Boolean))).sort().map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
+  zoneSelect.innerHTML = '<option value="all">Todas las zonas</option>' + Array.from(new Set(records.map((record) => record.zone).filter(Boolean))).sort().map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
+  sellerSelect.value = Array.from(sellerSelect.options).some((option) => option.value === sellerValue) ? sellerValue : "";
+  routeSelect.value = Array.from(routeSelect.options).some((option) => option.value === routeValue) ? routeValue : "all";
+  zoneSelect.value = Array.from(zoneSelect.options).some((option) => option.value === zoneValue) ? zoneValue : "all";
+  const rows = commercialRouteRows();
+  const sold = rows.filter((record) => record.journeyStatus === "Vendido").length;
+  const withoutPurchase = rows.filter((record) => record.journeyStatus === "Visitado sin compra").length;
+  const visited = sold + withoutPurchase;
+  const cards = [["Programados", rows.length], ["Visitados", visited], ["Vendidos", sold], ["Sin compra", withoutPurchase], ["Pendientes", Math.max(0, rows.length - visited)], ["Efectividad", visited ? `${Math.round(sold / visited * 100)}%` : "0%"]];
+  byId("commercialRouteSummary").innerHTML = cards.map(([label, value]) => `<article class="portfolio-summary-card info"><small>${label}</small><strong>${value}</strong></article>`).join("");
+  byId("commercialRouteTable").innerHTML = rows.length ? rows.map((record, index) => {
+    const client = record.client || {};
+    const order = Number.isFinite(record.visitOrder) ? record.visitOrder : index + 1;
+    const maps = record.gps ? `https://www.google.com/maps?q=${encodeURIComponent(`${client.latitud},${client.longitud}`)}` : "";
+    return `<tr><td><strong>${order}</strong></td><td>${escapeHtml(record.id)}</td><td><strong>${escapeHtml(record.name)}</strong></td><td>${escapeHtml(client.domicilio || "Sin direccion")}</td><td>${escapeHtml(client.horario_atencion || "Sin horario")}</td><td>${escapeHtml(client.telefono || "Sin telefono")}</td><td><span class="tag ${record.journeyStatus === "Vendido" ? "ok" : record.journeyStatus === "Visitado sin compra" ? "warn" : "info"}">${escapeHtml(record.journeyStatus)}</span></td><td>${maps ? `<a class="mini-btn" target="_blank" rel="noopener" href="${maps}">Abrir en Maps</a>` : "Sin GPS"}</td></tr>`;
+  }).join("") : '<tr><td colspan="8" class="stock-empty">Seleccionar vendedor y fecha, o no existen clientes programados para esos filtros.</td></tr>';
+}
+
+async function exportCommercialRoute(format) {
+  const records = commercialRouteRows();
+  const seller = byId("commercialRouteSeller").value;
+  const dateValue = byId("commercialRouteDate").value;
+  if (!seller) throw new Error("Seleccionar vendedor para generar la hoja comercial.");
+  const headers = ["Orden", "Codigo", "Cliente", "Direccion", "Horario", "Telefono", "Estado", "Latitud", "Longitud"];
+  const rows = records.map((record, index) => {
+    const client = record.client || {};
+    return [Number.isFinite(record.visitOrder) ? record.visitOrder : index + 1, record.id, record.name, client.domicilio || "", client.horario_atencion || "", client.telefono || "", record.journeyStatus, client.latitud ?? "", client.longitud ?? ""];
+  });
+  const filePart = `${safeFilePart(seller)}-${dateValue || reportDateStamp()}`;
+  if (format === "xlsx") return downloadXlsxReport({ fileName: `hoja-ruta-comercial-${filePart}.xlsx`, sheetName: "Ruta comercial", headers, rows });
+  const subtitle = `Vendedor: ${seller}. Fecha: ${dateValue}. Dia: ${commercialRouteDay(dateValue)}. Clientes programados: ${rows.length}.`;
+  if (format === "print") return openPrintableReport("HOJA DE RUTA COMERCIAL DIARIA", headers, rows, subtitle);
+  downloadBlob(`hoja-ruta-comercial-${filePart}.pdf`, makeSimplePdf("Distribuidora Lopez - Hoja de Ruta Comercial", [subtitle, "", headers.join(" | "), ...rows.map((row) => row.join(" | "))]));
+}
+
+function setClientPortfolioImportMessage(message, tone = "info") {
+  const node = byId("clientPortfolioImportMessage");
+  node.textContent = message || "";
+  node.className = `login-message ${tone === "ok" ? "success" : tone === "info" ? "info" : ""}`;
+}
+
+async function downloadClientPortfolioTemplate() {
+  const response = await fetchWithTimeout(apiUrl("api/client-portfolio/template"), { cache: "no-store" }, 30000);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || "No se pudo descargar la cartera homologada.");
+  const bytes = Uint8Array.from(atob(payload.base64), (char) => char.charCodeAt(0));
+  downloadBlob(payload.fileName, new Blob([bytes], { type: payload.mimeType }));
+}
+
+function openClientPortfolioImportDialog() {
+  clientPortfolioImportPreview = null;
+  byId("clientPortfolioImportForm").reset();
+  byId("clientPortfolioPreviewSummary").innerHTML = "";
+  byId("clientPortfolioPreviewTable").innerHTML = "";
+  byId("clientPortfolioPreviewWrap").hidden = true;
+  byId("clientPortfolioApplyBtn").disabled = true;
+  setClientPortfolioImportMessage("Seleccionar el XLSX descargado desde este modulo y validar.");
+  byId("clientPortfolioImportDialog").showModal();
+}
+
+function renderClientPortfolioImportPreview(preview) {
+  clientPortfolioImportPreview = preview;
+  const summary = preview.summary || {};
+  byId("clientPortfolioPreviewSummary").innerHTML = [["Filas", summary.total || 0], ["Actualizar", summary.updates || 0], ["Sin cambios", summary.unchanged || 0], ["Errores", summary.errors || 0]].map(([label, value]) => `<article><span>${label}</span><strong>${value}</strong></article>`).join("");
+  byId("clientPortfolioPreviewTable").innerHTML = (preview.rows || []).map((row) => `<tr class="${row.errors && row.errors.length ? "portfolio-row-error" : ""}"><td>${row.row}</td><td><strong>${escapeHtml(row.key)}</strong><small>${escapeHtml(row.clientName || row.incoming.name || "No encontrado")}</small></td><td><span class="tag ${row.action === "ERROR" ? "danger" : row.action === "ACTUALIZAR" ? "warn" : "ok"}">${escapeHtml(row.action)}</span></td><td><small>${escapeHtml(row.errors && row.errors.length ? row.errors.join(" ") : (row.changes || []).map((change) => `${change.field}: ${Array.isArray(change.before) ? change.before.join("/") : change.before || "-"} -> ${Array.isArray(change.after) ? change.after.join("/") : change.after || "-"}`).join(" | ") || "Sin diferencias")}</small></td></tr>`).join("");
+  byId("clientPortfolioPreviewWrap").hidden = false;
+  byId("clientPortfolioApplyBtn").disabled = Boolean(summary.errors);
+  setClientPortfolioImportMessage(summary.errors ? "Corregir los errores del archivo antes de aplicar." : "Vista previa lista. Ningun cambio fue aplicado todavia.", summary.errors ? "danger" : "ok");
+}
+
+async function previewClientPortfolioFile() {
+  const file = byId("clientPortfolioImportFile").files[0];
+  if (!file || !/\.xlsx$/i.test(file.name || "")) throw new Error("Seleccionar un archivo XLSX homologado.");
+  const button = byId("clientPortfolioPreviewBtn");
+  button.disabled = true;
+  try {
+    setClientPortfolioImportMessage("Validando IDs y diferencias...", "info");
+    const fileDataUrl = await fileToRawDataUrl(file, 14 * 1024 * 1024);
+    const response = await fetchWithTimeout(apiUrl("api/client-portfolio/preview"), { method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", body: JSON.stringify({ fileName: file.name, fileDataUrl }) }, 30000);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "No se pudo validar la cartera.");
+    renderClientPortfolioImportPreview(payload.preview);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function applyClientPortfolioPreview(event) {
+  event.preventDefault();
+  if (!clientPortfolioImportPreview) return setClientPortfolioImportMessage("Primero validar el archivo.", "danger");
+  const motive = byId("clientPortfolioImportMotive").value.trim();
+  const password = byId("clientPortfolioImportPassword").value;
+  if (!motive || !password || !byId("clientPortfolioImportConfirmed").checked) return setClientPortfolioImportMessage("Completar motivo, clave y confirmacion.", "danger");
+  const button = byId("clientPortfolioApplyBtn");
+  button.disabled = true;
+  try {
+    const payload = await postOperationalAction("api/client-portfolio/apply", { token: clientPortfolioImportPreview.token, motive, admin_password: password, confirmed: true }, { timeoutMs: 30000 });
+    clientPageCache.clear();
+    portfolioDiagnosticData = null;
+    clientPortfolioImportPreview = null;
+    byId("clientPortfolioImportDialog").close("default");
+    showCompactNotice(`${payload.record && payload.record.updated || 0} clientes actualizados. Backup generado.`, "ok");
+    await loadCommercialPortfolioDiagnostics({ force: true });
+  } catch (error) {
+    setClientPortfolioImportMessage(error.message || "No se pudo aplicar la cartera.", "danger");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function renderAccounts() {
@@ -15522,6 +15976,34 @@ function setFormValue(form, name, value) {
   field.value = value ?? "";
 }
 
+function setClientVisitDaysForm(form, client) {
+  const days = typeof ClientPortfolioEngine !== "undefined" ? ClientPortfolioEngine.visitDays(client) : [];
+  form.querySelectorAll('input[name="dias_visita"]').forEach((checkbox) => {
+    checkbox.checked = days.includes(checkbox.value);
+    const orderField = form.elements[`orden_${checkbox.value}`];
+    if (orderField) {
+      const route = client.ruta || client.route || client.zona || client.zone || "";
+      const order = typeof ClientPortfolioEngine !== "undefined"
+        ? ClientPortfolioEngine.visitOrder(client, checkbox.value, route)
+        : Number.POSITIVE_INFINITY;
+      orderField.value = Number.isFinite(order) ? order : "";
+    }
+  });
+}
+
+function clientVisitPlanPayload(form) {
+  const days = form.getAll("dias_visita").map((value) => String(value || "").trim()).filter(Boolean);
+  const route = String(form.get("ruta") || form.get("zona") || "").trim();
+  const orders = {};
+  days.forEach((day) => {
+    const order = Math.max(0, Math.floor(numeric(form.get(`orden_${day}`), 0)));
+    if (order > 0 && typeof ClientPortfolioEngine !== "undefined") {
+      orders[ClientPortfolioEngine.visitOrderKey(route, day)] = order;
+    }
+  });
+  return { days, orders };
+}
+
 function openNewClientDialog() {
   populateSellerOptions("clientSellerSelect");
   const form = byId("clientForm");
@@ -15560,7 +16042,7 @@ function openClientEditDialog(id) {
   setFormValue(form, "dias_credito", client.dias_credito);
   setFormValue(form, "limite_credito", client.limit);
   setFormValue(form, "saldo_inicial", client.balance);
-  setFormValue(form, "dia_visita", client.dia_visita);
+  setClientVisitDaysForm(form, client);
   setFormValue(form, "frecuencia_visita", client.frecuencia_visita);
   setFormValue(form, "estado", client.status);
   setFormValue(form, "observaciones", client.observaciones);
@@ -15569,6 +16051,7 @@ function openClientEditDialog(id) {
 }
 
 function clientFormPayload(form) {
+  const visitPlan = clientVisitPlanPayload(form);
   return {
     codigo_cliente: String(form.get("codigo_cliente") || "").trim(),
     nombre_comercial: String(form.get("nombre_comercial") || "").trim(),
@@ -15591,7 +16074,9 @@ function clientFormPayload(form) {
     dias_credito: Math.max(0, Number(form.get("dias_credito") || 0)),
     limite_credito: Math.max(0, Number(form.get("limite_credito") || 0)),
     saldo_inicial: Math.max(0, Number(form.get("saldo_inicial") || 0)),
-    dia_visita: String(form.get("dia_visita") || "").trim(),
+    dia_visita: visitPlan.days.join(" / "),
+    dias_visita: visitPlan.days,
+    ordenes_visita: visitPlan.orders,
     frecuencia_visita: String(form.get("frecuencia_visita") || "").trim(),
     estado: String(form.get("estado") || "Activo"),
     observaciones: String(form.get("observaciones") || "").trim(),
@@ -15619,6 +16104,8 @@ async function submitClientEdit(formElement, formData) {
   payload.admin_password = adminPassword;
   try {
     await postOperationalAction(`api/clients/${encodeURIComponent(clientEditTargetId)}/edit`, payload);
+    clientPageCache.clear();
+    portfolioDiagnosticData = null;
     clientEditTargetId = "";
     formElement.reset();
     byId("clientDialog").close("default");
@@ -15641,6 +16128,7 @@ function addClientFromForm(form) {
     window.alert("Ese nombre comercial ya existe.");
     return false;
   }
+  const visitPlan = clientVisitPlanPayload(form);
   const client = normalizeClientRecord({
     codigo_cliente: code,
     nombre_comercial: name,
@@ -15660,7 +16148,9 @@ function addClientFromForm(form) {
     zona: String(form.get("zona") || "Sin zona").trim() || "Sin zona",
     ruta: String(form.get("ruta") || "").trim(),
     vendedor_asignado: String(form.get("vendedor_asignado") || ""),
-    dia_visita: String(form.get("dia_visita") || "").trim(),
+    dia_visita: visitPlan.days.join(" / "),
+    dias_visita: visitPlan.days,
+    ordenes_visita: visitPlan.orders,
     frecuencia_visita: String(form.get("frecuencia_visita") || "").trim(),
     estado: String(form.get("estado") || "Activo"),
     horario_atencion: String(form.get("horario_atencion") || "").trim(),
@@ -17243,6 +17733,130 @@ byId("clearClientBulkSelection").addEventListener("click", () => {
   updateClientBulkUi();
 });
 byId("applyClientBulkAssignment").addEventListener("click", applyClientBulkAssignment);
+byId("portfolioDiagnosticSearch").addEventListener("input", (event) => {
+  portfolioDiagnosticSearch = event.target.value;
+  portfolioPage = 1;
+  renderCommercialPortfolioDiagnostics();
+});
+byId("portfolioDiagnosticSeverity").addEventListener("change", (event) => {
+  portfolioDiagnosticSeverity = event.target.value;
+  portfolioPage = 1;
+  renderCommercialPortfolioDiagnostics();
+});
+byId("portfolioDiagnosticIssue").addEventListener("change", (event) => {
+  portfolioDiagnosticIssue = event.target.value;
+  portfolioPage = 1;
+  renderCommercialPortfolioDiagnostics();
+});
+["portfolioSellerFilter", "portfolioDayFilter", "portfolioRouteFilter", "portfolioZoneFilter", "portfolioStatusFilter", "portfolioGpsFilter", "portfolioHoursFilter", "portfolioSort"].forEach((id) => {
+  byId(id).addEventListener("change", (event) => {
+    if (id === "portfolioSellerFilter") portfolioSellerFilter = event.target.value;
+    if (id === "portfolioDayFilter") portfolioDayFilter = event.target.value;
+    if (id === "portfolioRouteFilter") portfolioRouteFilter = event.target.value;
+    if (id === "portfolioZoneFilter") portfolioZoneFilter = event.target.value;
+    if (id === "portfolioStatusFilter") portfolioStatusFilter = event.target.value;
+    if (id === "portfolioGpsFilter") portfolioGpsFilter = event.target.value;
+    if (id === "portfolioHoursFilter") portfolioHoursFilter = event.target.value;
+    if (id === "portfolioSort") portfolioSort = event.target.value;
+    portfolioPage = 1;
+    renderCommercialPortfolioDiagnostics();
+  });
+});
+byId("portfolioDateFrom").addEventListener("change", (event) => {
+  portfolioDateFrom = event.target.value;
+  portfolioPage = 1;
+  renderCommercialPortfolioDiagnostics();
+});
+byId("portfolioDateTo").addEventListener("change", (event) => {
+  portfolioDateTo = event.target.value;
+  portfolioPage = 1;
+  renderCommercialPortfolioDiagnostics();
+});
+byId("clearPortfolioDiagnosticFilters").addEventListener("click", () => {
+  portfolioDiagnosticSearch = "";
+  portfolioDiagnosticSeverity = "all";
+  portfolioDiagnosticIssue = "all";
+  portfolioSellerFilter = "all";
+  portfolioDayFilter = "all";
+  portfolioRouteFilter = "all";
+  portfolioZoneFilter = "all";
+  portfolioStatusFilter = "all";
+  portfolioGpsFilter = "all";
+  portfolioHoursFilter = "all";
+  portfolioDateFrom = "";
+  portfolioDateTo = "";
+  portfolioSort = "client";
+  portfolioPage = 1;
+  byId("portfolioDiagnosticSearch").value = "";
+  byId("portfolioDiagnosticSeverity").value = "all";
+  byId("portfolioDiagnosticIssue").value = "all";
+  ["portfolioSellerFilter", "portfolioDayFilter", "portfolioRouteFilter", "portfolioZoneFilter", "portfolioStatusFilter", "portfolioGpsFilter", "portfolioHoursFilter"].forEach((id) => { byId(id).value = "all"; });
+  byId("portfolioDateFrom").value = "";
+  byId("portfolioDateTo").value = "";
+  byId("portfolioSort").value = "client";
+  renderCommercialPortfolioDiagnostics();
+});
+byId("refreshPortfolioDiagnostics").addEventListener("click", () => loadCommercialPortfolioDiagnostics({ force: true }));
+byId("downloadClientPortfolioTemplate").addEventListener("click", async (event) => {
+  event.currentTarget.disabled = true;
+  try { await downloadClientPortfolioTemplate(); }
+  catch (error) { window.alert(error.message || "No se pudo descargar la cartera."); }
+  finally { event.currentTarget.disabled = false; }
+});
+byId("openClientPortfolioImport").addEventListener("click", openClientPortfolioImportDialog);
+byId("clientPortfolioPreviewBtn").addEventListener("click", async () => {
+  try { await previewClientPortfolioFile(); }
+  catch (error) { setClientPortfolioImportMessage(error.message || "No se pudo validar la cartera.", "danger"); }
+});
+byId("clientPortfolioImportForm").addEventListener("submit", applyClientPortfolioPreview);
+byId("fixPortfolioSelection").addEventListener("click", movePortfolioSelectionToClientAssignment);
+byId("portfolioDiagnosticTable").addEventListener("change", (event) => {
+  const checkbox = event.target.closest("[data-portfolio-diagnostic-select]");
+  if (!checkbox) return;
+  if (checkbox.checked) selectedPortfolioDiagnosticIds.add(checkbox.dataset.portfolioDiagnosticSelect);
+  else selectedPortfolioDiagnosticIds.delete(checkbox.dataset.portfolioDiagnosticSelect);
+  updatePortfolioDiagnosticSelection();
+});
+byId("selectVisiblePortfolioDiagnostics").addEventListener("change", (event) => {
+  currentPortfolioPageRecords.forEach((record) => {
+    if (event.target.checked) selectedPortfolioDiagnosticIds.add(record.id);
+    else selectedPortfolioDiagnosticIds.delete(record.id);
+  });
+  renderCommercialPortfolioDiagnostics();
+});
+byId("portfolioDiagnosticStatus").addEventListener("click", (event) => {
+  const pageButton = event.target.closest("[data-portfolio-page]");
+  if (!pageButton || pageButton.disabled) return;
+  portfolioPage = Math.max(1, Number(pageButton.dataset.portfolioPage || 1));
+  renderCommercialPortfolioDiagnostics();
+});
+document.querySelectorAll("[data-portfolio-export]").forEach((button) => {
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      await exportCommercialPortfolio(button.dataset.portfolioExport);
+    } catch (error) {
+      window.alert(error.message || "No se pudo exportar la cartera.");
+    } finally {
+      button.disabled = false;
+    }
+  });
+});
+["commercialRouteSeller", "commercialRouteDate", "commercialRouteRoute", "commercialRouteZone"].forEach((id) => {
+  byId(id).addEventListener("change", renderCommercialRouteSheet);
+});
+document.querySelectorAll("[data-commercial-route-export]").forEach((button) => {
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      await exportCommercialRoute(button.dataset.commercialRouteExport);
+    } catch (error) {
+      window.alert(error.message || "No se pudo generar la hoja comercial.");
+    } finally {
+      button.disabled = false;
+    }
+  });
+});
 byId("accountsSearch").addEventListener("input", (event) => {
   accountSearchTerm = event.target.value;
   debouncedRenderAccounts();

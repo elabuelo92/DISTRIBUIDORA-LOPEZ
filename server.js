@@ -13,12 +13,13 @@ const eventEngine = require("./event-engine");
 const erpnextEngine = require("./erpnext-engine");
 const licenseEngine = require("./license-engine");
 const legalEngine = require("./legal-engine");
+const clientPortfolioEngine = require("./client-portfolio-engine");
 
 const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-117";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-118";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -47,6 +48,7 @@ const sessions = new Map();
 const recentPresenceHistory = [];
 const recentGpsAlerts = new Map();
 const productPortfolioPreviews = new Map();
+const clientPortfolioPreviews = new Map();
 const securityEngine = licenseEngine.createEngine({
   root: ROOT,
   dataDir: DATA_DIR,
@@ -2633,7 +2635,11 @@ function clientListRecord(state, client, supplierKeys) {
     condicion_comercial: client.condicion_comercial || "",
     forma_pago: client.forma_pago || client.paymentMethod || "",
     dia_visita: client.dia_visita || "",
+    dias_visita: clientPortfolioEngine.visitDays(client),
+    orden_visita: Math.max(0, numeric(client.orden_visita, 0)),
+    ordenes_visita: client.ordenes_visita && typeof client.ordenes_visita === "object" ? client.ordenes_visita : {},
     frecuencia_visita: client.frecuencia_visita || "",
+    updatedAt: client.updatedAt || client.createdAt || "",
     account: account && account.ok ? {
       currentBalance: account.currentBalance,
       creditLimit: account.creditLimit,
@@ -2785,6 +2791,23 @@ function clientSensitiveSnapshot(client) {
   };
 }
 
+function normalizedClientVisitDays(input, fallbackClient) {
+  const hasDays = Object.prototype.hasOwnProperty.call(input || {}, "dias_visita")
+    || Object.prototype.hasOwnProperty.call(input || {}, "visitDays")
+    || Object.prototype.hasOwnProperty.call(input || {}, "dia_visita")
+    || Object.prototype.hasOwnProperty.call(input || {}, "day");
+  const source = hasDays ? input : (fallbackClient || {});
+  return clientPortfolioEngine.visitDays(source);
+}
+
+function normalizedVisitOrders(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).map(([key, order]) => [
+    String(key || "").trim(),
+    Math.max(0, Math.floor(numeric(order, 0)))
+  ]).filter(([key, order]) => key && order > 0));
+}
+
 function sensitiveClientChanged(before, after) {
   return stableAuditJson(clientSensitiveSnapshot(before)) !== stableAuditJson(clientSensitiveSnapshot(after));
 }
@@ -2820,6 +2843,10 @@ function editedClientFromInput(previous, input, user) {
   const zone = String(input.zona || input.zone || previous.zona || previous.zone || "Sin zona").trim() || "Sin zona";
   const seller = String(input.vendedor_asignado || input.seller || previous.vendedor_asignado || previous.seller || "").trim();
   const balance = Math.max(0, numeric(previous.balance ?? previous.saldo_actual ?? previous.saldo_inicial, 0));
+  const visitDays = normalizedClientVisitDays(input, previous);
+  const visitOrders = Object.prototype.hasOwnProperty.call(input, "ordenes_visita")
+    ? normalizedVisitOrders(input.ordenes_visita)
+    : normalizedVisitOrders(previous.ordenes_visita);
   return {
     ...previous,
     codigo_cliente: String(input.codigo_cliente || previous.codigo_cliente || "").trim(),
@@ -2847,7 +2874,10 @@ function editedClientFromInput(previous, input, user) {
     balance,
     saldo_inicial: balance,
     saldo_actual: balance,
-    dia_visita: String(input.dia_visita || "").trim(),
+    dia_visita: visitDays.join(" / "),
+    dias_visita: visitDays,
+    orden_visita: Math.max(0, Math.floor(numeric(input.orden_visita ?? previous.orden_visita, 0))),
+    ordenes_visita: visitOrders,
     frecuencia_visita: String(input.frecuencia_visita || "").trim(),
     estado: String(input.estado || "Activo").trim() || "Activo",
     status: String(input.estado || "Activo").trim() || "Activo",
@@ -2886,6 +2916,7 @@ function mobileClientFromInput(input, user) {
   const seller = String(input.vendedor_asignado || input.seller || user && (user.sellerName || user.name) || "").trim();
   const limit = Math.max(0, numeric(input.limite_credito ?? input.limit, 0));
   const at = new Date().toISOString();
+  const visitDays = normalizedClientVisitDays(input, null);
   return {
     codigo_cliente: String(input.codigo_cliente || `MOB-${Date.now()}`).trim(),
     name,
@@ -2912,7 +2943,10 @@ function mobileClientFromInput(input, user) {
     vendedor_asignado: seller,
     seller,
     vendedor: seller,
-    dia_visita: String(input.dia_visita || "").trim(),
+    dia_visita: visitDays.join(" / "),
+    dias_visita: visitDays,
+    orden_visita: 0,
+    ordenes_visita: {},
     frecuencia_visita: String(input.frecuencia_visita || "Semanal").trim(),
     estado: String(input.estado || "Activo").trim() || "Activo",
     status: String(input.estado || "Activo").trim() || "Activo",
@@ -3526,6 +3560,172 @@ async function readPortfolioWorkbook(fileDataUrl) {
   });
   if (!rows.length) throw new Error("El Excel no contiene productos para procesar.");
   return { rows, sheetName: worksheet.name, headerRowNumber };
+}
+
+const CLIENT_PORTFOLIO_COLUMNS = ["ID_Cliente", "Cliente", "CUIT", "Telefono", "Direccion", "Localidad", "Latitud", "Longitud", "Vendedor_ID", "Vendedor", "Zona", "Ruta", "Dias_Visita", "Orden", "Horario", "Activo"];
+const CLIENT_PORTFOLIO_ALIASES = new Map(CLIENT_PORTFOLIO_COLUMNS.map((column) => [normalizedPortfolioHeader(column), column]));
+
+async function readClientPortfolioWorkbook(fileDataUrl) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(dataUrlBuffer(fileDataUrl));
+  const worksheet = workbook.worksheets.find((sheet) => sheet.actualRowCount > 0);
+  if (!worksheet) throw new Error("El Excel no contiene hojas con datos.");
+  let headerRow = 0;
+  let headerMap = new Map();
+  worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (headerRow) return;
+    const candidate = new Map();
+    row.eachCell({ includeEmpty: true }, (cell, columnNumber) => {
+      const field = CLIENT_PORTFOLIO_ALIASES.get(normalizedPortfolioHeader(portfolioCellValue(cell.value)));
+      if (field) candidate.set(columnNumber, field);
+    });
+    if ([...candidate.values()].includes("ID_Cliente") && candidate.size >= 8) {
+      headerRow = rowNumber;
+      headerMap = candidate;
+    }
+  });
+  if (!headerRow) throw new Error("No se encontro la plantilla homologada de clientes. Descargar una copia vigente desde Carteras.");
+  const rows = [];
+  worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber <= headerRow) return;
+    const record = { __row: rowNumber };
+    headerMap.forEach((field, columnNumber) => { record[field] = portfolioCellValue(row.getCell(columnNumber).value); });
+    if (String(record.ID_Cliente || "").trim()) rows.push(record);
+  });
+  if (!rows.length) throw new Error("El archivo no contiene clientes con ID_Cliente.");
+  return { rows, sheetName: worksheet.name };
+}
+
+function clientPortfolioComparable(raw) {
+  const days = clientPortfolioEngine.visitDays({ dias_visita: String(raw.Dias_Visita || "").split(/[\/,;|]+/).map((value) => value.trim()).filter(Boolean) });
+  const activeText = String(raw.Activo || "").trim().toUpperCase();
+  return {
+    id: String(raw.ID_Cliente || "").trim(),
+    name: String(raw.Cliente || "").trim(),
+    cuit: String(raw.CUIT || "").trim(),
+    phone: String(raw.Telefono || "").trim(),
+    address: String(raw.Direccion || "").trim(),
+    city: String(raw.Localidad || "").trim(),
+    latitude: String(raw.Latitud ?? "").trim(),
+    longitude: String(raw.Longitud ?? "").trim(),
+    sellerId: String(raw.Vendedor_ID || "").trim(),
+    seller: String(raw.Vendedor || "").trim(),
+    zone: String(raw.Zona || "").trim(),
+    route: String(raw.Ruta || "").trim(),
+    days,
+    order: Math.max(0, Math.floor(numeric(raw.Orden, 0))),
+    hours: String(raw.Horario || "").trim(),
+    active: activeText ? !["NO", "INACTIVO", "FALSE", "0"].includes(activeText) : null,
+    row: numeric(raw.__row, 0)
+  };
+}
+
+function previewClientPortfolio(state, rawRows, meta = {}) {
+  const clients = Array.isArray(state.clients) ? state.clients : [];
+  const byId = new Map(clients.map((client) => [normalizeSearchText(clientRecordId(client)), client]).filter(([key]) => key));
+  const seen = new Set();
+  const rows = rawRows.map((raw) => {
+    const incoming = clientPortfolioComparable(raw);
+    const key = normalizeSearchText(incoming.id);
+    const errors = [];
+    if (seen.has(key)) errors.push("ID_Cliente duplicado dentro del archivo.");
+    seen.add(key);
+    const client = byId.get(key);
+    if (!client) errors.push("ID_Cliente inexistente. No se creara automaticamente.");
+    const changes = [];
+    const compare = (field, before, after) => {
+      if (after === "" || after === null || after === undefined) return;
+      if (stableAuditJson(before) !== stableAuditJson(after)) changes.push({ field, before, after });
+    };
+    if (client) {
+      compare("Cliente", client.name || client.nombre_comercial || "", incoming.name);
+      compare("CUIT", client.cuit || "", incoming.cuit);
+      compare("Telefono", client.telefono || "", incoming.phone);
+      compare("Direccion", client.domicilio || "", incoming.address);
+      compare("Localidad", client.localidad || "", incoming.city);
+      compare("Vendedor", client.seller || client.vendedor_asignado || "", incoming.seller || incoming.sellerId);
+      compare("Zona", client.zona || client.zone || "", incoming.zone);
+      compare("Ruta", client.ruta || client.route || "", incoming.route);
+      if (incoming.days.length) compare("Dias_Visita", clientPortfolioEngine.visitDays(client), incoming.days);
+      if (incoming.order > 0) compare("Orden", Math.max(0, numeric(client.orden_visita, 0)), incoming.order);
+      compare("Horario", client.horario_atencion || "", incoming.hours);
+      if (incoming.active !== null) compare("Activo", clientPortfolioEngine.isActiveClient(client), incoming.active);
+      const hasLatitude = incoming.latitude !== "";
+      const hasLongitude = incoming.longitude !== "";
+      if (hasLatitude !== hasLongitude) errors.push("Latitud y longitud deben completarse juntas.");
+      if (hasLatitude && hasLongitude) {
+        const latitude = Number(incoming.latitude);
+        const longitude = Number(incoming.longitude);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) errors.push("Coordenadas GPS invalidas.");
+        else {
+          compare("Latitud", client.latitud ?? null, latitude);
+          compare("Longitud", client.longitud ?? null, longitude);
+        }
+      }
+    }
+    return { key: incoming.id, row: incoming.row, incoming, clientName: client && (client.name || client.nombre_comercial) || "", changes, errors, action: errors.length ? "ERROR" : changes.length ? "ACTUALIZAR" : "SIN_CAMBIOS" };
+  });
+  const preview = {
+    token: crypto.randomBytes(18).toString("hex"), createdAt: new Date().toISOString(), fileName: String(meta.fileName || "cartera-clientes.xlsx").slice(0, 180), rows,
+    summary: { total: rows.length, updates: rows.filter((row) => row.action === "ACTUALIZAR").length, unchanged: rows.filter((row) => row.action === "SIN_CAMBIOS").length, errors: rows.filter((row) => row.errors.length).length }
+  };
+  clientPortfolioPreviews.set(preview.token, preview);
+  while (clientPortfolioPreviews.size > 20) clientPortfolioPreviews.delete(clientPortfolioPreviews.keys().next().value);
+  return preview;
+}
+
+async function clientPortfolioTemplateBase64(state) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Grupo Rocha Solutions";
+  const sheet = workbook.addWorksheet("Cartera clientes");
+  sheet.addRow(CLIENT_PORTFOLIO_COLUMNS);
+  (state.clients || []).forEach((client) => {
+    const days = clientPortfolioEngine.visitDays(client);
+    const firstOrder = days.map((day) => clientPortfolioEngine.visitOrder(client, day, client.ruta || client.route)).find(Number.isFinite);
+    sheet.addRow([clientRecordId(client), client.name || client.nombre_comercial || "", client.cuit || "", client.telefono || "", client.domicilio || "", client.localidad || "", client.latitud ?? "", client.longitud ?? "", "", client.seller || client.vendedor_asignado || "", client.zona || client.zone || "", client.ruta || client.route || "", days.join(" / "), firstOrder || "", client.horario_atencion || "", clientPortfolioEngine.isActiveClient(client) ? "SI" : "NO"]);
+  });
+  sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F766E" } };
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  sheet.autoFilter = { from: "A1", to: "P1" };
+  sheet.columns.forEach((column) => { column.width = 20; });
+  return Buffer.from(await workbook.xlsx.writeBuffer()).toString("base64");
+}
+
+function applyClientPortfolioImport(state, preview, input, user) {
+  const backup = createMaintenanceBackup("importar-cartera-clientes", state);
+  const applied = [];
+  preview.rows.filter((row) => row.action === "ACTUALIZAR").forEach((row) => {
+    const index = findClientIndex(state, row.key);
+    if (index < 0) throw new Error(`El cliente ${row.key} dejo de existir. Volver a validar.`);
+    const client = state.clients[index];
+    const previous = JSON.parse(JSON.stringify(client));
+    const data = row.incoming;
+    if (data.name) { client.name = data.name; client.nombre_comercial = data.name; }
+    if (data.cuit) client.cuit = data.cuit;
+    if (data.phone) client.telefono = data.phone;
+    if (data.address) client.domicilio = data.address;
+    if (data.city) client.localidad = data.city;
+    const seller = data.seller || data.sellerId;
+    if (seller) { client.seller = seller; client.vendedor = seller; client.vendedor_asignado = seller; }
+    if (data.zone) { client.zona = data.zone; client.zone = data.zone; }
+    if (data.route) { client.ruta = data.route; client.route = data.route; }
+    if (data.days.length) { client.dias_visita = data.days; client.dia_visita = data.days.join(" / "); }
+    if (data.order > 0) {
+      client.orden_visita = data.order;
+      client.ordenes_visita = normalizedVisitOrders(client.ordenes_visita);
+      data.days.forEach((day) => { client.ordenes_visita[clientPortfolioEngine.visitOrderKey(client.ruta || client.route, day)] = data.order; });
+    }
+    if (data.hours) client.horario_atencion = data.hours;
+    if (data.latitude !== "" && data.longitude !== "") { client.latitud = Number(data.latitude); client.longitud = Number(data.longitude); }
+    if (data.active !== null) { client.estado = data.active ? "Activo" : "Inactivo"; client.status = client.estado; client.activo = data.active; }
+    client.updatedAt = new Date().toISOString();
+    applied.push({ id: row.key, name: client.name, previous, next: JSON.parse(JSON.stringify(client)) });
+  });
+  state.clientPortfolioAudit = Array.isArray(state.clientPortfolioAudit) ? state.clientPortfolioAudit : [];
+  const record = { id: `CARIMP-${Date.now()}`, at: new Date().toISOString(), user: user.name, username: user.username, fileName: preview.fileName, updated: applied.length, backup, motive: String(input.motive || "").trim() };
+  state.clientPortfolioAudit.unshift(record);
+  return { record, backup, applied };
 }
 
 function portfolioComparableProduct(raw) {
@@ -5131,6 +5331,55 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/client-portfolio/template" && req.method === "GET") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") return sendJson(res, 403, { ok: false, error: "Descargar cartera requiere Administrador." });
+      const currentState = readStateFileCached().state || {};
+      sendJson(res, 200, { ok: true, fileName: "cartera-clientes-homologada.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", base64: await clientPortfolioTemplateBase64(currentState) });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/client-portfolio/preview" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") return sendJson(res, 403, { ok: false, error: "Validar cartera requiere Administrador." });
+      try {
+        const input = JSON.parse(await readBody(req) || "{}");
+        const workbook = await readClientPortfolioWorkbook(input.fileDataUrl);
+        const preview = previewClientPortfolio(readStateFileCached().state || {}, workbook.rows, { fileName: input.fileName });
+        sendJson(res, 200, { ok: true, preview });
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo validar la cartera de clientes." });
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/client-portfolio/apply" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") return sendJson(res, 403, { ok: false, error: "Aplicar cartera requiere Administrador." });
+      try {
+        const input = JSON.parse(await readBody(req) || "{}");
+        if (input.confirmed !== true) throw new Error("La importacion requiere confirmacion administrativa.");
+        const motive = String(input.motive || "").trim();
+        if (!motive) throw new Error("Indicar el motivo de importacion.");
+        const admin = readUsers().find((user) => user.username.toLowerCase() === sessionUser.username.toLowerCase() && user.active !== false);
+        if (!admin || !verifyPassword(String(input.admin_password || ""), admin)) throw new Error("Clave de administrador incorrecta.");
+        const preview = clientPortfolioPreviews.get(String(input.token || ""));
+        if (!preview || Date.now() - new Date(preview.createdAt).getTime() > 30 * 60 * 1000) throw new Error("La vista previa vencio. Volver a validar el archivo.");
+        if (preview.summary.errors) throw new Error(`Corregir ${preview.summary.errors} filas con errores antes de aplicar.`);
+        const currentState = readStateFileCached().state || {};
+        const result = applyClientPortfolioImport(currentState, preview, input, sessionUser);
+        clientPortfolioPreviews.delete(preview.token);
+        const audits = result.applied.map((item) => auditEntry(req, sessionUser, input, { action: "CARTERA_CLIENTE_IMPORTADA", entityType: "cliente", entityId: item.id, entityLabel: item.name, previousValue: item.previous, newValue: item.next, note: motive }));
+        writeStateResponse(res, currentState, result, audits, notificationEntry(req, sessionUser, input, { action: "CARTERA_CLIENTE_IMPORTADA", category: "Clientes", title: "Cartera comercial actualizada", text: `${result.applied.length} clientes actualizados desde Excel homologado.`, tone: "ok", entityType: "cartera", entityId: result.record.id, entityLabel: preview.fileName, audience: ["admin"] }), sessionUser);
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo aplicar la cartera de clientes." });
+      }
+      return;
+    }
+
     if (requestUrl.pathname === "/api/reports/xlsx" && req.method === "POST") {
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
@@ -5502,6 +5751,35 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/commercial-portfolios/diagnostics" && req.method === "GET") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "El Control de Cartera requiere usuario administrador." });
+        return;
+      }
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      const users = readUsers();
+      const diagnosis = clientPortfolioEngine.diagnose(currentState.clients || [], users);
+      const supplierKeys = new Set((currentState.suppliers || []).map(clientListEntityKey).filter(Boolean));
+      const clientsById = new Map((currentState.clients || []).map((client) => [clientRecordId(client), client]));
+      const records = diagnosis.records.map((record) => ({
+        ...record,
+        client: clientsById.has(record.id)
+          ? clientListRecord(currentState, clientsById.get(record.id), supplierKeys)
+          : null
+      }));
+      sendJson(res, 200, {
+        ok: true,
+        generatedAt: new Date().toISOString(),
+        stateVersion: Number(currentPayload.version || 0),
+        summary: diagnosis.summary,
+        records
+      });
+      return;
+    }
+
     if (requestUrl.pathname === "/api/clients" && req.method === "GET") {
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
@@ -5634,11 +5912,16 @@ const server = http.createServer(async (req, res) => {
         .map((value) => String(value || "").trim()).filter(Boolean)));
       const motive = String(input.motive || input.motivo || "").trim();
       const adminPassword = String(input.admin_password || input.adminPassword || "").trim();
+      const requestedDays = normalizedClientVisitDays({
+        dias_visita: Array.isArray(input.days) ? input.days : (Array.isArray(input.dias_visita) ? input.dias_visita : undefined),
+        dia_visita: !Array.isArray(input.days) && !Array.isArray(input.dias_visita) ? input.day || input.dia_visita : undefined
+      }, null);
       const changes = {
         seller: String(input.seller || input.vendedor_asignado || "").trim(),
         route: String(input.route || input.ruta || "").trim(),
         zone: String(input.zone || input.zona || "").trim(),
-        day: String(input.day || input.dia_visita || "").trim()
+        days: requestedDays,
+        status: ["Activo", "Inactivo"].includes(String(input.status || input.estado || "").trim()) ? String(input.status || input.estado).trim() : ""
       };
       if (!clientIds.length || clientIds.length > 1000) {
         sendJson(res, 400, { ok: false, error: "Seleccionar entre 1 y 1000 clientes." });
@@ -5648,7 +5931,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { ok: false, error: "Indicar el motivo de la reasignacion." });
         return;
       }
-      if (!Object.values(changes).some(Boolean)) {
+      if (![changes.seller, changes.route, changes.zone, changes.status].some(Boolean) && !changes.days.length) {
         sendJson(res, 400, { ok: false, error: "Indicar al menos vendedor, ruta, zona o dia." });
         return;
       }
@@ -5685,7 +5968,15 @@ const server = http.createServer(async (req, res) => {
           client.zona = changes.zone;
           client.zone = changes.zone;
         }
-        if (changes.day) client.dia_visita = changes.day;
+        if (changes.days.length) {
+          client.dias_visita = changes.days;
+          client.dia_visita = changes.days.join(" / ");
+        }
+        if (changes.status) {
+          client.estado = changes.status;
+          client.status = changes.status;
+          client.activo = changes.status === "Activo";
+        }
         client.updatedAt = new Date().toISOString();
         client.assignmentHistory = Array.isArray(client.assignmentHistory) ? client.assignmentHistory : [];
         client.assignmentHistory.push({
@@ -5697,13 +5988,15 @@ const server = http.createServer(async (req, res) => {
             seller: previous.seller || previous.vendedor_asignado || "",
             route: previous.ruta || previous.route || "",
             zone: previous.zona || previous.zone || "",
-            day: previous.dia_visita || ""
+            days: clientPortfolioEngine.visitDays(previous),
+            status: previous.estado || previous.status || "Activo"
           },
           next: {
             seller: client.seller || client.vendedor_asignado || "",
             route: client.ruta || client.route || "",
             zone: client.zona || client.zone || "",
-            day: client.dia_visita || ""
+            days: clientPortfolioEngine.visitDays(client),
+            status: client.estado || client.status || "Activo"
           }
         });
         audits.push(auditEntry(req, sessionUser, input, {
