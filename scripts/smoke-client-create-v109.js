@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const os = require("node:os");
@@ -14,6 +15,16 @@ const stateFile = path.join(tempDir, "demo-state.json");
 const usersFile = path.join(tempDir, "users.json");
 fs.copyFileSync(path.join(root, "data", "demo-state.json"), stateFile);
 fs.copyFileSync(path.join(root, "data", "users.json"), usersFile);
+const usersPayload = JSON.parse(fs.readFileSync(usersFile, "utf8"));
+const sellerUser = usersPayload.users.find((user) => user.username === "sofia");
+const passwordSalt = crypto.randomBytes(16).toString("hex");
+sellerUser.salt = passwordSalt;
+sellerUser.passwordHash = crypto.pbkdf2Sync("Lopez2026!", passwordSalt, 120000, 32, "sha256").toString("hex");
+sellerUser.active = true;
+const operationPinSalt = crypto.randomBytes(16).toString("hex");
+sellerUser.operationPinSalt = operationPinSalt;
+sellerUser.operationPinHash = crypto.pbkdf2Sync("1047", operationPinSalt, 120000, 32, "sha256").toString("hex");
+fs.writeFileSync(usersFile, JSON.stringify(usersPayload, null, 2), "utf8");
 
 const child = spawn(process.execPath, [path.join(root, "server.js")], {
   cwd: root,
@@ -52,7 +63,7 @@ async function waitForHealth() {
 
 async function login() {
   const input = {
-    username: "admin1",
+    username: "sofia",
     password: "Lopez2026!",
     device: { id: "SMOKE-CLIENT-V109", label: "Smoke clientes v109", model: "Node", os: process.platform, appVersion: "8790-109" }
   };
@@ -88,9 +99,9 @@ function clientInput(index, operationId) {
     limite_credito: 0,
     zona: "Centro",
     ruta: "Centro",
-    vendedor_asignado: "Administracion 1",
+    vendedor_asignado: "Sofia Benitez",
     dia_visita: "Lunes",
-    preventistaPassword: "Lopez2026!",
+    operationPin: "1047",
     gps: { lat: -31.4167 - index / 10000, lng: -64.1833, accuracy: 8, source: "gps" }
   };
 }

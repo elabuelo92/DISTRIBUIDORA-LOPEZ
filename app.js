@@ -181,9 +181,9 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-118";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "27/08/2026 14:53 ART";
-const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-27T14:53:17-03:00";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-119";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "30/08/2026 11:06 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-30T11:06:09-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
 
@@ -306,6 +306,9 @@ let mobilePreventaTab = "order";
 let mobileNewClientLocation = null;
 let mobileClientCreateInFlight = false;
 let mobileClientPendingOperation = null;
+let mobileOrderPendingOperation = null;
+let mobileClientOptionsExpanded = false;
+let mobileProductOptionsExpanded = false;
 let mobileSalesSearchTerm = "";
 let mobileSalesSelectedOrderCode = "";
 let mobileClientHistoryOpen = false;
@@ -518,6 +521,7 @@ let securityLicenseStatus = null;
 let managedUsers = [];
 let managedUsersSearchTerm = "";
 let managedUsersRoleFilter = "all";
+let priceListProductsExpanded = false;
 let presenceHeartbeatIntervalId = null;
 let presenceLocationIntervalId = null;
 let lastPresenceLocationSent = null;
@@ -4738,7 +4742,7 @@ function renderMobileClientOptions(clientsForSeller = null) {
     ].join(" "), terms);
   });
   filteredClients.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "es", { sensitivity: "base" }));
-  const visibleClients = filteredClients.slice(0, 60);
+  const visibleClients = filteredClients.slice(0, mobileClientOptionsExpanded ? 60 : 6);
   if (!visibleClients.length) {
     list.innerHTML = '<div class="mobile-picker-empty">Sin clientes para esa busqueda.</div>';
     return;
@@ -4748,8 +4752,8 @@ function renderMobileClientOptions(clientsForSeller = null) {
       <strong>${escapeHtml(client.name)}</strong>
       <small>${escapeHtml(`${client.codigo_cliente || "S/C"} - ${client.status || "Sin estado"} - ${normalizeWorkday(client.dia_visita) || "Sin dia"} - ${client.ruta || client.zone || "Sin ruta"}${clientGpsPoint(client) && selectedSellerGpsPoint() ? ` - ${Math.round(distanceMeters(selectedSellerGpsPoint(), clientGpsPoint(client)))} m` : " - GPS pendiente"}`)}</small>
     </button>
-  `).join("") + (filteredClients.length > visibleClients.length
-    ? `<div class="mobile-picker-more">Mostrando 60 de ${filteredClients.length}. Seguir escribiendo para afinar.</div>`
+  `).join("") + (filteredClients.length > 6
+    ? `<button class="mobile-picker-more-button" type="button" data-mobile-client-options-toggle>${mobileClientOptionsExpanded ? "Ver menos" : `Ver ${Math.min(54, filteredClients.length - 6)} mas`}</button><div class="mobile-picker-more">Mostrando ${visibleClients.length} de ${filteredClients.length}. Tambien podes buscar por nombre, direccion o ruta.</div>`
     : "");
 }
 
@@ -4773,7 +4777,7 @@ function renderMobileProductOptions() {
   if (!list) return;
   const query = search ? search.value : "";
   const filteredProducts = rankedProductSearch(state.products, query);
-  const visibleProducts = filteredProducts.slice(0, 60);
+  const visibleProducts = filteredProducts.slice(0, mobileProductOptionsExpanded ? 60 : 6);
   if (!visibleProducts.length) {
     list.innerHTML = '<div class="mobile-picker-empty">Sin articulos para esa busqueda.</div>';
     return;
@@ -4796,8 +4800,8 @@ function renderMobileProductOptions() {
         <span class="mobile-stock-status ${tone}">${tone === "warn" ? "⚠ " : ""}${escapeHtml(stockLabel)}</span>
       </button>
     `;
-  }).join("") + (filteredProducts.length > visibleProducts.length
-    ? `<div class="mobile-picker-more">Mostrando 60 de ${filteredProducts.length}. Seguir escribiendo para afinar.</div>`
+  }).join("") + (filteredProducts.length > 6
+    ? `<button class="mobile-picker-more-button" type="button" data-mobile-product-options-toggle>${mobileProductOptionsExpanded ? "Ver menos" : `Ver ${Math.min(54, filteredProducts.length - 6)} mas`}</button><div class="mobile-picker-more">Mostrando ${visibleProducts.length} de ${filteredProducts.length}. Seguir escribiendo permite afinar.</div>`
     : "");
 }
 
@@ -11162,7 +11166,8 @@ function renderPriceListProductsTable() {
   const table = byId("priceListProductsTable");
   if (!table) return;
   const products = filteredPriceListProducts();
-  table.innerHTML = products.length ? products.slice(0, 180).map((product) => {
+  const visibleProducts = products.slice(0, priceListProductsExpanded ? 180 : 6);
+  table.innerHTML = products.length ? visibleProducts.map((product) => {
     const price = currentProductPrice(product);
     const margin = product.cost > 0 ? ((price - product.cost) / product.cost) * 100 : 0;
     const listPrices = SYSTEM_PRICE_LISTS.map((number) => `
@@ -11193,7 +11198,24 @@ function renderPriceListProductsTable() {
     `;
   }).join("") : '<tr><td class="stock-empty" colspan="6">No hay productos para los filtros seleccionados.</td></tr>';
   const count = byId("priceListProductsCount");
-  if (count) count.textContent = `${products.length} productos visibles`;
+  if (count) count.textContent = `${visibleProducts.length} de ${products.length} productos`;
+  const toggle = byId("togglePriceListProductsBtn");
+  if (toggle) {
+    toggle.hidden = products.length <= 6;
+    toggle.textContent = priceListProductsExpanded ? "Ver menos productos" : `Ver mas (${Math.min(174, products.length - 6)})`;
+  }
+}
+
+async function simulatePriceListOnServer(input) {
+  const response = await fetchWithTimeout(apiUrl("api/price-lists/simulate"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify(input)
+  }, 15000);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || "No se pudo simular la lista de precios.");
+  return payload.simulation;
 }
 
 function priceListFormInput() {
@@ -11304,7 +11326,7 @@ async function simulatePriceListFromForm() {
   try {
     const input = priceListFormInput();
     validatePriceListInput(input);
-    priceListLastSimulation = simulatePriceListChangeLocal(input);
+    priceListLastSimulation = await simulatePriceListOnServer(input);
     renderPriceListSimulation();
     if (!priceListLastSimulation.affected) showCompactNotice("La seleccion no afecta productos.", "warn");
   } catch (error) {
@@ -11316,7 +11338,7 @@ async function applyPriceListFromForm() {
   try {
     const input = priceListFormInput();
     validatePriceListInput(input, { requireMotive: true });
-    const simulation = simulatePriceListChangeLocal(input);
+    const simulation = await simulatePriceListOnServer(input);
     priceListLastSimulation = simulation;
     if (!simulation.affected) {
       window.alert("La seleccion no afecta productos.");
@@ -13293,11 +13315,7 @@ async function submitSupplier(event) {
       ...payload,
       allowPossibleDuplicate: duplicates.length > 0
     });
-    if (response.state) {
-      state = normalizeState(response.state);
-      saveState();
-      applyStateVisibility();
-    } else if (response.supplier) {
+    if (!response.state && response.supplier) {
       state.suppliers = [normalizeSupplierRecord(response.supplier), ...(state.suppliers || [])];
     }
     populateSupplierRemitOptions(response.supplier && response.supplier.name);
@@ -13352,11 +13370,6 @@ async function manageSupplier(supplierName) {
       motive,
       adminPassword
     });
-    if (response.state) {
-      state = normalizeState(response.state);
-      saveState();
-      applyStateVisibility();
-    }
     showCompactNotice(action === "delete" ? "Proveedor eliminado sin vinculos historicos." : "Proveedor inactivado; la trazabilidad fue preservada.", "ok");
     renderSuppliers();
   } catch (error) {
@@ -13842,7 +13855,7 @@ function renderSupplierRemitValidationProducts(remit) {
             <span class="tag ${requiresPricing ? "warn" : "ok"}">${requiresPricing ? "Nuevo / pendiente" : "Existente"}</span>
           </div>
           <label class="checkbox-line">
-            <input type="checkbox" data-validation-update-pricing ${requiresPricing ? "checked disabled" : ""}>
+            <input type="checkbox" data-validation-update-pricing checked ${requiresPricing ? "disabled" : ""}>
             Actualizar costo y listas con esta validacion
           </label>
           <div class="form-grid">
@@ -15351,7 +15364,10 @@ function renderManagedUsers() {
           <small>${escapeHtml(user.updatedAt ? formatOrderTime(user.updatedAt) : "Sin cambios registrados")}</small>
           <small>${escapeHtml(user.updatedBy || "")}</small>
         </td>
-        <td><button class="secondary-btn" type="button" data-edit-managed-user="${escapeHtml(user.username)}">Editar</button></td>
+        <td>
+          <button class="secondary-btn" type="button" data-edit-managed-user="${escapeHtml(user.username)}">Editar</button>
+          ${user.role === "seller" ? `<button class="secondary-btn" type="button" data-generate-seller-pin="${escapeHtml(user.username)}">${user.operationPinConfigured ? "Regenerar PIN" : "Generar PIN"}</button>` : ""}
+        </td>
       </tr>
     `;
   }).join("") : '<tr><td colspan="6" class="empty-note">No hay usuarios para los filtros seleccionados.</td></tr>';
@@ -15421,6 +15437,24 @@ async function submitManagedUserForm(event) {
     setUserAdminMessage(error.message || "No se pudo guardar el usuario.", "info");
   } finally {
     submit.disabled = false;
+  }
+}
+
+async function generateSellerOperationPin(username) {
+  if (!isAdminUser()) return;
+  const adminPassword = String(window.prompt(`Clave de administrador para generar un PIN aleatorio para ${username}:`, "") || "");
+  if (!adminPassword) return;
+  try {
+    const payload = await postOperationalAction("api/admin/users/operation-pin", {
+      username,
+      adminPassword,
+      motive: "Alta o renovacion de PIN operativo de Preventa"
+    });
+    managedUsers = Array.isArray(payload.users) ? payload.users : managedUsers;
+    renderManagedUsers();
+    window.alert(`PIN operativo de ${username}: ${payload.pin}\n\nAnotarlo y entregarlo al vendedor. Por seguridad se muestra una sola vez.`);
+  } catch (error) {
+    window.alert(error.message || "No se pudo generar el PIN operativo.");
   }
 }
 
@@ -16486,9 +16520,9 @@ async function addMobileClientFromQuickForm() {
     limitField.focus();
     return;
   }
-  const sellerPassword = byId("mobileNewClientSellerPassword").value;
-  if (!sellerPassword) {
-    window.alert("Reingresar la clave del preventista para guardar el cliente.");
+  const sellerPin = byId("mobileNewClientSellerPassword").value.trim();
+  if (!/^\d{4}$/.test(sellerPin)) {
+    window.alert("Ingresar el PIN operativo de 4 digitos del preventista.");
     byId("mobileNewClientSellerPassword").focus();
     return;
   }
@@ -16541,7 +16575,7 @@ async function addMobileClientFromQuickForm() {
       gps: mobileNewClientLocation,
       horario_atencion: "",
       origen: "preventa",
-      preventistaPassword: sellerPassword,
+      operationPin: sellerPin,
       device: sessionDevice
     });
     const client = payload.client || state.clients.find((item) => item.name === name);
@@ -16613,6 +16647,47 @@ function resetMobileOrderForm(previousClientName = "") {
   cleanupOperationalLocalData("pedido movil confirmado");
 }
 
+function newMobileOrderOperationId() {
+  const token = globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+  return `ORDER-${token}`;
+}
+
+async function reconcileMobileOrderCreate(operationId) {
+  const response = await fetchWithTimeout(
+    apiUrl(`api/orders/mobile/status?operationId=${encodeURIComponent(operationId)}`),
+    { cache: "no-store" },
+    10000
+  );
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload.error || "No se pudo verificar el pedido.");
+    error.status = response.status;
+    throw error;
+  }
+  return payload.found && payload.order ? payload : null;
+}
+
+async function createMobileOrderOnServer(request) {
+  try {
+    return await postOperationalAction("api/orders", request, { timeoutMs: 20000 });
+  } catch (error) {
+    if (!ambiguousClientCreateError(error)) throw error;
+    await sleep(500);
+    const reconciled = await reconcileMobileOrderCreate(request.operationId).catch(() => null);
+    if (reconciled) return { ...reconciled, compact: true, reconciled: true };
+    try {
+      return await postOperationalAction("api/orders", request, { timeoutMs: 20000 });
+    } catch (retryError) {
+      if (!ambiguousClientCreateError(retryError)) throw retryError;
+      const finalCheck = await reconcileMobileOrderCreate(request.operationId).catch(() => null);
+      if (finalCheck) return { ...finalCheck, compact: true, reconciled: true };
+      throw retryError;
+    }
+  }
+}
+
 async function addMobileOrder() {
   const summary = getCartSummary();
   if (summary.total <= 0) return;
@@ -16632,10 +16707,13 @@ async function addMobileOrder() {
   const previousText = button.textContent;
   button.disabled = true;
   button.textContent = "Registrando...";
+  const operationId = mobileOrderPendingOperation || newMobileOrderOperationId();
+  mobileOrderPendingOperation = operationId;
   try {
     const commercialRequest = mobileCommercialRequestPayload();
     const observations = byId("mobileOrderObservations") ? byId("mobileOrderObservations").value.trim() : "";
-    const payload = await postOperationalAction("api/orders", {
+    const payload = await createMobileOrderOnServer({
+      operationId,
       client: client.name,
       seller: mobileSeller,
       items: summary.lines.map((line) => ({
@@ -16655,8 +16733,10 @@ async function addMobileOrder() {
       priority: "Normal",
       creditOverride: authorization.creditOverride
     });
-    resetMobileOrderForm(client.name);
     const order = payload.order;
+    applyOrderPatches([order], payload.version);
+    mobileOrderPendingOperation = null;
+    resetMobileOrderForm(client.name);
     window.alert(order.status === ORDER_STATUS.COMMERCIAL_APPROVAL
       ? `${order.code} registrado. Quedo pendiente de aprobacion comercial.`
       : order.status === ORDER_STATUS.PENDING && orderSupplySummary(order).missing > 0
@@ -16664,7 +16744,10 @@ async function addMobileOrder() {
       : `${order.code} registrado. Quedo en preparacion.`);
     renderForCurrentUser();
   } catch (error) {
-    window.alert(error.message || "No se pudo registrar el pedido.");
+    if (!ambiguousClientCreateError(error)) mobileOrderPendingOperation = null;
+    window.alert(ambiguousClientCreateError(error)
+      ? "No se pudo confirmar la respuesta. El pedido quedo identificado y se verificara sin duplicarlo al reintentar."
+      : error.message || "No se pudo registrar el pedido.");
   } finally {
     button.disabled = false;
     button.textContent = previousText;
@@ -17241,33 +17324,44 @@ byId("inactivateSelectedProductsBtn").addEventListener("click", () => applySelec
 byId("stockEditForm").addEventListener("submit", submitStockEdit);
 byId("priceListSearch").addEventListener("input", (event) => {
   priceListSearchTerm = event.target.value;
+  priceListProductsExpanded = false;
   debouncedRenderPriceLists();
 });
 byId("priceListFilterList").addEventListener("change", (event) => {
   priceListListFilter = event.target.value;
+  priceListProductsExpanded = false;
   renderPriceLists();
 });
 byId("priceListRubricFilter").addEventListener("change", (event) => {
   priceListRubricFilter = event.target.value;
+  priceListProductsExpanded = false;
   renderPriceLists();
 });
 byId("priceListBrandFilter").addEventListener("change", (event) => {
   priceListBrandFilter = event.target.value;
+  priceListProductsExpanded = false;
   renderPriceLists();
 });
 byId("priceListSupplierFilter").addEventListener("change", (event) => {
   priceListSupplierFilter = event.target.value;
+  priceListProductsExpanded = false;
   renderPriceLists();
 });
 byId("priceListStatusFilter").addEventListener("change", (event) => {
   priceListStatusFilter = event.target.value;
+  priceListProductsExpanded = false;
   renderPriceLists();
 });
 byId("priceListEffectiveFilter").addEventListener("change", (event) => {
   priceListEffectiveFilter = event.target.value;
+  priceListProductsExpanded = false;
   renderPriceLists();
 });
 byId("clearPriceListFiltersBtn").addEventListener("click", clearPriceListFilters);
+byId("togglePriceListProductsBtn").addEventListener("click", () => {
+  priceListProductsExpanded = !priceListProductsExpanded;
+  renderPriceListProductsTable();
+});
 byId("priceListOperation").addEventListener("change", () => {
   priceListLastSimulation = null;
   renderPriceListOperationFields();
@@ -18195,8 +18289,17 @@ byId("mobileClientPickerBtn").addEventListener("click", () => {
   renderMobileClientOptions();
   setMobilePickerOpen("client", panel ? panel.hidden : true);
 });
-byId("mobileClientSearch").addEventListener("input", () => renderMobileClientOptions());
+byId("mobileClientSearch").addEventListener("input", () => {
+  mobileClientOptionsExpanded = false;
+  renderMobileClientOptions();
+});
 byId("mobileClientOptions").addEventListener("click", (event) => {
+  const toggle = event.target.closest("[data-mobile-client-options-toggle]");
+  if (toggle) {
+    mobileClientOptionsExpanded = !mobileClientOptionsExpanded;
+    renderMobileClientOptions();
+    return;
+  }
   const button = event.target.closest("[data-mobile-client-option]");
   if (!button) return;
   mobileClient = button.dataset.mobileClientOption;
@@ -18271,8 +18374,17 @@ byId("mobileProductPickerBtn").addEventListener("click", () => {
   renderMobileProductOptions();
   setMobilePickerOpen("product", panel ? panel.hidden : true);
 });
-byId("mobileProductSearch").addEventListener("input", debounce(() => renderMobileProductOptions(), 600));
+byId("mobileProductSearch").addEventListener("input", debounce(() => {
+  mobileProductOptionsExpanded = false;
+  renderMobileProductOptions();
+}, 600));
 byId("mobileProductOptions").addEventListener("click", (event) => {
+  const toggle = event.target.closest("[data-mobile-product-options-toggle]");
+  if (toggle) {
+    mobileProductOptionsExpanded = !mobileProductOptionsExpanded;
+    renderMobileProductOptions();
+    return;
+  }
   const button = event.target.closest("[data-mobile-product-option]");
   if (!button) return;
   mobileProduct = button.dataset.mobileProductOption;
@@ -18472,6 +18584,12 @@ document.addEventListener("click", (event) => {
   if (!button) return;
   const user = managedUsers.find((item) => item.username === button.dataset.editManagedUser);
   if (user) resetManagedUserForm(user);
+});
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-generate-seller-pin]");
+  if (!button) return;
+  generateSellerOperationPin(button.dataset.generateSellerPin);
 });
 
 document.addEventListener("click", (event) => {

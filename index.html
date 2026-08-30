@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-118-r20260828a">
+    <link rel="manifest" href="manifest.json?v=8790-119-r20260830a">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-118-r20260828a">
+    <link rel="stylesheet" href="styles.css?v=8790-119-r20260830a">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -159,8 +159,8 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-118</strong>
-              <small data-version-build>Actualizada 28/08/2026 16:14</small>
+              <strong data-version-value>8790-119</strong>
+              <small data-version-build>Actualizada 30/08/2026 11:06</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
             <button class="ghost-btn app-back-btn" id="appBackBtn" type="button">Volver</button>
@@ -433,8 +433,8 @@
                   </label>
                 </div>
                 <label class="phone-field">
-                  Clave del preventista
-                  <input id="mobileNewClientSellerPassword" type="password" autocomplete="current-password" placeholder="Reingresar clave para guardar">
+                  PIN operativo del preventista
+                  <input id="mobileNewClientSellerPassword" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="one-time-code" placeholder="4 digitos">
                 </label>
                 <div class="phone-card mobile-client-location-card">
                   <small>Ubicacion obligatoria</small>
@@ -1509,6 +1509,7 @@
                   <tbody id="priceListProductsTable"></tbody>
                 </table>
               </div>
+              <button class="secondary-btn compact-list-toggle" id="togglePriceListProductsBtn" type="button" hidden>Ver mas productos</button>
             </section>
             <section class="panel price-list-editor admin-only">
               <div class="panel-header">
@@ -2667,7 +2668,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-118</span>
+          <span id="appFooterVersion">Version del sistema: 8790-119</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -4300,14 +4301,14 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-118-r20260828a"></script>
-    <script src="maps-config.js?v=8790-118-r20260828a"></script>
-    <script src="order-engine.js?v=8790-118-r20260828a"></script>
-    <script src="account-engine.js?v=8790-118-r20260828a"></script>
-    <script src="delivery-engine.js?v=8790-118-r20260828a"></script>
-    <script src="legal-engine.js?v=8790-118-r20260828a"></script>
-    <script src="client-portfolio-engine.js?v=8790-118-r20260828a"></script>
-    <script src="app.js?v=8790-118-r20260828a"></script>
+    <script src="config.js?v=8790-119-r20260830a"></script>
+    <script src="maps-config.js?v=8790-119-r20260830a"></script>
+    <script src="order-engine.js?v=8790-119-r20260830a"></script>
+    <script src="account-engine.js?v=8790-119-r20260830a"></script>
+    <script src="delivery-engine.js?v=8790-119-r20260830a"></script>
+    <script src="legal-engine.js?v=8790-119-r20260830a"></script>
+    <script src="client-portfolio-engine.js?v=8790-119-r20260830a"></script>
+    <script src="app.js?v=8790-119-r20260830a"></script>
   </body>
 </html>
 

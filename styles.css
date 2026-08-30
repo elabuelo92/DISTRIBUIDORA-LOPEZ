@@ -3937,6 +3937,23 @@ h2 {
   text-align: center;
 }
 
+.mobile-picker-more-button,
+.compact-list-toggle {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--accent);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.compact-list-toggle {
+  margin-top: 10px;
+  width: auto;
+}
+
 .stock-dot {
   display: inline-block;
   margin-left: 4px;

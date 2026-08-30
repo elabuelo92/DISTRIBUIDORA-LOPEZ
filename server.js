@@ -19,7 +19,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-118";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-119";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -264,9 +264,30 @@ function verifyCurrentUserPassword(user, password) {
   return Boolean(stored && verifyPassword(password || "", stored));
 }
 
+function randomOperationPin() {
+  return String(crypto.randomInt(0, 10000)).padStart(4, "0");
+}
+
+function hashOperationPin(pin, salt) {
+  const value = String(pin || "").trim();
+  if (!/^\d{4}$/.test(value)) throw new Error("La clave operativa debe tener exactamente 4 digitos.");
+  const nextSalt = salt || crypto.randomBytes(16).toString("hex");
+  const operationPinHash = crypto.pbkdf2Sync(value, nextSalt, 120000, 32, "sha256").toString("hex");
+  return { operationPinSalt: nextSalt, operationPinHash };
+}
+
+function verifyCurrentUserOperationPin(user, pin) {
+  const stored = readUsers().find((item) => String(item.username || "").toLowerCase() === String(user && user.username || "").toLowerCase() && item.active !== false);
+  if (!stored || !stored.operationPinSalt || !stored.operationPinHash || !/^\d{4}$/.test(String(pin || ""))) return false;
+  const candidate = hashOperationPin(pin, stored.operationPinSalt).operationPinHash;
+  const supplied = Buffer.from(candidate, "hex");
+  const expected = Buffer.from(stored.operationPinHash, "hex");
+  return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
+}
+
 function withoutSensitiveFields(input) {
   const copy = { ...(input || {}) };
-  ["password", "admin_password", "adminPassword", "preventistaPassword", "sellerPassword", "clave", "clavePreventista"].forEach((key) => {
+  ["password", "admin_password", "adminPassword", "preventistaPassword", "sellerPassword", "operationPin", "sellerPin", "claveOperativa", "clave", "clavePreventista"].forEach((key) => {
     if (key in copy) copy[key] = "[redacted]";
   });
   return copy;
@@ -320,6 +341,7 @@ function publicManagedUser(user) {
   return {
     ...publicUser(user),
     active: user.active !== false,
+    operationPinConfigured: Boolean(user.operationPinSalt && user.operationPinHash),
     updatedAt: user.updatedAt || "",
     updatedBy: user.updatedBy || "",
     createdAt: user.createdAt || "",
@@ -1642,6 +1664,23 @@ function readStateVersionFast() {
   }
 }
 
+function ensureProductSupplierLinks(state) {
+  if (!state || !Array.isArray(state.products) || !Array.isArray(state.supplierMovements)) return 0;
+  let linked = 0;
+  state.supplierMovements.forEach((movement) => {
+    const supplier = String(movement && (movement.supplier || movement.proveedor) || "").trim();
+    if (!supplier) return;
+    (Array.isArray(movement.products) ? movement.products : []).forEach((line) => {
+      const product = findProductByRemitItem(state, line);
+      if (!product || String(product.proveedor || product.supplier || "").trim()) return;
+      product.proveedor = supplier;
+      product.supplier = supplier;
+      linked += 1;
+    });
+  });
+  return linked;
+}
+
 function writeState(state, options = {}) {
   if (state && typeof state === "object") {
     ensureGlobalAudit(state);
@@ -1655,6 +1694,7 @@ function writeState(state, options = {}) {
     syncMixedEntityRelations(state);
     ensureRouteLearningState(state);
     ensurePrintState(state);
+    ensureProductSupplierLinks(state);
     ensurePriceListsState(state);
     applyDuePriceLists(state);
   }
@@ -2089,10 +2129,13 @@ function applyValidatedPricing(product, validation, sessionUser, at) {
   product.cost = cost;
   const listInput = validation.priceLists || validation.lists || {};
   SYSTEM_PRICE_LISTS.forEach((number) => {
-    const row = Array.isArray(listInput)
+    const row = (Array.isArray(listInput)
       ? listInput.find((item) => Number(item.listNumber || item.number || item.lista) === number)
-      : listInput[number] || listInput[`lista_${number}`] || listInput[`precio_lista_${number}`] || {};
-    const pct = Math.max(0, numeric(row.marginPct ?? row.pct ?? row.percent ?? row.porcentaje, 0));
+      : listInput[number] || listInput[`lista_${number}`] || listInput[`precio_lista_${number}`]) || {};
+    const previousCost = Math.max(0, numeric(previous.costo ?? previous.cost, 0));
+    const previousPrice = Math.max(0, numeric(previous[`precio_lista_${number}`], number === 2 ? previous.price : 0));
+    const previousPct = previousCost > 0 ? ((previousPrice / previousCost) - 1) * 100 : 0;
+    const pct = Math.max(0, numeric(row.marginPct ?? row.pct ?? row.percent ?? row.porcentaje, previousPct));
     const rawPrice = Math.max(0, numeric(row.price ?? row.precio ?? row.value, 0));
     const price = rawPrice > 0 ? rawPrice : cost * (1 + pct / 100);
     product[`precio_lista_${number}`] = Math.round(price * 100) / 100;
@@ -2971,6 +3014,21 @@ function mobileClientOperationId(input) {
   return value;
 }
 
+function mobileOrderOperationId(input) {
+  const value = String(input.operationId || input.idempotencyKey || "").trim();
+  if (!value) throw new Error("Falta identificador seguro del pedido. Actualizar la aplicacion e intentar nuevamente.");
+  if (!/^[A-Za-z0-9._:-]{12,128}$/.test(value)) throw new Error("El identificador del pedido no es valido.");
+  return value;
+}
+
+function mobileOrderByOperation(state, operationId, username) {
+  const normalizedUsername = String(username || "").trim().toLowerCase();
+  return (Array.isArray(state && state.orders) ? state.orders : []).find((order) => (
+    String(order.createOperationId || "") === operationId
+    && String(order.createdByUsername || order.sellerUsername || "").trim().toLowerCase() === normalizedUsername
+  )) || null;
+}
+
 function mobileClientByOperation(state, operationId, username) {
   const normalizedUsername = String(username || "").trim().toLowerCase();
   return (Array.isArray(state && state.clients) ? state.clients : []).find((client) => (
@@ -3056,7 +3114,7 @@ function priceListItemFromProduct(product, overrides = {}) {
     codigo_barras: String(product.codigo_barras || "").trim(),
     rubro: String(product.rubro || "S/D").trim() || "S/D",
     marca: String(product.marca || "S/D").trim() || "S/D",
-    proveedor: String(product.proveedor || product.supplier || "").trim(),
+    proveedor: String(overrides.proveedor ?? product.proveedor ?? product.supplier ?? "").trim(),
     previousPrice,
     price,
     newPrice: price,
@@ -3997,6 +4055,29 @@ function supplierMatchAliases(state, selectedSupplier) {
   ].map(normalizeSearchText).filter(Boolean)));
 }
 
+function supplierIdentityTokens(state, selectedSupplier) {
+  const ignored = new Set([
+    "sa", "sas", "srl", "sc", "sociedad", "empresa", "grupo", "comercial",
+    "distribuidora", "mayorista", "proveedor", "proveedores", "producto", "productos",
+    "nuevo", "nuevos", "argentina", "cordoba"
+  ]);
+  return Array.from(new Set(supplierMatchAliases(state, selectedSupplier)
+    .flatMap((alias) => alias.split(/\s+/))
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4 && !ignored.has(token))));
+}
+
+function productMatchesUnlinkedSupplier(state, product, selectedSupplier) {
+  if (String(product.proveedor || product.supplier || product.proveedor_nombre || product.supplierName || "").trim()) return false;
+  const productWords = new Set(normalizeSearchText([
+    product.name,
+    product.descripcion,
+    product.marca
+  ].filter(Boolean).join(" ")).split(/\s+/).filter(Boolean));
+  const tokens = supplierIdentityTokens(state, selectedSupplier);
+  return tokens.length > 0 && tokens.some((token) => productWords.has(token));
+}
+
 function priceListProductMatches(state, product, input = {}) {
   const operation = String(input.operation || input.mode || "general").toLowerCase();
   const productKey = normalizeSearchText(input.productKey || input.productCode || input.product || "");
@@ -4013,7 +4094,9 @@ function priceListProductMatches(state, product, input = {}) {
   if (operation === "marca") return sameText(product.marca, input.marca);
   if (operation === "proveedor") {
     const productSupplier = normalizeSearchText(product.proveedor || product.supplier || product.proveedor_nombre || product.supplierName);
-    return supplierMatchAliases(state, input.proveedor || input.supplier).includes(productSupplier);
+    const selectedSupplier = input.proveedor || input.supplier;
+    return supplierMatchAliases(state, selectedSupplier).includes(productSupplier)
+      || productMatchesUnlinkedSupplier(state, product, selectedSupplier);
   }
   return true;
 }
@@ -4026,6 +4109,7 @@ function computePriceListSimulation(state, input = {}) {
   const marginPct = numeric(input.marginPct ?? input.porcentaje_margen, 0);
   const fixedPrice = numeric(input.fixedPrice ?? input.price ?? input.precio_venta, NaN);
   const products = (Array.isArray(state.products) ? state.products : []).filter((product) => priceListProductMatches(state, product, { ...input, operation }));
+  const selectedSupplier = String(input.proveedor || input.supplier || "").trim();
   const items = products.map((product) => {
     const previousPrice = currentProductPrice(product);
     const cost = Math.max(0, numeric(product.costo ?? product.cost, 0));
@@ -4038,11 +4122,15 @@ function computePriceListSimulation(state, input = {}) {
       nextPrice = previousPrice * (1 + increasePct / 100);
     }
     nextPrice = roundPriceValue(nextPrice, rounding);
+    const inferredSupplier = operation === "proveedor" && productMatchesUnlinkedSupplier(state, product, selectedSupplier)
+      ? selectedSupplier
+      : "";
     return priceListItemFromProduct(product, {
       previousPrice,
       price: nextPrice,
       increasePct,
       marginPct,
+      proveedor: inferredSupplier || product.proveedor || product.supplier || "",
       percentApplied: previousPrice > 0 ? ((nextPrice - previousPrice) / previousPrice) * 100 : 0
     });
   });
@@ -4080,10 +4168,13 @@ function activatePriceList(state, list, userName, motive) {
     const item = keys.map((key) => byKey.get(key)).find(Boolean);
     if (!item) return product;
     const price = Math.max(0, numeric(item.price ?? item.newPrice, currentProductPrice(product)));
+    const supplier = String(product.proveedor || product.supplier || item.proveedor || "").trim();
     return {
       ...product,
       price,
       precio_lista_2: price,
+      proveedor: supplier,
+      supplier,
       priceListId: list.id,
       priceListName: list.name,
       priceUpdatedAt: list.updatedAt || new Date().toISOString(),
@@ -4772,6 +4863,45 @@ const server = http.createServer(async (req, res) => {
         });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar el usuario." });
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/admin/users/operation-pin" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Gestion de claves operativas permitida solo para administradores." });
+        return;
+      }
+      const input = JSON.parse(await readBody(req) || "{}");
+      if (!verifyCurrentUserPassword(sessionUser, input.adminPassword || input.admin_password || "")) {
+        sendJson(res, 401, { ok: false, error: "Clave de administrador incorrecta." });
+        return;
+      }
+      try {
+        const username = String(input.username || "").trim().toLowerCase();
+        const users = readUsers();
+        const user = users.find((item) => String(item.username || "").trim().toLowerCase() === username && item.active !== false);
+        if (!user || user.role !== "seller") throw new Error("Seleccionar un usuario vendedor activo.");
+        const pin = randomOperationPin();
+        Object.assign(user, hashOperationPin(pin), {
+          operationPinUpdatedAt: new Date().toISOString(),
+          operationPinUpdatedBy: sessionUser.username
+        });
+        const backup = writeUsersWithBackup(users);
+        appendAuditToStateFile(req, sessionUser, withoutSensitiveFields(input), {
+          action: "PIN_OPERATIVO_VENDEDOR_GENERADO",
+          entityType: "usuario",
+          entityId: user.username,
+          entityLabel: user.name,
+          previousValue: null,
+          newValue: { configured: true },
+          note: String(input.motive || "Generacion de PIN operativo aleatorio").trim()
+        });
+        sendJson(res, 200, { ok: true, pin, user: publicManagedUser(user), users: users.map(publicManagedUser), backup: backup ? path.basename(backup) : "" });
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo generar el PIN operativo." });
       }
       return;
     }
@@ -6085,6 +6215,23 @@ const server = http.createServer(async (req, res) => {
       orderEngine.migrateState(currentState);
       deliveryEngine.migrateState(currentState);
       accountEngine.migrateState(currentState);
+      const mobileOperationId = sessionUser.role === "seller" || String(input.source || "").toLowerCase() === "mobile"
+        ? mobileOrderOperationId(input)
+        : "";
+      if (mobileOperationId) {
+        const previousOrder = mobileOrderByOperation(currentState, mobileOperationId, sessionUser.username);
+        if (previousOrder) {
+          sendJson(res, 200, {
+            ok: true,
+            version: currentPayload.version,
+            compact: true,
+            idempotentReplay: true,
+            order: previousOrder,
+            message: "Pedido registrado correctamente"
+          });
+          return;
+        }
+      }
       const seller = sessionUser.role === "seller"
         ? sessionUser.sellerName || sessionUser.name
         : String(input.seller || sessionUser.name);
@@ -6154,6 +6301,10 @@ const server = http.createServer(async (req, res) => {
           source: sessionUser.role === "seller" ? "mobile" : (input.source || "dashboard"),
           origin: sessionUser.role === "seller" ? "preventa" : (input.origin || "dashboard")
         }, sessionUser.name);
+        if (mobileOperationId) {
+          order.createOperationId = mobileOperationId;
+          order.createdByUsername = sessionUser.username;
+        }
         order.credit = {
           currentBalance: credit.currentBalance,
           creditLimit: credit.creditLimit,
@@ -6178,7 +6329,7 @@ const server = http.createServer(async (req, res) => {
           });
         }
         accountEngine.migrateState(currentState);
-        writeStateResponse(res, currentState, { order, credit }, auditEntry(req, sessionUser, input, {
+        const orderAudit = auditEntry(req, sessionUser, withoutSensitiveFields(input), {
           action: "PEDIDO_CREADO",
           entityType: "pedido",
           entityId: order.code,
@@ -6186,7 +6337,8 @@ const server = http.createServer(async (req, res) => {
           previousValue: null,
           newValue: order,
           note: credit.requiresAuthorization ? `Pedido con autorizacion de credito: ${credit.warning}` : "Pedido ingresado"
-        }), [
+        });
+        const orderNotifications = [
           notificationEntry(req, sessionUser, input, {
             action: "PEDIDO_CREADO",
             category: "Pedidos",
@@ -6209,7 +6361,12 @@ const server = http.createServer(async (req, res) => {
             entityLabel: order.client,
             audience: ["admin"]
           }) : null
-        ]);
+        ];
+        if (mobileOperationId) {
+          writeCompactStateResponse(res, currentState, { order, credit, idempotentReplay: false, message: "Pedido registrado correctamente" }, orderAudit, orderNotifications);
+        } else {
+          writeStateResponse(res, currentState, { order, credit }, orderAudit, orderNotifications, sessionUser);
+        }
       } catch (error) {
         sendJson(res, error && error.code === "OUT_OF_STOCK_BLOCKED" ? 409 : 400, {
           ok: false,
@@ -6217,6 +6374,24 @@ const server = http.createServer(async (req, res) => {
           error: error.message || "No se pudo registrar el pedido.",
           products: error && error.products || []
         });
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/orders/mobile/status" && req.method === "GET") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (!["admin", "seller"].includes(sessionUser.role)) {
+        sendJson(res, 403, { ok: false, error: "Consulta permitida solo para preventa o administracion." });
+        return;
+      }
+      try {
+        const operationId = mobileOrderOperationId({ operationId: requestUrl.searchParams.get("operationId") });
+        const currentPayload = readStateFileCached();
+        const order = mobileOrderByOperation(currentPayload.state || {}, operationId, sessionUser.username);
+        sendJson(res, 200, { ok: true, found: Boolean(order), order: order || null, version: currentPayload.version });
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo verificar el pedido." });
       }
       return;
     }
@@ -6255,22 +6430,28 @@ const server = http.createServer(async (req, res) => {
       }
       const body = await readBody(req);
       const input = JSON.parse(body || "{}");
-      const sellerPassword = String(input.preventistaPassword || input.sellerPassword || input.password || "").trim();
-      if (!sellerPassword) {
-        sendJson(res, 400, { ok: false, error: "Reingresar la clave del usuario para guardar el cliente." });
+      const sellerUsesPin = sessionUser.role === "seller";
+      const sellerCredential = sellerUsesPin
+        ? String(input.operationPin || input.sellerPin || input.claveOperativa || "").trim()
+        : String(input.preventistaPassword || input.sellerPassword || input.password || input.operationPin || "").trim();
+      if (!sellerCredential) {
+        sendJson(res, 400, { ok: false, error: sellerUsesPin ? "Ingresar el PIN operativo de 4 digitos para guardar el cliente." : "Reingresar la clave administrativa para guardar el cliente." });
         return;
       }
-      if (!verifyCurrentUserPassword(sessionUser, sellerPassword)) {
+      const validCredential = sellerUsesPin
+        ? verifyCurrentUserOperationPin(sessionUser, sellerCredential)
+        : verifyCurrentUserPassword(sessionUser, sellerCredential);
+      if (!validCredential) {
         appendAuditToStateFile(req, sessionUser, withoutSensitiveFields(input), {
-          action: "CLIENTE_ALTA_MOVIL_CLAVE_RECHAZADA",
+          action: sellerUsesPin ? "CLIENTE_ALTA_MOVIL_PIN_RECHAZADO" : "CLIENTE_ALTA_MOVIL_CLAVE_RECHAZADA",
           entityType: "cliente",
           entityId: String(input.nombre_comercial || input.name || "").trim(),
           entityLabel: String(input.nombre_comercial || input.name || "").trim(),
           previousValue: null,
           newValue: { username: sessionUser.username, ok: false },
-          note: "Clave reingresada incorrecta al intentar alta movil"
+          note: sellerUsesPin ? "PIN operativo incorrecto al intentar alta movil" : "Clave administrativa incorrecta al intentar alta movil"
         });
-        sendJson(res, 401, { ok: false, error: "Clave del usuario incorrecta." });
+        sendJson(res, 401, { ok: false, error: sellerUsesPin ? "PIN operativo del preventista incorrecto." : "Clave administrativa incorrecta." });
         return;
       }
       const currentPayload = readStateFileCached();
@@ -7425,7 +7606,11 @@ const server = http.createServer(async (req, res) => {
           if (!product) throw new Error(`Producto no encontrado para validar remito: ${line.name || line.product || index + 1}.`);
           const validation = validationForRemitLine(lineValidations, line, index);
           const productWasPending = Boolean(line.isNewProduct || product.pendingValidation || normalizeSearchText(product.estado).includes("pendiente"));
-          const shouldUpdatePricing = productWasPending || validation.updatePricing === true;
+          const shouldUpdatePricing = input.costsValidated !== false && (productWasPending || validation.updatePricing !== false);
+          if (!String(product.proveedor || product.supplier || "").trim()) {
+            product.proveedor = supplier.name;
+            product.supplier = supplier.name;
+          }
           let previousProductForPricing = null;
           if (shouldUpdatePricing) {
             previousProductForPricing = applyValidatedPricing(product, validation, sessionUser, at);
