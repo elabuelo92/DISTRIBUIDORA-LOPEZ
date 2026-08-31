@@ -3428,6 +3428,69 @@ h2 {
   font-size: 13px;
 }
 
+.mobile-history-orders {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mobile-history-order {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.mobile-history-order > button {
+  width: 100%;
+  min-height: 64px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 9px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.mobile-history-order > button span:not(.tag) {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mobile-history-order small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.mobile-history-detail {
+  padding: 9px;
+  border-top: 1px solid var(--line);
+}
+
+.mobile-history-loading {
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.mobile-history-skeleton {
+  min-height: 110px;
+  margin-top: 10px;
+  border-radius: 8px;
+  background: repeating-linear-gradient(90deg, var(--surface) 0, var(--surface) 30%, var(--line) 45%, var(--surface) 60%);
+  background-size: 220% 100%;
+  animation: history-loading 1.4s linear infinite;
+}
+
+@keyframes history-loading {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
 .mobile-sales-list {
   display: grid;
   gap: 8px;

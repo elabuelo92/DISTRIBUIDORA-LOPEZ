@@ -10,6 +10,7 @@
     "test:client-portfolio": "node scripts/smoke-client-portfolio-v110.js",
     "test:commercial-portfolios": "node scripts/smoke-commercial-portfolios-v118.js",
     "test:operational-reliability": "node scripts/smoke-operational-reliability-v119.js",
+    "test:client-history": "node scripts/smoke-client-history-v120.js",
     "generate:seller-pins": "node scripts/generate-seller-pins.js --apply",
     "test:preventa-commissions": "node scripts/smoke-preventa-commissions-v111.js && node scripts/smoke-sales-policy-v111.js",
     "test:order-workflow": "node scripts/smoke-order-workflow-v114.js",

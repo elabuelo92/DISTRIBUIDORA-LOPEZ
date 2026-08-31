@@ -181,9 +181,9 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-119";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "30/08/2026 11:06 ART";
-const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-30T11:06:09-03:00";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-120";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "30/08/2026 23:25 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-30T23:25:53-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
 
@@ -312,6 +312,12 @@ let mobileProductOptionsExpanded = false;
 let mobileSalesSearchTerm = "";
 let mobileSalesSelectedOrderCode = "";
 let mobileClientHistoryOpen = false;
+let mobileClientHistoryData = null;
+let mobileClientHistoryLoading = false;
+let mobileClientHistoryError = "";
+let mobileClientHistoryRequestId = 0;
+let mobileClientHistoryExpandedOrder = "";
+let mobileClientHistoryOrderDetails = new Map();
 let lastMobileConsultationAuditKey = "";
 let syncVersion = 0;
 let syncReady = false;
@@ -5191,42 +5197,91 @@ function exportMobileSalesPdf() {
   logMobileConsultation("MIS_VENTAS_EXPORT_PDF", `${orders.length} ventas exportadas`);
 }
 
-function clientPurchaseHistory(client) {
-  if (!client) return null;
-  const clientKey = normalizeSearchText(client.name || client.nombre_comercial || "");
-  const orders = state.orders
-    .filter((order) => normalizeSearchText(order.client) === clientKey)
-    .sort((a, b) => new Date(b.createdAt || b.receivedAt || 0) - new Date(a.createdAt || a.receivedAt || 0));
-  const visits = (state.noPurchaseVisits || [])
-    .filter((visit) => normalizeSearchText(visit.client) === clientKey)
-    .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
-  const products = new Map();
-  orders.forEach((order) => {
-    orderDetailLines(order).forEach((line) => {
-      const key = normalizeSearchText(line.name);
-      const current = products.get(key) || { name: line.name, qty: 0, total: 0 };
-      current.qty += numeric(line.qty, 0);
-      current.total += numeric(line.total, 0);
-      products.set(key, current);
-    });
-  });
-  const lastOrder = orders[0] || null;
-  const lastVisitAt = lastOrder && (lastOrder.createdAt || lastOrder.receivedAt) || visits[0]?.at || "";
-  const lastVisitDate = lastVisitAt ? new Date(lastVisitAt) : null;
-  const daysSince = lastVisitDate && !Number.isNaN(lastVisitDate.getTime())
-    ? Math.max(0, Math.floor((Date.now() - lastVisitDate.getTime()) / 86400000))
-    : null;
-  const account = clientAccountSummary(client.name, 0);
-  return {
-    orders,
-    lastOrder,
-    lastVisitAt,
-    daysSince,
-    topProducts: Array.from(products.values()).sort((a, b) => b.qty - a.qty || b.total - a.total).slice(0, 5),
-    average: orders.length ? Math.round(orders.reduce((sum, order) => sum + numeric(order.amount, 0), 0) / orders.length) : 0,
-    account,
-    pendingClaims: (state.notifications || []).filter((item) => normalizeSearchText(item.entityLabel || item.text || "").includes(clientKey) && String(item.category || "").toLowerCase().includes("reclamo")).length
-  };
+function resetMobileClientHistoryState() {
+  mobileClientHistoryRequestId += 1;
+  mobileClientHistoryData = null;
+  mobileClientHistoryLoading = false;
+  mobileClientHistoryError = "";
+  mobileClientHistoryExpandedOrder = "";
+  mobileClientHistoryOrderDetails = new Map();
+}
+
+function mobileClientHistoryId(client) {
+  return String(client && (client.codigo_cliente || client.id || client.name || client.nombre_comercial) || "").trim();
+}
+
+function mobileClientHistoryDate(value, includeTime = false) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return "Sin dato";
+  const day = date.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  if (!includeTime) return day;
+  return `${day} ${date.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+async function loadMobileClientHistory(page = 1, append = false) {
+  const client = getSelectedMobileClient();
+  const clientId = mobileClientHistoryId(client);
+  if (!client || !clientId) return;
+  const requestId = ++mobileClientHistoryRequestId;
+  mobileClientHistoryLoading = true;
+  mobileClientHistoryError = "";
+  renderMobileClientHistory();
+  try {
+    const response = await fetchWithTimeout(apiUrl(`api/clients/${encodeURIComponent(clientId)}/history?page=${page}&limit=5`), { cache: "no-store" }, 12000);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "No se pudo cargar el historial.");
+    if (requestId !== mobileClientHistoryRequestId || clientId !== mobileClientHistoryId(getSelectedMobileClient())) return;
+    mobileClientHistoryData = append && mobileClientHistoryData
+      ? { ...payload, orders: [...mobileClientHistoryData.orders, ...payload.orders] }
+      : payload;
+  } catch (error) {
+    if (requestId !== mobileClientHistoryRequestId) return;
+    mobileClientHistoryError = error.message || "No se pudo cargar el historial.";
+  } finally {
+    if (requestId === mobileClientHistoryRequestId) {
+      mobileClientHistoryLoading = false;
+      renderMobileClientHistory();
+    }
+  }
+}
+
+async function loadMobileClientHistoryOrder(orderCode) {
+  const client = getSelectedMobileClient();
+  const clientId = mobileClientHistoryId(client);
+  if (!clientId || !orderCode) return;
+  mobileClientHistoryOrderDetails.set(orderCode, { loading: true });
+  renderMobileClientHistory();
+  try {
+    const response = await fetchWithTimeout(apiUrl(`api/clients/${encodeURIComponent(clientId)}/history/${encodeURIComponent(orderCode)}`), { cache: "no-store" }, 12000);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "No se pudo abrir el pedido.");
+    if (clientId !== mobileClientHistoryId(getSelectedMobileClient())) return;
+    mobileClientHistoryOrderDetails.set(orderCode, { order: payload.order });
+  } catch (error) {
+    mobileClientHistoryOrderDetails.set(orderCode, { error: error.message || "No se pudo abrir el pedido." });
+  }
+  renderMobileClientHistory();
+}
+
+function mobileClientHistoryOrderDetailHtml(orderCode) {
+  if (mobileClientHistoryExpandedOrder !== orderCode) return "";
+  const entry = mobileClientHistoryOrderDetails.get(orderCode);
+  if (!entry || entry.loading) return '<div class="mobile-history-detail"><span class="mobile-history-loading">Cargando detalle...</span></div>';
+  if (entry.error) return `<div class="mobile-history-detail"><span class="form-error">${escapeHtml(entry.error)}</span></div>`;
+  const order = entry.order;
+  return `
+    <div class="mobile-history-detail">
+      <div class="mobile-sale-products">
+        ${(order.items || []).map((line) => `
+          <span>
+            <b>${escapeHtml(line.name)}</b>
+            <small>${numeric(line.qty, 0)} x ${money.format(numeric(line.unitPrice, 0))}${numeric(line.discountPct, 0) ? ` - desc. ${numeric(line.discountPct, 0)}%` : ""} = ${money.format(numeric(line.lineTotal, 0))}</small>
+          </span>
+        `).join("") || "<span><b>Sin detalle de productos</b></span>"}
+      </div>
+      ${order.observations ? `<p>Observaciones: ${escapeHtml(order.observations)}</p>` : ""}
+    </div>
+  `;
 }
 
 function renderMobileClientHistory() {
@@ -5237,24 +5292,47 @@ function renderMobileClientHistory() {
     card.hidden = true;
     return;
   }
-  const history = clientPurchaseHistory(client);
   card.hidden = false;
+  if (mobileClientHistoryLoading && !mobileClientHistoryData) {
+    card.innerHTML = '<small>Historial del cliente</small><strong>Cargando historial...</strong><div class="mobile-history-skeleton" aria-label="Cargando"></div>';
+    return;
+  }
+  if (mobileClientHistoryError && !mobileClientHistoryData) {
+    card.innerHTML = `<small>Historial del cliente</small><strong>${escapeHtml(client.name)}</strong><p class="form-error">${escapeHtml(mobileClientHistoryError)}</p><button class="secondary-btn" type="button" data-client-history-retry>Reintentar</button>`;
+    return;
+  }
+  if (!mobileClientHistoryData) {
+    card.innerHTML = '<small>Historial del cliente</small><strong>Preparando consulta...</strong>';
+    return;
+  }
+  const history = mobileClientHistoryData;
+  const summary = history.summary || {};
+  const frequent = Array.isArray(summary.frequentProducts) ? summary.frequentProducts : [];
   card.innerHTML = `
     <small>Historial del cliente</small>
     <strong>${escapeHtml(client.name)}</strong>
     <div class="mobile-history-grid">
-      <span><b>Ultima visita</b>${escapeHtml(history.lastVisitAt ? formatOrderTime(history.lastVisitAt) : "Sin visitas")}</span>
-      <span><b>Ultimo vendedor</b>${escapeHtml(history.lastOrder?.seller || client.seller || client.vendedor_asignado || "Sin dato")}</span>
-      <span><b>Promedio</b>${money.format(history.average)}</span>
-      <span><b>Dias desde compra</b>${history.daysSince === null ? "Sin dato" : `${history.daysSince}`}</span>
-      <span><b>Saldo</b>${money.format(history.account.currentBalance)}</span>
-      <span><b>Reclamos</b>${history.pendingClaims}</span>
+      <span><b>Ultima visita</b>${escapeHtml(mobileClientHistoryDate(summary.lastVisitAt))}</span>
+      <span><b>Ultima compra</b>${escapeHtml(mobileClientHistoryDate(summary.lastPurchaseAt))}</span>
+      <span><b>Ultimo total</b>${money.format(numeric(summary.lastTotal, 0))}</span>
+      <span><b>Pedidos registrados</b>${numeric(summary.totalOrders, 0)}</span>
+      <span><b>Productos frecuentes</b>${frequent.length}</span>
+      <span><b>Mas comprados</b>${escapeHtml(frequent.map((item) => `${item.name} x${numeric(item.qty, 0)}`).join(" / ") || "Sin compras")}</span>
     </div>
-    <div class="mobile-sale-products">
-      <span><b>Ultimas compras</b><small>${history.orders.slice(0, 10).map((order) => `${order.code} ${money.format(numeric(order.amount, 0))}`).join(" / ") || "Sin compras"}</small></span>
-      <span><b>Productos mas comprados</b><small>${history.topProducts.map((item) => `${item.name} x${item.qty}`).join(" / ") || "Sin historial"}</small></span>
-      <span><b>Observaciones</b><small>${escapeHtml(client.observaciones || client.observations || "Sin observaciones")}</small></span>
+    <div class="mobile-history-orders">
+      <b>Ultimos pedidos</b>
+      ${(history.orders || []).map((order) => `
+        <article class="mobile-history-order">
+          <button type="button" data-client-history-order="${escapeHtml(order.code)}" aria-expanded="${mobileClientHistoryExpandedOrder === order.code ? "true" : "false"}">
+            <span><strong>${escapeHtml(order.code)}</strong><small>${escapeHtml(mobileClientHistoryDate(order.at, true))}</small></span>
+            <span><b>${money.format(numeric(order.total, 0))}</b><small>${escapeHtml(order.paymentMethod || "Sin forma de pago")}</small></span>
+            <span class="tag">${escapeHtml(order.status || "Pendiente")}</span>
+          </button>
+          ${mobileClientHistoryOrderDetailHtml(order.code)}
+        </article>
+      `).join("") || '<p class="empty-note">Sin pedidos registrados.</p>'}
     </div>
+    ${history.pagination && history.pagination.hasMore ? `<button class="secondary-btn compact-list-toggle" type="button" data-client-history-more ${mobileClientHistoryLoading ? "disabled" : ""}>${mobileClientHistoryLoading ? "Cargando..." : "Cargar 5 pedidos mas"}</button>` : ""}
   `;
 }
 
@@ -18282,6 +18360,8 @@ document.querySelectorAll("[data-mobile-client-scope]").forEach((button) => {
 });
 byId("mobileClientSelect").addEventListener("change", (event) => {
   mobileClient = event.target.value;
+  mobileClientHistoryOpen = false;
+  resetMobileClientHistoryState();
   renderMobileSeller();
 });
 byId("mobileClientPickerBtn").addEventListener("click", () => {
@@ -18307,6 +18387,7 @@ byId("mobileClientOptions").addEventListener("click", (event) => {
   byId("mobileClientSearch").value = "";
   setMobilePickerOpen("client", false);
   mobileClientHistoryOpen = false;
+  resetMobileClientHistoryState();
   renderMobileSeller();
 });
 document.querySelectorAll("[data-mobile-preventa-tab]").forEach((button) => {
@@ -18325,8 +18406,32 @@ byId("registerMobileClientLocationBtn").addEventListener("click", registerMobile
 byId("saveMobileClientBtn").addEventListener("click", addMobileClientFromQuickForm);
 byId("mobileClientHistoryBtn").addEventListener("click", () => {
   mobileClientHistoryOpen = !mobileClientHistoryOpen;
+  if (mobileClientHistoryOpen) {
+    resetMobileClientHistoryState();
+    loadMobileClientHistory(1, false);
+  }
   renderMobileClientHistory();
   if (mobileClientHistoryOpen) logMobileConsultation("CLIENTE_HISTORIAL_CONSULTA", mobileClient);
+});
+byId("mobileClientHistoryCard").addEventListener("click", (event) => {
+  if (event.target.closest("[data-client-history-retry]")) {
+    loadMobileClientHistory(1, false);
+    return;
+  }
+  if (event.target.closest("[data-client-history-more]")) {
+    const nextPage = numeric(mobileClientHistoryData && mobileClientHistoryData.pagination && mobileClientHistoryData.pagination.page, 1) + 1;
+    loadMobileClientHistory(nextPage, true);
+    return;
+  }
+  const orderButton = event.target.closest("[data-client-history-order]");
+  if (!orderButton) return;
+  const orderCode = orderButton.dataset.clientHistoryOrder;
+  mobileClientHistoryExpandedOrder = mobileClientHistoryExpandedOrder === orderCode ? "" : orderCode;
+  renderMobileClientHistory();
+  if (mobileClientHistoryExpandedOrder && !mobileClientHistoryOrderDetails.has(orderCode)) {
+    loadMobileClientHistoryOrder(orderCode);
+    logMobileConsultation("CLIENTE_HISTORIAL_PEDIDO", orderCode);
+  }
 });
 byId("mobileClientWhatsAppBtn").addEventListener("click", openSelectedClientWhatsApp);
 byId("mobileSalesSearch").addEventListener("input", (event) => {

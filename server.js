@@ -19,7 +19,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-119";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-120";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -2808,6 +2808,117 @@ function sameText(a, b) {
 
 function clientRecordId(client) {
   return String(client && (client.codigo_cliente || client.name || client.nombre_comercial) || "").trim();
+}
+
+function clientHistoryOrderAt(order) {
+  return String(order && (order.createdAt || order.receivedAt || order.updatedAt) || "");
+}
+
+function clientHistoryOrderItems(order) {
+  const source = Array.isArray(order && order.items) && order.items.length
+    ? order.items
+    : orderEngine.parseProductText(order && order.products || "");
+  return source.map((item) => {
+    const qty = Math.max(0, numeric(item.requestedQty ?? item.qty ?? item.cantidad, 0));
+    const unitPrice = Math.max(0, numeric(item.unitPrice ?? item.price ?? item.precio, 0));
+    const discountPct = Math.min(100, Math.max(0, numeric(item.discountPct ?? item.discount ?? item.descuento, 0)));
+    const lineTotal = Math.max(0, numeric(item.lineTotal ?? item.total, qty * unitPrice * (1 - discountPct / 100)));
+    return {
+      productCode: String(item.productCode || item.codigo_producto || item.code || "").trim(),
+      name: String(item.name || item.product || item.descripcion || "Articulo").trim() || "Articulo",
+      qty,
+      unitPrice,
+      discountPct,
+      lineTotal
+    };
+  });
+}
+
+function clientHistoryOrders(state, client) {
+  const aliases = new Set([
+    client && client.name,
+    client && client.nombre_comercial,
+    client && client.razon_social
+  ].map(normalizeSearchText).filter(Boolean));
+  return (Array.isArray(state && state.orders) ? state.orders : [])
+    .filter((order) => aliases.has(normalizeSearchText(order && order.client)))
+    .sort((left, right) => new Date(clientHistoryOrderAt(right) || 0) - new Date(clientHistoryOrderAt(left) || 0));
+}
+
+function compactClientHistoryOrder(order) {
+  return {
+    code: String(order.code || "").trim(),
+    at: clientHistoryOrderAt(order),
+    total: Math.max(0, numeric(order.amount, 0)),
+    status: String(order.status || "Pendiente").trim(),
+    paymentMethod: String(order.paymentMethod || order.forma_pago || "").trim(),
+    productCount: clientHistoryOrderItems(order).length
+  };
+}
+
+function clientHistorySummary(state, client, orders) {
+  const validPurchases = orders.filter((order) => !["cancelado", "anulado", "rechazado"].includes(normalizeSearchText(order.status)));
+  const lastOrder = validPurchases[0] || null;
+  const visits = (Array.isArray(state && state.noPurchaseVisits) ? state.noPurchaseVisits : [])
+    .filter((visit) => normalizeSearchText(visit.clientCode) === normalizeSearchText(client.codigo_cliente)
+      || normalizeSearchText(visit.client) === normalizeSearchText(client.name || client.nombre_comercial))
+    .sort((left, right) => new Date(right.at || 0) - new Date(left.at || 0));
+  const visitCandidates = [clientHistoryOrderAt(orders[0]), visits[0] && visits[0].at].filter(Boolean);
+  const lastVisitAt = visitCandidates.sort((left, right) => new Date(right) - new Date(left))[0] || "";
+  const products = new Map();
+  validPurchases.forEach((order) => clientHistoryOrderItems(order).forEach((line) => {
+    const key = normalizeSearchText(line.productCode || line.name);
+    const current = products.get(key) || { name: line.name, qty: 0, total: 0 };
+    current.qty += line.qty;
+    current.total += line.lineTotal;
+    products.set(key, current);
+  }));
+  return {
+    lastVisitAt,
+    lastPurchaseAt: lastOrder ? clientHistoryOrderAt(lastOrder) : "",
+    lastTotal: lastOrder ? Math.max(0, numeric(lastOrder.amount, 0)) : 0,
+    totalOrders: orders.length,
+    frequentProducts: Array.from(products.values())
+      .sort((left, right) => right.qty - left.qty || right.total - left.total)
+      .slice(0, 5)
+  };
+}
+
+function clientHistoryPagePayload(state, client, searchParams, stateVersion) {
+  const startedAt = performance.now();
+  const page = Math.max(1, Math.floor(numeric(searchParams.get("page"), 1)));
+  const limit = Math.min(20, Math.max(1, Math.floor(numeric(searchParams.get("limit"), 5))));
+  const orders = clientHistoryOrders(state, client);
+  const totalPages = Math.max(1, Math.ceil(orders.length / limit));
+  const currentPage = Math.min(page, totalPages);
+  const offset = (currentPage - 1) * limit;
+  return {
+    ok: true,
+    version: stateVersion,
+    client: { id: clientRecordId(client), name: client.name || client.nombre_comercial || "Cliente" },
+    summary: clientHistorySummary(state, client, orders),
+    orders: orders.slice(offset, offset + limit).map(compactClientHistoryOrder),
+    pagination: {
+      page: currentPage,
+      limit,
+      total: orders.length,
+      totalPages,
+      hasMore: offset + limit < orders.length
+    },
+    performance: { queryMs: Math.round((performance.now() - startedAt) * 10) / 10 }
+  };
+}
+
+function clientHistoryOrderDetail(state, client, orderCode) {
+  const order = clientHistoryOrders(state, client).find((item) => sameText(item.code, orderCode));
+  if (!order) return null;
+  return {
+    ...compactClientHistoryOrder(order),
+    client: String(order.client || client.name || "").trim(),
+    seller: String(order.seller || "").trim(),
+    observations: String(order.observations || order.observaciones || "").trim(),
+    items: clientHistoryOrderItems(order)
+  };
 }
 
 function findClientIndex(state, id) {
@@ -5932,6 +6043,46 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    const clientHistoryDetailMatch = requestUrl.pathname.match(/^\/api\/clients\/([^/]+)\/history\/([^/]+)$/);
+    if (clientHistoryDetailMatch && req.method === "GET") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (!["admin", "seller"].includes(sessionUser.role)) {
+        sendJson(res, 403, { ok: false, error: "Historial permitido solo para Preventa o Administracion." });
+        return;
+      }
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      const clientId = decodeURIComponent(clientHistoryDetailMatch[1]);
+      const clientIndex = findClientIndex(currentState, clientId);
+      if (clientIndex < 0) return sendJson(res, 404, { ok: false, error: "Cliente no encontrado." });
+      const detail = clientHistoryOrderDetail(currentState, currentState.clients[clientIndex], decodeURIComponent(clientHistoryDetailMatch[2]));
+      if (!detail) return sendJson(res, 404, { ok: false, error: "Pedido no encontrado para este cliente." });
+      sendJson(res, 200, { ok: true, version: currentPayload.version, order: detail });
+      return;
+    }
+
+    const clientHistoryMatch = requestUrl.pathname.match(/^\/api\/clients\/([^/]+)\/history$/);
+    if (clientHistoryMatch && req.method === "GET") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (!["admin", "seller"].includes(sessionUser.role)) {
+        sendJson(res, 403, { ok: false, error: "Historial permitido solo para Preventa o Administracion." });
+        return;
+      }
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      const clientId = decodeURIComponent(clientHistoryMatch[1]);
+      const clientIndex = findClientIndex(currentState, clientId);
+      if (clientIndex < 0) return sendJson(res, 404, { ok: false, error: "Cliente no encontrado." });
+      const payload = clientHistoryPagePayload(currentState, currentState.clients[clientIndex], requestUrl.searchParams, currentPayload.version);
+      sendJson(res, 200, payload, {
+        "Server-Timing": `client-history;dur=${payload.performance.queryMs}`,
+        "X-DL-Client-History-Ms": String(payload.performance.queryMs)
+      });
+      return;
+    }
+
     const clientEditMatch = requestUrl.pathname.match(/^\/api\/clients\/([^/]+)\/edit$/);
     if (clientEditMatch && req.method === "POST") {
       const sessionUser = requireUser(req, res);
@@ -6628,7 +6779,7 @@ const server = http.createServer(async (req, res) => {
       };
       currentState.preventaConsultations.unshift(record);
       currentState.preventaConsultations = currentState.preventaConsultations.slice(0, 5000);
-      writeStateResponse(res, currentState, { consultation: record }, auditEntry(req, sessionUser, input, {
+      writeCompactStateResponse(res, currentState, { consultation: record }, auditEntry(req, sessionUser, input, {
         action: record.action,
         entityType: "preventa",
         entityId: record.seller || sessionUser.username,
@@ -6636,7 +6787,7 @@ const server = http.createServer(async (req, res) => {
         previousValue: null,
         newValue: record,
         note: record.note || "Consulta realizada desde Preventa"
-      }), null, sessionUser);
+      }), null);
       return;
     }
 
