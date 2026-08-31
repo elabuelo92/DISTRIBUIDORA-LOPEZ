@@ -3434,6 +3434,36 @@ h2 {
   margin-top: 12px;
 }
 
+.mobile-order-share-card {
+  gap: 8px;
+  border-color: #8bcdbf;
+  background: #f0fbf7;
+}
+
+.mobile-order-share-card > strong,
+.mobile-order-share-card > p {
+  overflow-wrap: anywhere;
+}
+
+.mobile-order-share-card .phone-actions {
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) auto;
+}
+
+.mobile-order-share-card .phone-actions button {
+  min-height: 42px;
+  white-space: normal;
+}
+
+@media (max-width: 420px) {
+  .mobile-order-share-card .phone-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .mobile-order-share-card .phone-actions .ghost-btn {
+    grid-column: 1 / -1;
+  }
+}
+
 .mobile-history-order {
   overflow: hidden;
   border: 1px solid var(--line);

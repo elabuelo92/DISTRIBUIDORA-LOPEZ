@@ -134,7 +134,7 @@ echo __SERVICE__; systemctl show {SERVICE} -p MainPID -p MemoryCurrent -p Active
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=["inspect", "deploy"])
-    parser.add_argument("--version", default="8790-120")
+    parser.add_argument("--version", default="8790-121")
     args = parser.parse_args()
     client = connect()
     try:

@@ -181,9 +181,9 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-120";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "30/08/2026 23:25 ART";
-const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-30T23:25:53-03:00";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-121";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "30/08/2026 23:55 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-30T23:55:41-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
 
@@ -307,6 +307,7 @@ let mobileNewClientLocation = null;
 let mobileClientCreateInFlight = false;
 let mobileClientPendingOperation = null;
 let mobileOrderPendingOperation = null;
+let mobileLastConfirmedOrderShare = null;
 let mobileClientOptionsExpanded = false;
 let mobileProductOptionsExpanded = false;
 let mobileSalesSearchTerm = "";
@@ -1127,6 +1128,68 @@ function openExternalUrl(url, context = "enlace") {
     console.warn(`No se pudo abrir ${context}.`, error);
     return false;
   }
+}
+
+function mobileOrderShareSummary() {
+  return mobileLastConfirmedOrderShare && window.DLShareEngine
+    ? window.DLShareEngine.buildOrderSummary(mobileLastConfirmedOrderShare)
+    : null;
+}
+
+function renderMobileOrderShareCard() {
+  const card = byId("mobileOrderShareCard");
+  if (!card) return;
+  const summary = mobileOrderShareSummary();
+  card.hidden = !summary;
+  if (!summary) return;
+  byId("mobileOrderShareTitle").textContent = `${summary.orderCode} - ${summary.clientName}`;
+  byId("mobileOrderShareMeta").textContent = summary.phone
+    ? `${money.format(summary.total)} - WhatsApp ${summary.phone}`
+    : `${money.format(summary.total)} - El cliente no tiene telefono cargado`;
+  byId("shareMobileOrderWhatsAppBtn").disabled = !summary.phone;
+}
+
+async function shareMobileOrderWithDevice(summary = mobileOrderShareSummary()) {
+  if (!summary) return false;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: `${summary.orderCode} - Distribuidora Lopez`, text: summary.text });
+      return true;
+    } catch (error) {
+      if (error && error.name === "AbortError") return false;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(summary.text);
+    showCompactNotice("Resumen copiado. Ya se puede pegar en la aplicacion elegida.", "ok");
+    return true;
+  } catch {
+    window.prompt("Copiar resumen del pedido:", summary.text);
+    return true;
+  }
+}
+
+async function shareConfirmedMobileOrderWhatsApp() {
+  const summary = mobileOrderShareSummary();
+  if (!summary) return;
+  if (!summary.phone) {
+    window.alert("El cliente no tiene un telefono registrado. Usar Compartir para elegir otra aplicacion.");
+    return;
+  }
+  const url = window.DLShareEngine.whatsappUrl(summary);
+  if (!url || !openExternalUrl(url, "WhatsApp del cliente")) {
+    await shareMobileOrderWithDevice(summary);
+    return;
+  }
+  try {
+    await postOperationalAction("api/preventa/whatsapp-contact", {
+      client: summary.clientName,
+      seller: mobileSeller,
+      phone: summary.phone,
+      orderCode: summary.orderCode,
+      gps: lastOwnLocation && lastOwnLocation.location || null
+    });
+  } catch {}
 }
 
 function emergencyCleanLocalData() {
@@ -4455,6 +4518,7 @@ function renderMobileSeller() {
   renderMobileProgressDashboard();
   renderMobileSalesPanel();
   renderMobileClientHistory();
+  renderMobileOrderShareCard();
   renderSellerStatsPanel();
   renderLocationStatus();
   renderMobilePreventaTabs();
@@ -16813,6 +16877,14 @@ async function addMobileOrder() {
     });
     const order = payload.order;
     applyOrderPatches([order], payload.version);
+    mobileLastConfirmedOrderShare = {
+      order,
+      client: {
+        name: client.name,
+        nombre_comercial: client.nombre_comercial || "",
+        telefono: client.telefono || client.phone || client.celular || ""
+      }
+    };
     mobileOrderPendingOperation = null;
     resetMobileOrderForm(client.name);
     window.alert(order.status === ORDER_STATUS.COMMERCIAL_APPROVAL
@@ -16821,6 +16893,7 @@ async function addMobileOrder() {
       ? `${order.code} registrado. Quedo pendiente por faltantes de abastecimiento.`
       : `${order.code} registrado. Quedo en preparacion.`);
     renderForCurrentUser();
+    renderMobileOrderShareCard();
   } catch (error) {
     if (!ambiguousClientCreateError(error)) mobileOrderPendingOperation = null;
     window.alert(ambiguousClientCreateError(error)
@@ -18620,6 +18693,12 @@ byId("stockEntryForm").addEventListener("submit", async (event) => {
 
 byId("sendMobileOrderBtn").addEventListener("click", () => {
   addMobileOrder();
+});
+byId("shareMobileOrderWhatsAppBtn").addEventListener("click", shareConfirmedMobileOrderWhatsApp);
+byId("shareMobileOrderDeviceBtn").addEventListener("click", () => shareMobileOrderWithDevice());
+byId("closeMobileOrderShareBtn").addEventListener("click", () => {
+  mobileLastConfirmedOrderShare = null;
+  renderMobileOrderShareCard();
 });
 byId("printOrdersBtn").addEventListener("click", () => {
   const printable = state.orders.filter((order) => [ORDER_STATUS.READY, ORDER_STATUS.ASSEMBLY, ORDER_STATUS.LABELED, ORDER_STATUS.READY_DISPATCH].includes(order.status));
