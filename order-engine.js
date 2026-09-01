@@ -702,15 +702,32 @@
         active: true,
         status: "Activa"
       }, rules.length);
-      const overlap = rules.find((existing, existingIndex) => existingIndex !== index
+      const overlaps = rules.map((existing, existingIndex) => ({ existing, existingIndex }))
+        .filter(({ existing, existingIndex }) => existingIndex !== index
         && existing.active !== false
         && existing.status !== "Inactiva"
         && existing.status !== "Historica"
         && commissionRuleScopeMatches(existing, rule)
         && commissionRuleRangesOverlap(existing, rule));
-      if (overlap) throw new Error(`Ya existe una regla activa superpuesta para ${rule.userLabel || rule.username || "todos los vendedores"}: ${overlap.id}.`);
       rules[index] = historical;
+      const superseded = [];
+      overlaps.forEach(({ existing, existingIndex }) => {
+        const existingStart = new Date(validIso(existing.startsAt || effectiveAt.toISOString())).getTime();
+        const closeAt = Math.max(existingStart, effectiveAt.getTime() - 1);
+        const archived = normalizeCommissionRule({
+          ...existing,
+          active: false,
+          status: "Historica",
+          endsAt: new Date(closeAt).toISOString(),
+          updatedAt: changedAt,
+          updatedBy: actor.name || actor.username || "Administracion",
+          note: `Reemplazada por modificacion de ${rule.id}: ${motive}`
+        }, existingIndex);
+        rules[existingIndex] = archived;
+        superseded.push({ id: archived.id, previous: clone(existing), next: clone(archived) });
+      });
       rules.unshift(rule);
+      rule.supersededRuleIds = superseded.map((entry) => entry.id);
       auditAction = "COMISION_REGLA_VERSIONADA";
     } else {
       const overlap = rule.active === false ? null : rules.find((existing, existingIndex) => existingIndex !== index
@@ -735,6 +752,7 @@
       ruleId: rule.id,
       previous,
       next: clone(rule),
+      superseded: Array.isArray(rule.supersededRuleIds) ? clone(rule.supersededRuleIds) : [],
       motive
     };
     state.commissionAudit.unshift(audit);

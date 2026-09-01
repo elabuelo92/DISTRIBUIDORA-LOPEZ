@@ -7513,11 +7513,18 @@ menu {
   margin: 10px 0;
 }
 
+.client-hours-header,
 .client-hours-row {
   display: grid;
   grid-template-columns: minmax(100px, 1fr) repeat(4, minmax(82px, 0.8fr));
   gap: 6px;
   align-items: center;
+}
+
+.client-hours-header {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
 }
 
 .client-hours-row input[type="time"] {
@@ -7529,6 +7536,10 @@ menu {
   .mobile-month-values {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .client-hours-header {
+    display: none;
   }
 
   .client-hours-row {

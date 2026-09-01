@@ -16230,14 +16230,16 @@ function setFormValue(form, name, value) {
 function renderClientHoursGrid(container, schedule = []) {
   if (!container || !ClientHours) return;
   const rows = new Map(ClientHours.normalize(schedule).map((row) => [row.day, row.ranges]));
-  container.innerHTML = ClientHours.DAYS.map((day) => {
+  container.innerHTML = `<div class="client-hours-header" aria-hidden="true">
+    <span>Dia</span><span>Manana desde</span><span>Manana hasta</span><span>Tarde desde</span><span>Tarde hasta</span>
+  </div>` + ClientHours.DAYS.map((day) => {
     const ranges = rows.get(day) || [];
     return `<div class="client-hours-row" data-client-hours-day="${escapeHtml(day)}">
       <label class="inline-check"><input type="checkbox" data-client-hours-enabled ${ranges.length ? "checked" : ""}>${escapeHtml(day)}</label>
-      <input type="time" data-client-hours-from="0" value="${escapeHtml(ranges[0] && ranges[0].from || "")}" aria-label="${escapeHtml(day)} desde">
-      <input type="time" data-client-hours-to="0" value="${escapeHtml(ranges[0] && ranges[0].to || "")}" aria-label="${escapeHtml(day)} hasta">
-      <input type="time" data-client-hours-from="1" value="${escapeHtml(ranges[1] && ranges[1].from || "")}" aria-label="${escapeHtml(day)} segundo turno desde">
-      <input type="time" data-client-hours-to="1" value="${escapeHtml(ranges[1] && ranges[1].to || "")}" aria-label="${escapeHtml(day)} segundo turno hasta">
+      <input type="time" data-client-hours-from="0" value="${escapeHtml(ranges[0] && ranges[0].from || "")}" aria-label="${escapeHtml(day)} manana desde">
+      <input type="time" data-client-hours-to="0" value="${escapeHtml(ranges[0] && ranges[0].to || "")}" aria-label="${escapeHtml(day)} manana hasta">
+      <input type="time" data-client-hours-from="1" value="${escapeHtml(ranges[1] && ranges[1].from || "")}" aria-label="${escapeHtml(day)} tarde desde">
+      <input type="time" data-client-hours-to="1" value="${escapeHtml(ranges[1] && ranges[1].to || "")}" aria-label="${escapeHtml(day)} tarde hasta">
     </div>`;
   }).join("");
 }
@@ -16250,10 +16252,10 @@ function readClientHoursGrid(container) {
     const ranges = [0, 1].map((index) => ({
       from: row.querySelector(`[data-client-hours-from="${index}"]`).value,
       to: row.querySelector(`[data-client-hours-to="${index}"]`).value
-    })).filter((range) => range.from && range.to);
-    if (ranges.length) rows.push({ day: row.dataset.clientHoursDay, ranges });
+    }));
+    rows.push({ day: row.dataset.clientHoursDay, ranges });
   });
-  return ClientHours.normalize(rows);
+  return ClientHours.assertValid(rows);
 }
 
 function setClientVisitDaysForm(form, client) {

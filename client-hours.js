@@ -24,6 +24,43 @@
     }).filter(Boolean).sort((left, right) => DAYS.indexOf(left.day) - DAYS.indexOf(right.day));
   }
 
+  function validationErrors(value) {
+    const rows = Array.isArray(value) ? value : [];
+    const errors = [];
+    rows.forEach((row) => {
+      const day = DAYS.find((item) => item.toLowerCase() === String(row && (row.day || row.dia) || "").trim().toLowerCase());
+      if (!day) {
+        errors.push("El dia del horario no es valido.");
+        return;
+      }
+      const ranges = Array.isArray(row.ranges) ? row.ranges.slice(0, 2) : [];
+      const labels = ["manana", "tarde"];
+      let completed = 0;
+      ranges.forEach((range, index) => {
+        const from = time(range && (range.from || range.desde));
+        const to = time(range && (range.to || range.hasta));
+        if (!from && !to) return;
+        if (!from || !to) {
+          errors.push(`${day}: completar desde y hasta del turno ${labels[index]}.`);
+          return;
+        }
+        if (from >= to) {
+          errors.push(`${day}: la hora desde debe ser anterior a la hora hasta del turno ${labels[index]}.`);
+          return;
+        }
+        completed += 1;
+      });
+      if (!completed && !errors.some((error) => error.startsWith(`${day}:`))) errors.push(`${day}: completar al menos un rango horario.`);
+    });
+    return errors;
+  }
+
+  function assertValid(value) {
+    const errors = validationErrors(value);
+    if (errors.length) throw new Error(errors[0]);
+    return normalize(value);
+  }
+
   function compactDays(days) {
     if (!days.length) return "";
     if (days.length === 5 && DAYS.slice(0, 5).every((day) => days.includes(day))) return "Lun-Vie";
@@ -49,5 +86,5 @@
     return row ? row.ranges.map((range) => `${range.from}-${range.to}`).join(" / ") : "";
   }
 
-  return { DAYS, normalize, summary, today };
+  return { DAYS, normalize, validationErrors, assertValid, summary, today };
 });

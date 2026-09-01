@@ -3004,6 +3004,10 @@ function editedClientFromInput(previous, input, user) {
   const visitOrders = Object.prototype.hasOwnProperty.call(input, "ordenes_visita")
     ? normalizedVisitOrders(input.ordenes_visita)
     : normalizedVisitOrders(previous.ordenes_visita);
+  const hasHoursInput = Object.prototype.hasOwnProperty.call(input, "horarios_atencion");
+  const clientHours = hasHoursInput
+    ? clientHoursEngine.assertValid(input.horarios_atencion || [])
+    : clientHoursEngine.normalize(previous.horarios_atencion);
   return {
     ...previous,
     codigo_cliente: String(input.codigo_cliente || previous.codigo_cliente || "").trim(),
@@ -3039,9 +3043,9 @@ function editedClientFromInput(previous, input, user) {
     estado: String(input.estado || "Activo").trim() || "Activo",
     status: String(input.estado || "Activo").trim() || "Activo",
     observaciones: String(input.observaciones || "").trim(),
-    horarios_atencion: clientHoursEngine.normalize(input.horarios_atencion),
-    horario_atencion: clientHoursEngine.summary(input.horarios_atencion, input.horario_atencion),
-    horario_observacion: String(input.horario_observacion || "").trim(),
+    horarios_atencion: clientHours,
+    horario_atencion: clientHoursEngine.summary(clientHours, input.horario_atencion ?? previous.horario_atencion),
+    horario_observacion: String(input.horario_observacion ?? previous.horario_observacion ?? "").trim(),
     latitud: input.latitud === null || input.latitud === "" ? null : numeric(input.latitud, null),
     longitud: input.longitud === null || input.longitud === "" ? null : numeric(input.longitud, null),
     updatedAt: new Date().toISOString()
@@ -3076,6 +3080,7 @@ function mobileClientFromInput(input, user) {
   const limit = Math.max(0, numeric(input.limite_credito ?? input.limit, 0));
   const at = new Date().toISOString();
   const visitDays = normalizedClientVisitDays(input, null);
+  const clientHours = clientHoursEngine.assertValid(input.horarios_atencion || []);
   return {
     codigo_cliente: String(input.codigo_cliente || `MOB-${Date.now()}`).trim(),
     name,
@@ -3110,8 +3115,8 @@ function mobileClientFromInput(input, user) {
     estado: String(input.estado || "Activo").trim() || "Activo",
     status: String(input.estado || "Activo").trim() || "Activo",
     observaciones: String(input.observaciones || "Alta rapida desde celular").trim(),
-    horarios_atencion: clientHoursEngine.normalize(input.horarios_atencion),
-    horario_atencion: clientHoursEngine.summary(input.horarios_atencion, input.horario_atencion),
+    horarios_atencion: clientHours,
+    horario_atencion: clientHoursEngine.summary(clientHours, input.horario_atencion),
     horario_observacion: String(input.horario_observacion || "").trim(),
     latitud: gps.lat,
     longitud: gps.lng,

@@ -27,6 +27,20 @@ assert.throws(() => engine.saveCommissionRule(conflictState, {
   motive: "Intento duplicado"
 }, { name: "Admin" }), /superpuesta/, "impide una tercera regla activa superpuesta");
 
+const repairedConflict = engine.saveCommissionRule(conflictState, {
+  id: "AXEL-BY-NAME",
+  role: "seller",
+  userName: "Axel",
+  rubro: "*",
+  percent: 4,
+  startsAt: "2026-09-01T00:00:00.000Z",
+  motive: "La ultima modificacion reemplaza la configuracion anterior"
+}, { name: "Admin", username: "admin" });
+assert.equal(repairedConflict.rule.percent, 4);
+assert.equal(engine.analyzeCommissionRules(conflictState).conflicts.length, 0, "la edicion sanea superposiciones previas");
+assert.equal(conflictState.commissionSettings.rules.filter((rule) => rule.status === "Activa").length, 1, "queda una sola regla operativa");
+assert.equal(conflictState.commissionSettings.rules.find((rule) => rule.id === "AXEL-BY-USER").status, "Historica", "la regla anterior queda solo en historial");
+
 const versionState = baseState();
 versionState.commissionSettings.rules = [
   { id: "AXEL-RESTO", role: "seller", username: "david", userLabel: "Axel", rubro: "*", percent: 4, startsAt: "2026-08-01T00:00:00.000Z", active: true, status: "Activa" }
@@ -61,6 +75,7 @@ console.log(JSON.stringify({
   version: "8790-122",
   detectedConflicts: diagnosis.conflicts.length,
   duplicateRejected: true,
+  contaminatedEditRepaired: true,
   activeRulesAfterEdit: versionState.commissionSettings.rules.filter((rule) => rule.status === "Activa").length,
   historicalRulesAfterEdit: versionState.commissionSettings.rules.filter((rule) => rule.status === "Historica").length,
   augustCommission: august[0].total,
