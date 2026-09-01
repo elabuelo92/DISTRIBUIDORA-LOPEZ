@@ -7507,6 +7507,37 @@ menu {
   font-weight: 700;
 }
 
+.mobile-visit-hours {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  min-width: 0;
+}
+
+.mobile-visit-hours legend {
+  padding: 0 5px;
+  font-weight: 800;
+}
+
+.mobile-visit-hours > p {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.mobile-visit-hours-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.mobile-visit-hours-grid input[type="time"] {
+  min-width: 0;
+  width: 100%;
+}
+
 [data-client-hours-grid] {
   display: grid;
   gap: 6px;

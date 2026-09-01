@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-124-r20260901a">
+    <link rel="manifest" href="manifest.json?v=8790-125-r20260901a">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-124-r20260901a">
+    <link rel="stylesheet" href="styles.css?v=8790-125-r20260901a">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -159,8 +159,8 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-124</strong>
-              <small data-version-build>Actualizada 30/08/2026 23:55</small>
+              <strong data-version-value>8790-125</strong>
+              <small data-version-build>Actualizada 01/09/2026 00:10</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
             <button class="ghost-btn app-back-btn" id="appBackBtn" type="button">Volver</button>
@@ -371,14 +371,6 @@
                     Consumidor Final
                   </label>
                 </div>
-                <details class="client-hours-editor compact">
-                  <summary>Horario de atencion / recepcion</summary>
-                  <div id="mobileClientHoursGrid" data-client-hours-grid></div>
-                  <label class="phone-field">
-                    Observacion de horario
-                    <input id="mobileClientHoursNote" type="text" placeholder="Ej: recibe mercaderia hasta las 11:30">
-                  </label>
-                </details>
                 <label class="phone-field">
                   Domicilio
                   <input id="mobileNewClientAddress" type="text" placeholder="Calle, numero o referencia">
@@ -425,6 +417,32 @@
                     <input id="mobileNewClientRoute" type="text" placeholder="Ej: Martes / San Vicente">
                   </label>
                 </div>
+                <fieldset class="mobile-visit-hours">
+                  <legend>Franjas horarias para visitar</legend>
+                  <p>Completar manana, tarde o ambas.</p>
+                  <div class="mobile-visit-hours-grid">
+                    <label class="phone-field">
+                      Manana desde
+                      <input id="mobileClientMorningFrom" type="time">
+                    </label>
+                    <label class="phone-field">
+                      Manana hasta
+                      <input id="mobileClientMorningTo" type="time">
+                    </label>
+                    <label class="phone-field">
+                      Tarde desde
+                      <input id="mobileClientAfternoonFrom" type="time">
+                    </label>
+                    <label class="phone-field">
+                      Tarde hasta
+                      <input id="mobileClientAfternoonTo" type="time">
+                    </label>
+                  </div>
+                  <label class="phone-field">
+                    Observacion de horario
+                    <input id="mobileClientHoursNote" type="text" placeholder="Ej: recibe mercaderia hasta las 11:30">
+                  </label>
+                </fieldset>
                 <div class="phone-actions compact">
                   <label class="phone-field">
                     Pago
@@ -2703,7 +2721,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-124</span>
+          <span id="appFooterVersion">Version del sistema: 8790-125</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -4341,17 +4359,17 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-124-r20260901a"></script>
-    <script src="maps-config.js?v=8790-124-r20260901a"></script>
-    <script src="order-engine.js?v=8790-124-r20260901a"></script>
-    <script src="account-engine.js?v=8790-124-r20260901a"></script>
-    <script src="delivery-engine.js?v=8790-124-r20260901a"></script>
-    <script src="legal-engine.js?v=8790-124-r20260901a"></script>
-    <script src="client-portfolio-engine.js?v=8790-124-r20260901a"></script>
-    <script src="client-hours.js?v=8790-124-r20260901a"></script>
-    <script src="share-engine.js?v=8790-124-r20260901a"></script>
-    <script src="progressive-list.js?v=8790-124-r20260901a"></script>
-    <script src="app.js?v=8790-124-r20260901a"></script>
+    <script src="config.js?v=8790-125-r20260901a"></script>
+    <script src="maps-config.js?v=8790-125-r20260901a"></script>
+    <script src="order-engine.js?v=8790-125-r20260901a"></script>
+    <script src="account-engine.js?v=8790-125-r20260901a"></script>
+    <script src="delivery-engine.js?v=8790-125-r20260901a"></script>
+    <script src="legal-engine.js?v=8790-125-r20260901a"></script>
+    <script src="client-portfolio-engine.js?v=8790-125-r20260901a"></script>
+    <script src="client-hours.js?v=8790-125-r20260901a"></script>
+    <script src="share-engine.js?v=8790-125-r20260901a"></script>
+    <script src="progressive-list.js?v=8790-125-r20260901a"></script>
+    <script src="app.js?v=8790-125-r20260901a"></script>
   </body>
 </html>
 

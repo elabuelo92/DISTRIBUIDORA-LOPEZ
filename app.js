@@ -6761,6 +6761,7 @@ function code39Svg(value, options = {}) {
   const wide = numeric(options.wide, narrow * 3) || narrow * 3;
   const height = numeric(options.height, 72) || 72;
   const quiet = numeric(options.quiet, 14) || 14;
+  const showCaption = options.showCaption !== false;
   const encoded = `*${text}*`;
   let x = quiet;
   const bars = [];
@@ -6774,7 +6775,12 @@ function code39Svg(value, options = {}) {
     x += narrow;
   });
   const width = x + quiet;
-  return `<svg class="barcode-svg" viewBox="0 0 ${width} ${height + 28}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Codigo ${escapeHtml(text)}">${bars.join("")}<text x="${width / 2}" y="${height + 22}" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" font-weight="700">${escapeHtml(caption)}</text></svg>`;
+  const viewHeight = height + (showCaption ? 28 : 0);
+  const captionNode = showCaption
+    ? `<text x="${width / 2}" y="${height + 22}" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" font-weight="700">${escapeHtml(caption)}</text>`
+    : "";
+  const preserveAspectRatio = options.stretch ? "none" : "xMidYMid meet";
+  return `<svg class="barcode-svg" viewBox="0 0 ${width} ${viewHeight}" preserveAspectRatio="${preserveAspectRatio}" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Codigo ${escapeHtml(text)}">${bars.join("")}${captionNode}</svg>`;
 }
 
 function orderLabelFields(order) {
@@ -6822,7 +6828,15 @@ function orderPackageLabels(order) {
 
 function smartLabelPageHtml(order, packageLabel) {
   const label = orderLabelFields(order);
-  const barcode = code39Svg(packageLabel.scanCode, { height: 100, narrow: 3, wide: 7, quiet: 24, caption: formatLabelHumanCode(packageLabel.scanCode) });
+  const humanScanCode = formatLabelHumanCode(packageLabel.scanCode);
+  const barcode = code39Svg(packageLabel.scanCode, {
+    height: 100,
+    narrow: 3,
+    wide: 7,
+    quiet: 18,
+    showCaption: false,
+    stretch: true
+  });
   return `
     <section class="smart-label-page">
       <header>
@@ -6854,6 +6868,7 @@ function smartLabelPageHtml(order, packageLabel) {
       </div>
       <div class="smart-label-code">
         ${barcode}
+        <strong>${escapeHtml(humanScanCode)}</strong>
         <span>ID BULTO: ${escapeHtml(formatLabelHumanCode(packageLabel.uniqueId || packageLabel.scanCode))}</span>
       </div>
     </section>
@@ -6872,12 +6887,13 @@ function printOrderLabel(order) {
         <style>
           @page { size: 100mm 60mm; margin: 0; }
           * { box-sizing: border-box; }
-          html, body { width: 100mm; margin: 0; padding: 0; }
-          body { font-family: Arial, sans-serif; color: #111827; overflow: hidden; }
-          .smart-label-page { width: 99mm; height: 59mm; margin: 0; page-break-inside: avoid; break-inside: avoid; page-break-after: always; break-after: page; border: 2px solid #111827; padding: 3mm; display: grid; grid-template-rows: auto minmax(0, 1fr) 19mm; gap: 1.5mm; overflow: hidden; }
+          html, body { width: 100mm; height: 60mm; margin: 0; padding: 0; }
+          body { font-family: Arial, sans-serif; color: #111827; overflow: hidden; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .smart-label-page { width: 100mm; height: 60mm; margin: 0; page-break-inside: avoid; break-inside: avoid; page-break-after: always; break-after: page; border: 0.5mm solid #111827; padding: 2mm; display: grid; grid-template-rows: 15mm 16mm 20mm; gap: 1mm; overflow: hidden; }
           .smart-label-page:last-child { page-break-after: auto; break-after: auto; }
           @media print {
-            html, body { width: 100mm; height: auto; min-height: 0; overflow: visible; }
+            html, body { width: 100mm !important; height: 60mm !important; min-height: 60mm; overflow: visible; }
+            .smart-label-page { width: 100mm !important; height: 60mm !important; }
           }
           header { display: grid; grid-template-columns: minmax(0, 1fr) 42mm; gap: 3mm; align-items: stretch; border-bottom: 1.5px solid #111827; padding-bottom: 1.5mm; min-height: 0; }
           .smart-label-title span { display: block; font-size: 7.5pt; line-height: 1; text-transform: uppercase; color: #374151; }
@@ -6892,9 +6908,10 @@ function printOrderLabel(order) {
           .smart-label-details { display: grid; grid-template-columns: minmax(0, 1fr) 34mm; column-gap: 3mm; row-gap: 0.5mm; align-items: start; }
           .smart-label-details p { margin: 0; font-size: 8.5pt; line-height: 1.08; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
           .smart-label-address { grid-row: span 2; white-space: normal !important; max-height: 8mm; }
-          .smart-label-code { border-top: 1.5px solid #111827; padding-top: 1mm; display: grid; grid-template-rows: minmax(0, 1fr) auto; justify-items: stretch; min-width: 0; min-height: 0; overflow: hidden; }
-          .smart-label-code svg { display: block; width: 100%; height: 15.5mm; border: 0; padding: 0; }
-          .smart-label-code > span { margin-top: -0.5mm; text-align: center; font-size: 7pt; line-height: 1; font-weight: 800; letter-spacing: 0.4px; }
+          .smart-label-code { border-top: 1.5px solid #111827; padding: 1mm 1.5mm 0; display: grid; grid-template-rows: 13mm 3mm 2.5mm; justify-items: stretch; align-items: center; min-width: 0; min-height: 0; overflow: hidden; }
+          .smart-label-code svg { display: block; width: 100%; height: 13mm; border: 0; padding: 0; }
+          .smart-label-code > strong { text-align: center; font-size: 9pt; line-height: 1; font-weight: 900; letter-spacing: 1px; }
+          .smart-label-code > span { text-align: center; font-size: 6.5pt; line-height: 1; font-weight: 700; letter-spacing: 0; }
         </style>
       </head>
       <body>
@@ -16695,10 +16712,28 @@ function clearMobileClientForm() {
   if (visitDay) visitDay.value = "";
   byId("mobileNewClientPayment").value = "Contado";
   byId("mobileNewClientLimit").value = "0";
+  ["mobileClientMorningFrom", "mobileClientMorningTo", "mobileClientAfternoonFrom", "mobileClientAfternoonTo"].forEach((id) => {
+    const field = byId(id);
+    if (field) field.value = "";
+  });
   byId("mobileClientHoursNote").value = "";
-  renderClientHoursGrid(byId("mobileClientHoursGrid"), []);
   mobileNewClientLocation = null;
   renderMobileNewClientGpsStatus();
+}
+
+function readMobileClientVisitHours(visitDay) {
+  const ranges = [
+    {
+      from: byId("mobileClientMorningFrom")?.value || "",
+      to: byId("mobileClientMorningTo")?.value || ""
+    },
+    {
+      from: byId("mobileClientAfternoonFrom")?.value || "",
+      to: byId("mobileClientAfternoonTo")?.value || ""
+    }
+  ].filter((range) => range.from || range.to);
+  if (!ranges.length || visitDay === "Fuera de Ruta") return [];
+  return ClientHours.assertValid([{ day: visitDay, ranges }]);
 }
 
 function renderMobileNewClientGpsStatus() {
@@ -16925,7 +16960,7 @@ async function addMobileClientFromQuickForm() {
     button.textContent = "Registrando...";
   }
   try {
-    const hours = readClientHoursGrid(byId("mobileClientHoursGrid"));
+    const hours = readMobileClientVisitHours(visitDay);
     const payload = await createMobileClientOnServer({
       operationId,
       codigo_cliente: `MOB-${operationId.replace(/[^A-Za-z0-9]/g, "").slice(-20)}`,
@@ -17820,7 +17855,6 @@ byId("mobileProgressDashboard").addEventListener("change", (event) => {
   mobileCommissionMonth = event.target.value || mobileCommissionMonth;
   renderMobileProgressDashboard();
 });
-renderClientHoursGrid(byId("mobileClientHoursGrid"), []);
 renderClientHoursGrid(byId("adminClientHoursGrid"), []);
 byId("legalPublishForm").addEventListener("submit", submitLegalPublish);
 byId("helpSearch").addEventListener("input", (event) => {
