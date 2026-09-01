@@ -7550,3 +7550,36 @@ menu {
     grid-column: 1 / -1;
   }
 }
+.progressive-list-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.progressive-list-controls > span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.progressive-list-controls > div {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .progressive-list-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .progressive-list-controls > div,
+  .progressive-list-controls button {
+    width: 100%;
+  }
+}

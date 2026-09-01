@@ -16,6 +16,7 @@
     "test:preventa-commissions": "node scripts/smoke-preventa-commissions-v111.js && node scripts/smoke-sales-policy-v111.js",
     "test:commission-governance": "node scripts/smoke-commission-governance-v122.js",
     "test:client-hours": "node scripts/smoke-client-hours-v123.js",
+    "test:progressive-lists": "node scripts/smoke-progressive-lists-v124.js",
     "test:order-workflow": "node scripts/smoke-order-workflow-v114.js",
     "test:suppliers-prices": "node scripts/smoke-suppliers-prices-v115.js",
     "test:commercial-prices": "node scripts/smoke-commercial-prices-v116.js",

@@ -381,7 +381,7 @@ let routeSalesZoneFilter = "all";
 let routeSalesCategoryFilter = "all";
 let routeSalesGrouping = "product-route";
 let routeSalesProductTerm = "";
-const ORDERS_PAGE_SIZE = 25;
+const ORDERS_PAGE_SIZE = 10;
 let currentFilteredOrders = [];
 let currentPageOrders = [];
 const selectedOrderCodes = new Set();
@@ -418,7 +418,7 @@ let portfolioPage = 1;
 let currentPortfolioPageRecords = [];
 const selectedPortfolioDiagnosticIds = new Set();
 const PORTFOLIO_PAGE_SIZE = 50;
-const CLIENTS_PAGE_SIZE = 50;
+const CLIENTS_PAGE_SIZE = 10;
 const CLIENTS_CACHE_TTL_MS = 15000;
 const CLIENTS_REQUEST_TIMEOUT_MS = 8000;
 const clientPageCache = new Map();
@@ -2642,6 +2642,122 @@ function startPresenceLocationService() {
 function byId(id) {
   return document.getElementById(id);
 }
+
+const progressiveListState = new Map();
+let progressiveListRefreshFrame = null;
+
+function progressiveListTargets() {
+  const tableTargets = Array.from(document.querySelectorAll("tbody[id]:not(#ordersTable):not(#clientsTable)"));
+  const listTargets = Array.from(document.querySelectorAll([
+    "[data-progressive-list]",
+    ".activity-list[id]",
+    ".audit-list[id]",
+    ".alert-list[id]",
+    ".delivery-planner-list[id]",
+    ".delivery-stop-list[id]",
+    ".delivery-route-list[id]",
+    ".order-trace-list[id]",
+    ".admin-list[id]",
+    ".requirements-list[id]",
+    ".presence-history[id]",
+    ".notification-list[id]"
+  ].join(",")));
+  return [...new Set([...tableTargets, ...listTargets])];
+}
+
+function progressiveListKey(target, index) {
+  return target.dataset.progressiveKey || target.id || `progressive-list-${index}`;
+}
+
+function progressiveListSignature(items) {
+  const identity = (item) => item.dataset.orderRow
+    || item.dataset.orderCode
+    || item.dataset.id
+    || String(item.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  let hash = 2166136261;
+  items.forEach((item) => {
+    const value = identity(item);
+    for (let index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+  });
+  return `${items.length}|${hash >>> 0}`;
+}
+
+function progressiveListAnchor(target) {
+  return target.tagName === "TBODY" ? (target.closest(".responsive-table") || target.closest("table")) : target;
+}
+
+function refreshProgressiveLists() {
+  if (!window.ProgressiveList) return;
+  progressiveListTargets().forEach((target, index) => {
+    const items = Array.from(target.children).filter((item) => item instanceof HTMLElement);
+    const key = progressiveListKey(target, index);
+    const signature = progressiveListSignature(items);
+    const previous = progressiveListState.get(key);
+    const initial = Number(target.dataset.progressiveInitial || ProgressiveList.INITIAL_COUNT);
+    const blockSize = Number(target.dataset.progressiveBlock || ProgressiveList.BLOCK_SIZE);
+    const visible = previous && previous.signature === signature
+      ? Math.min(previous.visible, items.length)
+      : ProgressiveList.collapsedVisible(items.length, initial);
+    progressiveListState.set(key, { visible, signature, initial, blockSize });
+    items.forEach((item, itemIndex) => { item.hidden = itemIndex >= visible; });
+
+    const anchor = progressiveListAnchor(target);
+    if (!anchor) return;
+    let controls = anchor.nextElementSibling;
+    if (!controls || controls.dataset.progressiveControls !== key) controls = null;
+    if (items.length <= initial) {
+      if (controls) controls.remove();
+      return;
+    }
+    if (!controls) {
+      controls = document.createElement("div");
+      controls.className = "progressive-list-controls";
+      controls.dataset.progressiveControls = key;
+      anchor.insertAdjacentElement("afterend", controls);
+    }
+    const nextCount = ProgressiveList.nextVisible(visible, items.length, blockSize) - visible;
+    const markup = `
+      <span>Mostrando ${visible} de ${items.length}</span>
+      <div>
+        ${visible < items.length ? `<button class="secondary-btn" type="button" data-progressive-more="${escapeHtml(key)}">Siguiente bloque (${nextCount})</button>` : ""}
+        ${visible > initial ? `<button class="ghost-btn" type="button" data-progressive-collapse="${escapeHtml(key)}">Plegar</button>` : ""}
+      </div>`;
+    const renderState = `${visible}|${items.length}|${nextCount}|${visible > initial}`;
+    if (controls.dataset.renderState !== renderState) {
+      controls.innerHTML = markup;
+      controls.dataset.renderState = renderState;
+    }
+  });
+}
+
+function scheduleProgressiveListRefresh() {
+  if (progressiveListRefreshFrame) return;
+  progressiveListRefreshFrame = requestAnimationFrame(() => {
+    progressiveListRefreshFrame = null;
+    refreshProgressiveLists();
+  });
+}
+
+document.addEventListener("click", (event) => {
+  const more = event.target.closest("[data-progressive-more]");
+  const collapse = event.target.closest("[data-progressive-collapse]");
+  const key = more ? more.dataset.progressiveMore : collapse ? collapse.dataset.progressiveCollapse : "";
+  if (!key) return;
+  const current = progressiveListState.get(key);
+  if (!current) return;
+  const total = Number(current.signature.split("|")[0]);
+  current.visible = more
+    ? ProgressiveList.nextVisible(current.visible, total, current.blockSize)
+    : ProgressiveList.collapsedVisible(total, current.initial);
+  progressiveListState.set(key, current);
+  refreshProgressiveLists();
+});
+
+const progressiveListObserver = new MutationObserver(scheduleProgressiveListRefresh);
+progressiveListObserver.observe(document.body, { childList: true, subtree: true });
 
 function loadThemeMode() {
   try {
@@ -8450,7 +8566,7 @@ function renderAssemblyControlPanel() {
               <th>Repartidor</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody data-progressive-list data-progressive-key="assembly-control-orders">
             ${rows.length ? rows.map((order) => {
               const assembly = orderAssemblyInfo(order);
               const route = deliveryRouteForOrder(order.code);
@@ -8581,6 +8697,12 @@ function selectedAssemblyDepotOrders() {
   return currentAssemblyDepotOrders.filter((order) => selectedOrderCodes.has(order.code));
 }
 
+function visibleAssemblyDepotOrders() {
+  const codes = new Set(Array.from(document.querySelectorAll(".assembly-depot-card:not([hidden]) [data-assembly-select]"))
+    .map((checkbox) => checkbox.dataset.assemblySelect));
+  return currentAssemblyDepotOrders.filter((order) => codes.has(order.code));
+}
+
 async function runAssemblyDepotBulkAction(action) {
   const orders = selectedAssemblyDepotOrders();
   if (!orders.length) {
@@ -8675,7 +8797,7 @@ function renderAssemblyDepot() {
           <button class="secondary-btn" type="button" data-assembly-bulk-action="export-assembly">Exportar armado</button>
         </div>
       </div>
-      <div class="assembly-depot-list">
+      <div class="assembly-depot-list" data-progressive-list data-progressive-key="assembly-depot-orders">
         ${orders.length ? orders.map(assemblyDepotOrderCard).join("") : '<p class="stock-empty">No hay pedidos para los filtros seleccionados.</p>'}
       </div>
     </section>
@@ -11339,7 +11461,7 @@ function renderPriceListProductsTable() {
   const table = byId("priceListProductsTable");
   if (!table) return;
   const products = filteredPriceListProducts();
-  const visibleProducts = products.slice(0, priceListProductsExpanded ? 180 : 6);
+  const visibleProducts = products;
   table.innerHTML = products.length ? visibleProducts.map((product) => {
     const price = currentProductPrice(product);
     const margin = product.cost > 0 ? ((price - product.cost) / product.cost) * 100 : 0;
@@ -11371,11 +11493,10 @@ function renderPriceListProductsTable() {
     `;
   }).join("") : '<tr><td class="stock-empty" colspan="6">No hay productos para los filtros seleccionados.</td></tr>';
   const count = byId("priceListProductsCount");
-  if (count) count.textContent = `${visibleProducts.length} de ${products.length} productos`;
+  if (count) count.textContent = `${products.length} productos filtrados`;
   const toggle = byId("togglePriceListProductsBtn");
   if (toggle) {
-    toggle.hidden = products.length <= 6;
-    toggle.textContent = priceListProductsExpanded ? "Ver menos productos" : `Ver mas (${Math.min(174, products.length - 6)})`;
+    toggle.hidden = true;
   }
 }
 
@@ -18007,12 +18128,12 @@ byId("assemblyDepotWorkspace").addEventListener("click", (event) => {
     return;
   }
   if (event.target.closest("[data-assembly-select-visible]")) {
-    currentAssemblyDepotOrders.forEach((order) => selectedOrderCodes.add(order.code));
+    visibleAssemblyDepotOrders().forEach((order) => selectedOrderCodes.add(order.code));
     renderAssemblyDepot();
     return;
   }
   if (event.target.closest("[data-assembly-invert-visible]")) {
-    currentAssemblyDepotOrders.forEach((order) => {
+    visibleAssemblyDepotOrders().forEach((order) => {
       if (selectedOrderCodes.has(order.code)) selectedOrderCodes.delete(order.code);
       else selectedOrderCodes.add(order.code);
     });
