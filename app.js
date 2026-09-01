@@ -144,6 +144,7 @@ const OrderEngine = window.DLOrderEngine;
 const DeliveryEngine = window.DLDeliveryEngine;
 const AccountEngine = window.DLAccountEngine;
 const LegalEngine = window.DLLegalEngine;
+const ClientHours = window.DLClientHours;
 const ORDER_STATUS = OrderEngine.STATUS;
 const TRANSFER_STATUS = AccountEngine.TRANSFER_STATUS || {
   PENDING: "Pendiente de Transferencia",
@@ -312,6 +313,7 @@ let mobileClientOptionsExpanded = false;
 let mobileProductOptionsExpanded = false;
 let mobileSalesSearchTerm = "";
 let mobileSalesSelectedOrderCode = "";
+let mobileCommissionMonth = new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit" }).slice(0, 7);
 let mobileClientHistoryOpen = false;
 let mobileClientHistoryData = null;
 let mobileClientHistoryLoading = false;
@@ -1508,7 +1510,9 @@ function normalizeClientRecord(client) {
     estado: status,
     status,
     observaciones: String(client.observaciones || "").trim(),
-    horario_atencion: String(client.horario_atencion || client.horario || "").trim(),
+    horarios_atencion: ClientHours ? ClientHours.normalize(client.horarios_atencion) : [],
+    horario_atencion: ClientHours ? ClientHours.summary(client.horarios_atencion, client.horario_atencion || client.horario) : String(client.horario_atencion || client.horario || "").trim(),
+    horario_observacion: String(client.horario_observacion || "").trim(),
     latitud: Number.isFinite(latitude) ? latitude : null,
     longitud: Number.isFinite(longitude) ? longitude : null,
     origen: String(client.origen || "manual").trim(),
@@ -4504,6 +4508,8 @@ function renderMobileSeller() {
       <span>Saldo ${money.format(credit.currentBalance)} - Limite ${money.format(credit.creditLimit)}</span>
       <span>Deuda vencida ${money.format(credit.overdueDebt)} - Total ${money.format(credit.totalDebt)}</span>
       <span>Ultimo pago: ${escapeHtml(formatLastPayment(credit.lastPayment))}</span>
+      <span>Horario de hoy: ${escapeHtml(ClientHours ? ClientHours.today(selectedClient.horarios_atencion) || selectedClient.horario_atencion || "No informado" : selectedClient.horario_atencion || "No informado")}</span>
+      ${selectedClient.horario_observacion ? `<span>${escapeHtml(selectedClient.horario_observacion)}</span>` : ""}
       <span class="account-inline-status ${accountStatusTone(credit.status)}">${escapeHtml(credit.warning)}</span>
     `;
   } else {
@@ -5082,6 +5088,18 @@ function renderMobileProgressDashboard() {
       || Boolean(order.returnSummary && numeric(order.returnSummary.returnedAmount, 0) > 0)
       || [ORDER_STATUS.CANCELLED, ORDER_STATUS.REJECTED, ORDER_STATUS.NOT_DELIVERED].includes(order.status);
   }).length;
+  const monthOrders = (state.orders || []).filter((order) => (
+    seller
+    && normalizeSearchText(order.seller) === normalizeSearchText(seller.name)
+    && commissionReportDateKey(order.createdAt || order.receivedAt || order.date).slice(0, 7) === mobileCommissionMonth
+    && ![ORDER_STATUS.CANCELLED, ORDER_STATUS.REJECTED, ORDER_STATUS.NOT_DELIVERED].includes(order.status)
+  ));
+  const monthGross = monthOrders.reduce((total, order) => total + numeric(order.amount, 0), 0);
+  const monthCommission = monthOrders.reduce((total, order) => total + numeric((orderCommission(order).seller || {}).total, 0), 0);
+  const monthLabel = (() => {
+    const [year, month] = mobileCommissionMonth.split("-").map(Number);
+    return new Intl.DateTimeFormat("es-AR", { month: "long", year: "numeric", timeZone: "America/Argentina/Buenos_Aires" }).format(new Date(Date.UTC(year, month - 1, 2)));
+  })();
   container.innerHTML = `
     <section class="mobile-progress-hero" data-tone="${tone}">
       <div>
@@ -5097,7 +5115,7 @@ function renderMobileProgressDashboard() {
       <article><span>Clientes vendidos</span><strong>${stats.withPurchase}</strong></article>
       <article><span>Pedidos realizados</span><strong>${stats.sellerOrders.length}</strong></article>
       <article><span>Bruto vendido</span><strong>${money.format(stats.sales)}</strong></article>
-      <article><span>Comision estimada</span><strong>${money.format(stats.commission)}</strong></article>
+      <article><span>Comision estimada hoy</span><strong>${money.format(stats.commission)}</strong></article>
       <article><span>Visitados</span><strong>${stats.visitedCount}</strong></article>
       <article><span>Sin compra</span><strong>${stats.withoutPurchase}</strong></article>
       <article><span>Pendientes</span><strong>${stats.pendingCount}</strong></article>
@@ -5105,6 +5123,17 @@ function renderMobileProgressDashboard() {
       <article><span>Avance</span><strong>${progress}%</strong></article>
       <article><span>Ticket promedio</span><strong>${money.format(stats.avgTicket)}</strong></article>
       <article><span>GPS</span><strong>${gpsText}</strong></article>
+    </section>
+    <section class="mobile-month-commission">
+      <div>
+        <small>Comision del mes</small>
+        <strong>${escapeHtml(monthLabel)}</strong>
+      </div>
+      <label>Periodo <input id="mobileCommissionMonth" type="month" value="${escapeHtml(mobileCommissionMonth)}" max="${escapeHtml(new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit" }).slice(0, 7))}"></label>
+      <div class="mobile-month-values">
+        <span>Bruto acumulado <b>${money.format(monthGross)}</b></span>
+        <span>Comision acumulada <b>${money.format(monthCommission)}</b></span>
+      </div>
     </section>
     <p class="mobile-commission-estimate ${estimatedReasons ? "warn" : ""}">
       ${estimatedReasons
@@ -6917,6 +6946,8 @@ function orderInvoiceHtml(order) {
         <p><strong>Fecha:</strong> ${escapeHtml(when.date)}</p>
         <p class="invoice-address"><strong>Direccion:</strong> ${escapeHtml(label.address || orderAddressText(order) || "Sin direccion")}</p>
         <p><strong>Zona/Ruta:</strong> ${escapeHtml(label.zone || orderZoneText(order))}</p>
+        <p><strong>Telefono:</strong> ${escapeHtml(client.telefono || client.phone || "No informado")}</p>
+        <p><strong>Horario:</strong> ${escapeHtml(ClientHours ? ClientHours.summary(client.horarios_atencion, client.horario_atencion) || "No informado" : client.horario_atencion || "No informado")}</p>
         <p><strong>Vendedor:</strong> ${escapeHtml(order.seller || "-")}</p>
       </div>
       <table>
@@ -11696,6 +11727,36 @@ function renderCommissionOptions() {
     reportSeller.innerHTML = '<option value="all">Todos los vendedores</option>' + names.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
     reportSeller.value = names.includes(selected) ? selected : "all";
   }
+  const simulatorSeller = byId("commissionSimulatorSeller");
+  if (simulatorSeller) {
+    const selected = simulatorSeller.value;
+    const sellers = (state.sellers || []).filter((seller) => seller.name).sort((a, b) => a.name.localeCompare(b.name, "es"));
+    simulatorSeller.innerHTML = sellers.map((seller) => `<option value="${escapeHtml(seller.name)}">${escapeHtml(seller.name)}</option>`).join("");
+    if (sellers.some((seller) => seller.name === selected)) simulatorSeller.value = selected;
+  }
+}
+
+function renderCommissionSimulator() {
+  const container = byId("commissionSimulatorResult");
+  if (!container || !OrderEngine || typeof OrderEngine.previewCommissionRule !== "function") return;
+  const sellerName = byId("commissionSimulatorSeller").value;
+  const seller = (state.sellers || []).find((item) => item.name === sellerName) || {};
+  const productName = byId("commissionSimulatorProduct").value.trim();
+  if (!sellerName || !productName) {
+    container.innerHTML = '<p class="empty-note">Seleccionar vendedor y producto para validar la regla.</p>';
+    return;
+  }
+  const result = OrderEngine.previewCommissionRule(state, {
+    role: "seller",
+    username: seller.username || "",
+    userName: sellerName,
+    productName,
+    baseAmount: numeric(byId("commissionSimulatorBase").value, 0)
+  });
+  container.innerHTML = `<div class="inline-alert ${result.rule && result.rule.active === false ? "warn" : "ok"}">
+    <strong>${escapeHtml(result.percent)}% - ${escapeHtml(result.origin)}</strong>
+    <span>${escapeHtml(result.rubro)} - Regla ${escapeHtml(result.rule.id)} - Comision estimada ${money.format(result.commission)}</span>
+  </div>`;
 }
 
 function commissionReportDateKey(value) {
@@ -11748,11 +11809,12 @@ function renderCommissionCards() {
   const summary = OrderEngine && typeof OrderEngine.summarizeCommissions === "function" ? OrderEngine.summarizeCommissions(state) : [];
   const sellerTotal = summary.filter((row) => row.role === "seller").reduce((sum, row) => sum + numeric(row.total, 0), 0);
   const driverTotal = summary.filter((row) => row.role === "driver").reduce((sum, row) => sum + numeric(row.total, 0), 0);
+  const integrity = OrderEngine && typeof OrderEngine.analyzeCommissionRules === "function" ? OrderEngine.analyzeCommissionRules(state) : { conflicts: [] };
   container.innerHTML = [
     { label: "Reglas activas", value: rules.filter((rule) => rule.active !== false).length, text: "Configurables por rol y rubro", tone: "info" },
     { label: "Vendedores", value: money.format(sellerTotal), text: "Comision acumulada", tone: "ok" },
     { label: "Repartidores", value: money.format(driverTotal), text: "Devenga al entregar", tone: "warn" },
-    { label: "Cambios auditados", value: (state.commissionAudit || []).length, text: "Historial no eliminable", tone: "info" }
+    { label: "Conflictos", value: integrity.conflicts.length, text: integrity.conflicts.length ? "Requieren revision" : "Sin superposiciones", tone: integrity.conflicts.length ? "warn" : "ok" }
   ].map((item) => `
     <article class="price-list-kpi ${item.tone}">
       <span>${escapeHtml(item.label)}</span>
@@ -11760,6 +11822,12 @@ function renderCommissionCards() {
       <small>${escapeHtml(item.text)}</small>
     </article>
   `).join("");
+  const integritySummary = byId("commissionIntegritySummary");
+  if (integritySummary) {
+    integritySummary.innerHTML = integrity.conflicts.length
+      ? `<div class="inline-alert warn"><strong>Control de reglas: ${integrity.conflicts.length} conflicto(s)</strong><span>${integrity.conflicts.map((item) => `${item.user}: ${item.percents.join("% / ")}% (${item.ruleId} y ${item.otherRuleId})`).join(" - ")}</span></div>`
+      : '<div class="inline-alert ok"><strong>Control de reglas correcto</strong><span>No se detectaron reglas activas superpuestas para el mismo vendedor y alcance.</span></div>';
+  }
 }
 
 function renderCommissionRulesTable() {
@@ -11768,7 +11836,7 @@ function renderCommissionRulesTable() {
   const rows = filteredCommissionRules();
   table.innerHTML = rows.length ? rows.map((rule) => {
     const target = rule.productName || rule.productCode || rule.rubro || "General";
-    const user = rule.userLabel || rule.username || "Todos";
+    const user = rule.userLabel || rule.username || `Regla general para todos los ${rule.role === "driver" ? "repartidores" : "vendedores"}`;
     return `
     <tr>
       <td><strong>${escapeHtml(commissionRoleLabel(rule.role))}</strong></td>
@@ -11875,6 +11943,7 @@ function renderCommissionsModule() {
   renderCommissionRulesTable();
   renderCommissionSummary();
   renderCommissionAudit();
+  renderCommissionSimulator();
 }
 
 function resetCommissionRuleForm() {
@@ -11887,6 +11956,9 @@ function resetCommissionRuleForm() {
   form.elements.percent.value = "";
   form.elements.priority.value = "10";
   form.elements.status.value = "Activa";
+  byId("commissionRuleFormTitle").textContent = "Nueva regla de comision";
+  byId("commissionRuleFormHint").textContent = "La regla general se usa solo cuando el vendedor no posee una regla especifica.";
+  byId("saveCommissionRuleBtn").textContent = "Guardar nueva regla";
 }
 
 function fillCommissionRuleForm(ruleId) {
@@ -11904,6 +11976,9 @@ function fillCommissionRuleForm(ruleId) {
   form.elements.endsAt.value = rule.endsAt ? rule.endsAt.slice(0, 10) : "";
   form.elements.status.value = rule.status || "Activa";
   form.elements.motive.value = "";
+  byId("commissionRuleFormTitle").textContent = "Editar porcentaje";
+  byId("commissionRuleFormHint").textContent = `Porcentaje actual: ${rule.percent}%. El cambio cerrara esta vigencia y conservara el historial.`;
+  byId("saveCommissionRuleBtn").textContent = "Guardar cambio";
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -16152,6 +16227,35 @@ function setFormValue(form, name, value) {
   field.value = value ?? "";
 }
 
+function renderClientHoursGrid(container, schedule = []) {
+  if (!container || !ClientHours) return;
+  const rows = new Map(ClientHours.normalize(schedule).map((row) => [row.day, row.ranges]));
+  container.innerHTML = ClientHours.DAYS.map((day) => {
+    const ranges = rows.get(day) || [];
+    return `<div class="client-hours-row" data-client-hours-day="${escapeHtml(day)}">
+      <label class="inline-check"><input type="checkbox" data-client-hours-enabled ${ranges.length ? "checked" : ""}>${escapeHtml(day)}</label>
+      <input type="time" data-client-hours-from="0" value="${escapeHtml(ranges[0] && ranges[0].from || "")}" aria-label="${escapeHtml(day)} desde">
+      <input type="time" data-client-hours-to="0" value="${escapeHtml(ranges[0] && ranges[0].to || "")}" aria-label="${escapeHtml(day)} hasta">
+      <input type="time" data-client-hours-from="1" value="${escapeHtml(ranges[1] && ranges[1].from || "")}" aria-label="${escapeHtml(day)} segundo turno desde">
+      <input type="time" data-client-hours-to="1" value="${escapeHtml(ranges[1] && ranges[1].to || "")}" aria-label="${escapeHtml(day)} segundo turno hasta">
+    </div>`;
+  }).join("");
+}
+
+function readClientHoursGrid(container) {
+  if (!container || !ClientHours) return [];
+  const rows = [];
+  container.querySelectorAll("[data-client-hours-day]").forEach((row) => {
+    if (!row.querySelector("[data-client-hours-enabled]").checked) return;
+    const ranges = [0, 1].map((index) => ({
+      from: row.querySelector(`[data-client-hours-from="${index}"]`).value,
+      to: row.querySelector(`[data-client-hours-to="${index}"]`).value
+    })).filter((range) => range.from && range.to);
+    if (ranges.length) rows.push({ day: row.dataset.clientHoursDay, ranges });
+  });
+  return ClientHours.normalize(rows);
+}
+
 function setClientVisitDaysForm(form, client) {
   const days = typeof ClientPortfolioEngine !== "undefined" ? ClientPortfolioEngine.visitDays(client) : [];
   form.querySelectorAll('input[name="dias_visita"]').forEach((checkbox) => {
@@ -16184,6 +16288,7 @@ function openNewClientDialog() {
   populateSellerOptions("clientSellerSelect");
   const form = byId("clientForm");
   form.reset();
+  renderClientHoursGrid(byId("adminClientHoursGrid"), []);
   setClientDialogMode("new", null);
   byId("clientDialog").showModal();
 }
@@ -16207,6 +16312,8 @@ function openClientEditDialog(id) {
   setFormValue(form, "telefono", client.telefono);
   setFormValue(form, "email", client.email);
   setFormValue(form, "horario_atencion", client.horario_atencion);
+  setFormValue(form, "horario_observacion", client.horario_observacion);
+  renderClientHoursGrid(byId("adminClientHoursGrid"), client.horarios_atencion);
   setFormValue(form, "latitud", client.latitud ?? "");
   setFormValue(form, "longitud", client.longitud ?? "");
   setFormValue(form, "tipo_cliente", client.tipo_cliente);
@@ -16228,6 +16335,7 @@ function openClientEditDialog(id) {
 
 function clientFormPayload(form) {
   const visitPlan = clientVisitPlanPayload(form);
+  const hours = readClientHoursGrid(byId("adminClientHoursGrid"));
   return {
     codigo_cliente: String(form.get("codigo_cliente") || "").trim(),
     nombre_comercial: String(form.get("nombre_comercial") || "").trim(),
@@ -16238,7 +16346,9 @@ function clientFormPayload(form) {
     localidad: String(form.get("localidad") || "").trim(),
     telefono: String(form.get("telefono") || "").trim(),
     email: String(form.get("email") || "").trim(),
-    horario_atencion: String(form.get("horario_atencion") || "").trim(),
+    horarios_atencion: hours,
+    horario_atencion: ClientHours ? ClientHours.summary(hours, form.get("horario_atencion")) : String(form.get("horario_atencion") || "").trim(),
+    horario_observacion: String(form.get("horario_observacion") || "").trim(),
     latitud: form.get("latitud") === "" ? null : Number(form.get("latitud")),
     longitud: form.get("longitud") === "" ? null : Number(form.get("longitud")),
     tipo_cliente: String(form.get("tipo_cliente") || "OTROS").trim(),
@@ -16305,6 +16415,7 @@ function addClientFromForm(form) {
     return false;
   }
   const visitPlan = clientVisitPlanPayload(form);
+  const hours = readClientHoursGrid(byId("adminClientHoursGrid"));
   const client = normalizeClientRecord({
     codigo_cliente: code,
     nombre_comercial: name,
@@ -16329,7 +16440,9 @@ function addClientFromForm(form) {
     ordenes_visita: visitPlan.orders,
     frecuencia_visita: String(form.get("frecuencia_visita") || "").trim(),
     estado: String(form.get("estado") || "Activo"),
-    horario_atencion: String(form.get("horario_atencion") || "").trim(),
+    horarios_atencion: hours,
+    horario_atencion: ClientHours ? ClientHours.summary(hours, form.get("horario_atencion")) : String(form.get("horario_atencion") || "").trim(),
+    horario_observacion: String(form.get("horario_observacion") || "").trim(),
     latitud: form.get("latitud") === "" ? null : Number(form.get("latitud")),
     longitud: form.get("longitud") === "" ? null : Number(form.get("longitud")),
     observaciones: String(form.get("observaciones") || "").trim(),
@@ -16459,6 +16572,8 @@ function clearMobileClientForm() {
   if (visitDay) visitDay.value = "";
   byId("mobileNewClientPayment").value = "Contado";
   byId("mobileNewClientLimit").value = "0";
+  byId("mobileClientHoursNote").value = "";
+  renderClientHoursGrid(byId("mobileClientHoursGrid"), []);
   mobileNewClientLocation = null;
   renderMobileNewClientGpsStatus();
 }
@@ -16687,6 +16802,7 @@ async function addMobileClientFromQuickForm() {
     button.textContent = "Registrando...";
   }
   try {
+    const hours = readClientHoursGrid(byId("mobileClientHoursGrid"));
     const payload = await createMobileClientOnServer({
       operationId,
       codigo_cliente: `MOB-${operationId.replace(/[^A-Za-z0-9]/g, "").slice(-20)}`,
@@ -16715,7 +16831,9 @@ async function addMobileClientFromQuickForm() {
       longitud: mobileNewClientLocation.lng,
       gpsAccuracy: mobileNewClientLocation.accuracy,
       gps: mobileNewClientLocation,
-      horario_atencion: "",
+      horarios_atencion: hours,
+      horario_atencion: ClientHours ? ClientHours.summary(hours) : "",
+      horario_observacion: byId("mobileClientHoursNote").value.trim(),
       origen: "preventa",
       operationPin: sellerPin,
       device: sessionDevice
@@ -17568,9 +17686,19 @@ byId("saveCommissionRuleBtn").addEventListener("click", () => saveCommissionRule
 byId("resetCommissionFormBtn").addEventListener("click", resetCommissionRuleForm);
 byId("exportCommissionsCsvBtn").addEventListener("click", exportCommissionsCsv);
 ["commissionReportSeller", "commissionReportFrom", "commissionReportTo"].forEach((id) => byId(id).addEventListener("change", renderCommissionSummary));
+["commissionSimulatorSeller", "commissionSimulatorProduct", "commissionSimulatorBase"].forEach((id) => {
+  byId(id).addEventListener(id === "commissionSimulatorProduct" ? "input" : "change", renderCommissionSimulator);
+});
 byId("commissionReportPrintBtn").addEventListener("click", printCommissionReport);
 byId("commissionReportExcelBtn").addEventListener("click", exportCommissionReportExcel);
 byId("commissionReportSettleBtn").addEventListener("click", settleCommissionReport);
+byId("mobileProgressDashboard").addEventListener("change", (event) => {
+  if (event.target.id !== "mobileCommissionMonth") return;
+  mobileCommissionMonth = event.target.value || mobileCommissionMonth;
+  renderMobileProgressDashboard();
+});
+renderClientHoursGrid(byId("mobileClientHoursGrid"), []);
+renderClientHoursGrid(byId("adminClientHoursGrid"), []);
 byId("legalPublishForm").addEventListener("submit", submitLegalPublish);
 byId("helpSearch").addEventListener("input", (event) => {
   helpSearchTerm = event.target.value;

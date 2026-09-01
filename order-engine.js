@@ -277,6 +277,52 @@
     return true;
   }
 
+  function commissionRuleTargetsOverlap(left, right) {
+    const leftTargets = [left.username, left.userLabel].map(normalizeText).filter(Boolean);
+    const rightTargets = [right.username, right.userLabel].map(normalizeText).filter(Boolean);
+    if (!leftTargets.length || !rightTargets.length) return !leftTargets.length && !rightTargets.length;
+    return leftTargets.some((target) => rightTargets.includes(target));
+  }
+
+  function commissionRuleScopeMatches(left, right) {
+    if (left.role !== right.role || !commissionRuleTargetsOverlap(left, right)) return false;
+    const leftProduct = normalizeText(left.productCode || left.productName);
+    const rightProduct = normalizeText(right.productCode || right.productName);
+    if (leftProduct || rightProduct) return Boolean(leftProduct && rightProduct && leftProduct === rightProduct);
+    return normalizeText(left.rubro || "*") === normalizeText(right.rubro || "*");
+  }
+
+  function commissionRuleRangesOverlap(left, right) {
+    const leftStart = new Date(validIso(left.startsAt || "2026-01-01T00:00:00.000Z")).getTime();
+    const rightStart = new Date(validIso(right.startsAt || "2026-01-01T00:00:00.000Z")).getTime();
+    const leftEnd = left.endsAt ? new Date(validIso(left.endsAt)).getTime() : Number.POSITIVE_INFINITY;
+    const rightEnd = right.endsAt ? new Date(validIso(right.endsAt)).getTime() : Number.POSITIVE_INFINITY;
+    return leftStart <= rightEnd && rightStart <= leftEnd;
+  }
+
+  function analyzeCommissionRules(state) {
+    const rules = ensureCommissionSettings(state).rules;
+    const activeRules = rules.filter((rule) => rule.active !== false && rule.status !== "Inactiva" && rule.status !== "Historica");
+    const conflicts = [];
+    activeRules.forEach((rule, index) => activeRules.slice(index + 1).forEach((other) => {
+      if (!commissionRuleScopeMatches(rule, other) || !commissionRuleRangesOverlap(rule, other)) return;
+      conflicts.push({
+        ruleId: rule.id,
+        otherRuleId: other.id,
+        user: rule.userLabel || rule.username || other.userLabel || other.username || "Regla general",
+        scope: rule.productName || rule.productCode || rule.rubro || "*",
+        percents: [rule.percent, other.percent]
+      });
+    }));
+    return {
+      total: rules.length,
+      active: activeRules.length,
+      inactive: rules.length - activeRules.length,
+      general: rules.filter((rule) => !normalizeText(rule.username) && !normalizeText(rule.userLabel)).length,
+      conflicts
+    };
+  }
+
   function commissionRuleBucket(rule, context) {
     const username = normalizeText(context.username);
     const userName = normalizeText(context.userName);
@@ -320,6 +366,33 @@
       .sort((a, b) => b.bucket - a.bucket || numeric(b.rule.priority) - numeric(a.rule.priority) || b.rule.percent - a.rule.percent)[0]?.rule
       || settings.rules.find((rule) => rule.role === context.role && rule.isDefault && !normalizeText(rule.username) && !normalizeText(rule.userLabel))
       || normalizeCommissionRule({ role: context.role, rubro: "*", percent: context.role === "driver" ? 4 : 3, isDefault: true });
+  }
+
+  function previewCommissionRule(state, input = {}) {
+    const product = findProduct(state, input.productCode || input.productName || input.product || "");
+    const key = itemProductKey(input, product);
+    const rubro = productRubric(product, input);
+    const rule = findCommissionRule(state, {
+      role: commissionRole(input.role || "seller"),
+      username: input.username || "",
+      userName: input.userName || input.seller || "",
+      productCode: key.code,
+      productName: key.name,
+      rubro,
+      isCigarette: isCigaretteLine(input, product),
+      at: input.at || nowIso()
+    });
+    const baseAmount = Math.max(0, numeric(input.baseAmount, 0));
+    return {
+      rule: clone(rule),
+      productCode: key.code,
+      productName: key.name,
+      rubro,
+      baseAmount,
+      percent: positive(rule.percent),
+      commission: Math.round(baseAmount * positive(rule.percent) / 100),
+      origin: rule.userLabel || rule.username ? `Especifica de ${rule.userLabel || rule.username}` : "Regla general"
+    };
   }
 
   function commissionBaseForItem(item, role, cancelled) {
@@ -547,13 +620,19 @@
   function summarizeCommissions(state, filters = {}) {
     ensureCommissionSettings(state);
     const roleFilter = String(filters.role || "").trim();
+    const userFilter = normalizeText(filters.user || filters.seller || "");
+    const from = filters.dateFrom ? new Date(validIso(filters.dateFrom)).getTime() : Number.NEGATIVE_INFINITY;
+    const to = filters.dateTo ? new Date(validIso(filters.dateTo)).getTime() : Number.POSITIVE_INFINITY;
     const rows = new Map();
     (state.orders || []).forEach((order) => {
+      const orderAt = new Date(validIso(order.createdAt || order.receivedAt || order.date)).getTime();
+      if (orderAt < from || orderAt > to) return;
       const commissions = order.commissions || normalizeOrderCommissions(state, order);
       ["seller", "driver"].forEach((role) => {
         if (roleFilter && role !== roleFilter) return;
         const block = commissions[role];
         if (!block || !block.user || block.total <= 0) return;
+        if (userFilter && normalizeText(block.user) !== userFilter) return;
         const key = `${role}::${block.user}`;
         const current = rows.get(key) || {
           role,
@@ -586,11 +665,12 @@
     const id = String(input && input.id || "").trim();
     const index = id ? rules.findIndex((rule) => rule.id === id) : -1;
     const previous = index >= 0 ? clone(rules[index]) : null;
+    const changedAt = nowIso();
     const merged = {
       ...(previous || {}),
       ...(input || {}),
       id: id || commissionRuleId(),
-      updatedAt: nowIso(),
+      updatedAt: changedAt,
       updatedBy: actor.name || actor.username || "Administracion",
       note: motive
     };
@@ -598,9 +678,51 @@
       merged.active = false;
       merged.status = "Inactiva";
     }
-    const rule = normalizeCommissionRule(merged, index >= 0 ? index : rules.length);
-    if (index >= 0) rules[index] = rule;
-    else rules.unshift(rule);
+    let rule = normalizeCommissionRule(merged, index >= 0 ? index : rules.length);
+    let auditAction = previous ? "COMISION_REGLA_EDITADA" : "COMISION_REGLA_CREADA";
+    if (previous && input.action !== "deactivate" && input.active !== false) {
+      const requestedStart = String(input.startsAt || "").trim();
+      const previousStart = new Date(validIso(previous.startsAt || "2026-01-01T00:00:00.000Z")).getTime();
+      let effectiveAt = requestedStart ? new Date(validIso(requestedStart)) : new Date(changedAt);
+      if (effectiveAt.getTime() <= previousStart) effectiveAt = new Date(changedAt);
+      const historical = normalizeCommissionRule({
+        ...previous,
+        active: false,
+        status: "Historica",
+        endsAt: new Date(effectiveAt.getTime() - 1).toISOString(),
+        updatedAt: changedAt,
+        updatedBy: actor.name || actor.username || "Administracion",
+        note: `Cerrada por modificacion: ${motive}`
+      }, index);
+      rule = normalizeCommissionRule({
+        ...merged,
+        id: commissionRuleId(),
+        startsAt: effectiveAt.toISOString(),
+        endsAt: String(input.endsAt || "").trim(),
+        active: true,
+        status: "Activa"
+      }, rules.length);
+      const overlap = rules.find((existing, existingIndex) => existingIndex !== index
+        && existing.active !== false
+        && existing.status !== "Inactiva"
+        && existing.status !== "Historica"
+        && commissionRuleScopeMatches(existing, rule)
+        && commissionRuleRangesOverlap(existing, rule));
+      if (overlap) throw new Error(`Ya existe una regla activa superpuesta para ${rule.userLabel || rule.username || "todos los vendedores"}: ${overlap.id}.`);
+      rules[index] = historical;
+      rules.unshift(rule);
+      auditAction = "COMISION_REGLA_VERSIONADA";
+    } else {
+      const overlap = rule.active === false ? null : rules.find((existing, existingIndex) => existingIndex !== index
+        && existing.active !== false
+        && existing.status !== "Inactiva"
+        && existing.status !== "Historica"
+        && commissionRuleScopeMatches(existing, rule)
+        && commissionRuleRangesOverlap(existing, rule));
+      if (overlap) throw new Error(`Ya existe una regla activa superpuesta para ${rule.userLabel || rule.username || "todos los vendedores"}: ${overlap.id}.`);
+      if (index >= 0) rules[index] = rule;
+      else rules.unshift(rule);
+    }
     const parts = localTraceParts(rule.updatedAt);
     const audit = {
       id: `COMAUD-${Date.now()}-${Math.random().toString(16).slice(2, 6).toUpperCase()}`,
@@ -609,7 +731,7 @@
       time: parts.time,
       user: actor.name || actor.username || "Administracion",
       username: actor.username || "",
-      action: previous ? "COMISION_REGLA_EDITADA" : "COMISION_REGLA_CREADA",
+      action: auditAction,
       ruleId: rule.id,
       previous,
       next: clone(rule),
@@ -1992,10 +2114,12 @@
     formatItems,
     ensureCommissionSettings,
     calculateOrderCommissions,
+    previewCommissionRule,
     refreshOrderCommissions,
     refreshSellerMetrics,
     recalculateCommissions,
     summarizeCommissions,
+    analyzeCommissionRules,
     saveCommissionRule,
     nextOrderCode,
     quoteOrder,

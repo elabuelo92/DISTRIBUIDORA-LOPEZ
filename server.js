@@ -14,12 +14,13 @@ const erpnextEngine = require("./erpnext-engine");
 const licenseEngine = require("./license-engine");
 const legalEngine = require("./legal-engine");
 const clientPortfolioEngine = require("./client-portfolio-engine");
+const clientHoursEngine = require("./client-hours");
 
 const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-121";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-123";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -2670,7 +2671,9 @@ function clientListRecord(state, client, supplierKeys) {
     zone: client.zone || client.zona || "",
     ruta: client.ruta || client.route || "",
     seller: client.seller || client.vendedor_asignado || client.vendedor || "",
-    horario_atencion: client.horario_atencion || client.hours || "",
+    horario_atencion: clientHoursEngine.summary(client.horarios_atencion, client.horario_atencion || client.hours || ""),
+    horarios_atencion: clientHoursEngine.normalize(client.horarios_atencion),
+    horario_observacion: String(client.horario_observacion || ""),
     latitud: client.latitud ?? client.latitude ?? null,
     longitud: client.longitud ?? client.longitude ?? null,
     status: client.status || client.estado || "Activo",
@@ -3036,7 +3039,9 @@ function editedClientFromInput(previous, input, user) {
     estado: String(input.estado || "Activo").trim() || "Activo",
     status: String(input.estado || "Activo").trim() || "Activo",
     observaciones: String(input.observaciones || "").trim(),
-    horario_atencion: String(input.horario_atencion || "").trim(),
+    horarios_atencion: clientHoursEngine.normalize(input.horarios_atencion),
+    horario_atencion: clientHoursEngine.summary(input.horarios_atencion, input.horario_atencion),
+    horario_observacion: String(input.horario_observacion || "").trim(),
     latitud: input.latitud === null || input.latitud === "" ? null : numeric(input.latitud, null),
     longitud: input.longitud === null || input.longitud === "" ? null : numeric(input.longitud, null),
     updatedAt: new Date().toISOString()
@@ -3105,7 +3110,9 @@ function mobileClientFromInput(input, user) {
     estado: String(input.estado || "Activo").trim() || "Activo",
     status: String(input.estado || "Activo").trim() || "Activo",
     observaciones: String(input.observaciones || "Alta rapida desde celular").trim(),
-    horario_atencion: String(input.horario_atencion || "").trim(),
+    horarios_atencion: clientHoursEngine.normalize(input.horarios_atencion),
+    horario_atencion: clientHoursEngine.summary(input.horarios_atencion, input.horario_atencion),
+    horario_observacion: String(input.horario_observacion || "").trim(),
     latitud: gps.lat,
     longitud: gps.lng,
     gpsAccuracy: gps.accuracy,
@@ -5876,7 +5883,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const result = orderEngine.saveCommissionRule(currentState, input, sessionUser);
         writeStateResponse(res, currentState, result, auditEntry(req, sessionUser, input, {
-          action: result.previous ? "COMISION_REGLA_EDITADA" : "COMISION_REGLA_CREADA",
+          action: result.audit && result.audit.action || (result.previous ? "COMISION_REGLA_EDITADA" : "COMISION_REGLA_CREADA"),
           entityType: "comision",
           entityId: result.rule.id,
           entityLabel: `${result.rule.role} ${result.rule.rubro || result.rule.productName || result.rule.productCode}`,

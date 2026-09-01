@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-121-r20260830c">
+    <link rel="manifest" href="manifest.json?v=8790-123-r20260901a">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-121-r20260830c">
+    <link rel="stylesheet" href="styles.css?v=8790-123-r20260901a">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -159,7 +159,7 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-121</strong>
+              <strong data-version-value>8790-123</strong>
               <small data-version-build>Actualizada 30/08/2026 23:55</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
@@ -371,6 +371,14 @@
                     Consumidor Final
                   </label>
                 </div>
+                <details class="client-hours-editor compact">
+                  <summary>Horario de atencion / recepcion</summary>
+                  <div id="mobileClientHoursGrid" data-client-hours-grid></div>
+                  <label class="phone-field">
+                    Observacion de horario
+                    <input id="mobileClientHoursNote" type="text" placeholder="Ej: recibe mercaderia hasta las 11:30">
+                  </label>
+                </details>
                 <label class="phone-field">
                   Domicilio
                   <input id="mobileNewClientAddress" type="text" placeholder="Calle, numero o referencia">
@@ -1652,12 +1660,13 @@
                 <span class="tag info">No retroactivo</span>
               </div>
               <div class="price-list-kpis" id="commissionCards"></div>
+              <div class="commission-integrity-summary" id="commissionIntegritySummary"></div>
             </section>
             <section class="table-panel wide">
               <div class="table-header">
                 <div>
-                  <h2>Reglas activas</h2>
-                  <p>Prioridad: usuario/producto, usuario/rubro, rol/producto, rol/rubro, general</p>
+                  <h2>Comisiones por vendedor y reglas generales</h2>
+                  <p>Prioridad: vendedor + producto/categoria, vendedor, regla general y finalmente sin comision</p>
                 </div>
                 <div class="table-actions">
                   <button class="secondary-btn" id="exportCommissionsCsvBtn" type="button">Exportar reporte</button>
@@ -1677,6 +1686,7 @@
                   <option value="all">Todos los estados</option>
                   <option value="Activa">Activas</option>
                   <option value="Inactiva">Inactivas</option>
+                  <option value="Historica">Historicas</option>
                 </select>
               </div>
               <div class="table-wrap">
@@ -1699,8 +1709,8 @@
             <section class="panel">
               <div class="panel-header">
                 <div>
-                  <h2>Nueva regla</h2>
-                  <p>Requiere motivo para auditoria</p>
+                  <h2 id="commissionRuleFormTitle">Nueva regla de comision</h2>
+                  <p id="commissionRuleFormHint">La regla general se usa solo cuando el vendedor no posee una regla especifica.</p>
                 </div>
               </div>
               <form id="commissionRuleForm" class="price-list-form">
@@ -1713,8 +1723,8 @@
                   </select>
                 </label>
                 <label>
-                  Usuario especifico opcional
-                  <input name="userName" list="commissionUserOptions" placeholder="Dejar vacio para regla general">
+                  Aplicar a vendedor especifico
+                  <input name="userName" list="commissionUserOptions" placeholder="Vacio = regla general para todos">
                   <datalist id="commissionUserOptions"></datalist>
                 </label>
                 <label>
@@ -1759,10 +1769,25 @@
                   <textarea name="motive" rows="3" placeholder="Ej: regla inicial, cambio comercial autorizado" required></textarea>
                 </label>
                 <div class="form-actions">
-                  <button class="primary-btn" id="saveCommissionRuleBtn" type="button">Guardar regla</button>
+                  <button class="primary-btn" id="saveCommissionRuleBtn" type="button">Guardar nueva regla</button>
                   <button class="secondary-btn" id="resetCommissionFormBtn" type="button">Limpiar</button>
                 </div>
+                <p class="form-hint">Una modificacion cierra la vigencia anterior y crea una nueva version. Las ventas historicas conservan el porcentaje aplicado.</p>
               </form>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Simulador / validacion</h2>
+                  <p>Consultar que regla se aplicara antes de registrar una venta</p>
+                </div>
+              </div>
+              <div class="price-list-form">
+                <label>Vendedor<select id="commissionSimulatorSeller"></select></label>
+                <label>Producto<input id="commissionSimulatorProduct" list="commissionProductOptions" placeholder="Buscar producto"></label>
+                <label>Importe base<input id="commissionSimulatorBase" type="number" min="0" step="0.01" value="10000"></label>
+              </div>
+              <div id="commissionSimulatorResult" class="commission-simulator-result"></div>
             </section>
             <section class="panel wide">
               <div class="panel-header">
@@ -2678,7 +2703,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-121</span>
+          <span id="appFooterVersion">Version del sistema: 8790-123</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -2921,10 +2946,15 @@
           Email
           <input name="email" type="email" placeholder="cliente@correo.com">
         </label>
-        <label>
-          Horario de atencion
-          <input name="horario_atencion" placeholder="Ej: 8-14 / 16-22">
-        </label>
+        <details class="client-hours-editor" open>
+          <summary>Horario de atencion / recepcion</summary>
+          <input name="horario_atencion" type="hidden">
+          <div id="adminClientHoursGrid" data-client-hours-grid></div>
+          <label>
+            Observacion de horario
+            <input name="horario_observacion" placeholder="Ej: recibe mercaderia unicamente hasta las 11:30">
+          </label>
+        </details>
         <div class="form-grid">
           <label>
             Latitud entrega
@@ -4311,15 +4341,16 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-121-r20260830c"></script>
-    <script src="maps-config.js?v=8790-121-r20260830c"></script>
-    <script src="order-engine.js?v=8790-121-r20260830c"></script>
-    <script src="account-engine.js?v=8790-121-r20260830c"></script>
-    <script src="delivery-engine.js?v=8790-121-r20260830c"></script>
-    <script src="legal-engine.js?v=8790-121-r20260830c"></script>
-    <script src="client-portfolio-engine.js?v=8790-121-r20260830c"></script>
-    <script src="share-engine.js?v=8790-121-r20260830c"></script>
-    <script src="app.js?v=8790-121-r20260830c"></script>
+    <script src="config.js?v=8790-123-r20260901a"></script>
+    <script src="maps-config.js?v=8790-123-r20260901a"></script>
+    <script src="order-engine.js?v=8790-123-r20260901a"></script>
+    <script src="account-engine.js?v=8790-123-r20260901a"></script>
+    <script src="delivery-engine.js?v=8790-123-r20260901a"></script>
+    <script src="legal-engine.js?v=8790-123-r20260901a"></script>
+    <script src="client-portfolio-engine.js?v=8790-123-r20260901a"></script>
+    <script src="client-hours.js?v=8790-123-r20260901a"></script>
+    <script src="share-engine.js?v=8790-123-r20260901a"></script>
+    <script src="app.js?v=8790-123-r20260901a"></script>
   </body>
 </html>
 

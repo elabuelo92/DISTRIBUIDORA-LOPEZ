@@ -51,7 +51,7 @@ assert.equal(ShareEngine.argentinaWhatsAppPhone("3512223344"), "5493512223344");
 const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
 const indexSource = fs.readFileSync(path.join(root, "index.html"), "utf8");
 assert.match(indexSource, /id="shareMobileOrderWhatsAppBtn"/);
-assert.match(indexSource, /share-engine\.js\?v=8790-121-r20260830c/);
+assert.match(indexSource, /share-engine\.js\?v=8790-123-r20260901a/);
 assert.match(appSource, /const order = payload\.order;[\s\S]{0,900}mobileLastConfirmedOrderShare =/);
 assert.match(appSource, /shareConfirmedMobileOrderWhatsApp/);
 assert.match(appSource, /navigator\.share/);
