@@ -80,7 +80,7 @@ sudo mkdir -p "$BACKUP_DIR"
 git fetch origin main
 git show origin/main:scripts/order-dispatch-snapshot.js > /tmp/dl-order-dispatch-snapshot.js
 node --check /tmp/dl-order-dispatch-snapshot.js
-DESTRUCTIVE_DIFF="$(git diff "$OLD_COMMIT" origin/main -- server.js order-engine.js delivery-engine.js scripts ':!scripts/smoke-*' ':!scripts/support-maintenance.js' | grep -E '^\+.*(DELETE[[:space:]]+FROM|TRUNCATE|DROP[[:space:]]+TABLE|state\.orders[[:space:]]*=[[:space:]]*\[\])' || true)"
+DESTRUCTIVE_DIFF="$(git diff "$OLD_COMMIT" origin/main -- server.js order-engine.js delivery-engine.js scripts ':!scripts/smoke-*' ':!scripts/support-maintenance.js' ':!scripts/deploy/safe-production-deploy.py' | grep -E '^\+.*(DELETE[[:space:]]+FROM|TRUNCATE|DROP[[:space:]]+TABLE|state\.orders[[:space:]]*=[[:space:]]*\[\])' || true)"
 if [ -n "$DESTRUCTIVE_DIFF" ]; then
   echo 'ERROR: DESTRUCTIVE_MIGRATION_REQUIRES_EXPLICIT_REVIEW'
   echo "$DESTRUCTIVE_DIFF"

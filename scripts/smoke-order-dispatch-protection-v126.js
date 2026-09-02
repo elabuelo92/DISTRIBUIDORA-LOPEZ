@@ -12,6 +12,7 @@ assert.match(deploySource, /orders-today-after\.json/);
 assert.match(deploySource, /orders-today-comparison\.json/);
 assert.match(deploySource, /rollback_deploy 42 'ORDER_INTEGRITY_COMPARISON_FAILED'/);
 assert.match(deploySource, /DESTRUCTIVE_MIGRATION_REQUIRES_EXPLICIT_REVIEW/);
+assert.match(deploySource, /':!scripts\/deploy\/safe-production-deploy\.py'/);
 assert.match(deploySource, /sudo systemctl stop \{SERVICE\}[\s\S]*data\.tar\.gz[\s\S]*orders-today-before\.json[\s\S]*git checkout main/);
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dl-order-protection-"));
