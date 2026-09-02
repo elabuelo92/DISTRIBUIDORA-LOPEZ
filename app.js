@@ -542,7 +542,7 @@ let deliverySignatureDirty = false;
 let deliveryExceptionSignatureDirty = false;
 let deliveryPlannerSelection = new Set();
 let deliveryPlannerSortKey = "route";
-let deliveryPlannerFilter = "unassigned";
+let deliveryPlannerFilter = "all";
 let deliveryPlannerSearchTerm = "";
 let deliveryPlannerZoneFilter = "all";
 let deliveryPlannerSellerFilter = "all";
@@ -8917,14 +8917,14 @@ function deliveryPlannerRoute(order) {
 }
 
 function deliveryPlannerCandidates() {
-  const term = normalizeForMatch(deliveryPlannerSearchTerm);
+  const term = normalizeSearchText(deliveryPlannerSearchTerm);
   return state.orders
-    .filter((order) => [ORDER_STATUS.READY_DISPATCH, ORDER_STATUS.NOT_DELIVERED, ORDER_STATUS.POSTPONED].includes(order.status))
+    .filter(DeliveryEngine.isEligibleForRoutePlanning)
     .filter((order) => {
       const route = deliveryPlannerRoute(order);
       const destination = deliveryOrderDestinationInfo(order);
       const hours = orderHoursText(order);
-      const priority = normalizeForMatch(order.priority || "");
+      const priority = normalizeSearchText(order.priority || "");
       if (deliveryPlannerFilter === "unassigned" && route) return false;
       if (deliveryPlannerFilter === "assigned" && !route) return false;
       if (deliveryPlannerFilter === "no-gps" && deliveryOrderHasGps(order)) return false;
@@ -8933,7 +8933,7 @@ function deliveryPlannerCandidates() {
       if (deliveryPlannerZoneFilter !== "all" && orderZoneText(order) !== deliveryPlannerZoneFilter) return false;
       if (deliveryPlannerSellerFilter !== "all" && String(order.seller || "") !== deliveryPlannerSellerFilter) return false;
       if (!term) return true;
-      return normalizeForMatch([
+      return normalizeSearchText([
         order.code, order.client, orderAddressText(order), order.phone,
         orderZoneText(order), orderRouteText(order), order.seller
       ].join(" ")).includes(term);
@@ -9014,9 +9014,11 @@ function renderDeliveryPlanner() {
   if (sellerSelect) sellerSelect.value = deliveryPlannerSellerFilter;
   document.querySelectorAll("[data-planner-filter]").forEach((button) => button.classList.toggle("active", button.dataset.plannerFilter === deliveryPlannerFilter));
 
+  const eligibleOrders = (state.orders || []).filter(DeliveryEngine.isEligibleForRoutePlanning);
   const candidates = deliveryPlannerCandidates();
-  const selectableCodes = new Set((state.orders || [])
-    .filter((order) => [ORDER_STATUS.READY_DISPATCH, ORDER_STATUS.NOT_DELIVERED, ORDER_STATUS.POSTPONED].includes(order.status))
+  const assignedCount = eligibleOrders.filter(deliveryPlannerRoute).length;
+  const unassignedCount = eligibleOrders.length - assignedCount;
+  const selectableCodes = new Set(eligibleOrders
     .filter((order) => !deliveryPlannerRoute(order) && deliveryOrderDestinationInfo(order).hasDestination)
     .map((order) => order.code));
   deliveryPlannerSelection = new Set(Array.from(deliveryPlannerSelection).filter((code) => selectableCodes.has(code)));
@@ -9025,14 +9027,19 @@ function renderDeliveryPlanner() {
   const routeCount = new Set(candidates.map(deliveryPlannerGroupKey)).size;
   const total = selectedOrders.reduce((sum, order) => sum + numeric(order.amount, 0), 0);
   summary.innerHTML = `
-    <span>${candidates.length} resultados</span>
+    <span>Pedidos listos: ${eligibleOrders.length}</span>
+    <span>Sin asignar: ${unassignedCount}</span>
+    <span>Con ruta: ${assignedCount}</span>
+    <span>${candidates.length} resultados con filtros</span>
     <span id="deliveryPlannerSelectedSummary">${selectedOrders.length} seleccionados (${candidates.filter((order) => deliveryPlannerSelection.has(order.code)).length} visibles) - ${money.format(total)}</span>
     <span>${money.format(total)}</span>
     <span>${routeCount} rutas detectadas</span>
     <span>${blocked} con domicilio pendiente</span>
   `;
 
-  list.innerHTML = candidates.length ? candidates.map(renderDeliveryPlannerOrder).join("") : '<tr><td colspan="13" class="stock-empty">No hay pedidos para los filtros activos.</td></tr>';
+  list.innerHTML = candidates.length
+    ? candidates.map(renderDeliveryPlannerOrder).join("")
+    : '<tr><td colspan="13" class="stock-empty">No existen pedidos elegibles para planificacion con los filtros activos.</td></tr>';
   renderDeliveryPlannerRoutes();
   refreshDeliveryPlannerSelectionUi(candidates);
 }
@@ -16422,7 +16429,7 @@ function findAssemblyScanTarget(scanValue) {
   const productCodes = new Set([product.codigo_producto, product.code, product.codigo, product.id].filter(Boolean).map(normalizeScannerCode));
   const orders = assemblyControlOrders().filter((order) => assemblyOrderItems(order).some((item) => (
     productCodes.has(normalizeScannerCode(item.productCode || item.codigo_producto || item.code || item.productId))
-    || normalizeForMatch(item.name || item.descripcion) === normalizeForMatch(product.name || product.descripcion)
+    || normalizeSearchText(item.name || item.descripcion) === normalizeSearchText(product.name || product.descripcion)
   )));
   return { type: "product", product, orders };
 }

@@ -25,6 +25,10 @@
   const FINAL_STOP_STATUSES = new Set([...DELIVERY_FINAL_STATUSES, ...DELIVERY_EXCEPTION_STATUSES]);
   const REPLANNABLE_STATUSES = new Set([STATUS.READY_DISPATCH, STATUS.NOT_DELIVERED, STATUS.POSTPONED]);
 
+  function isEligibleForRoutePlanning(order) {
+    return Boolean(order) && REPLANNABLE_STATUSES.has(order.status);
+  }
+
   function numeric(value, fallback = 0) {
     const number = Number(value);
     return Number.isFinite(number) ? number : fallback;
@@ -405,7 +409,7 @@
     const orders = orderCodes.map((code) => {
       const order = findOrder(state, code);
       if (!order) throw new Error(`Pedido no encontrado: ${code}.`);
-      if (!REPLANNABLE_STATUSES.has(order.status)) throw new Error(`${code} debe estar Listo para Despacho o pendiente de reprogramacion para planificar ruta.`);
+      if (!isEligibleForRoutePlanning(order)) throw new Error(`${code} debe estar Listo para Despacho o pendiente de reprogramacion para planificar ruta.`);
       const existing = routeAlreadyContainsOrder(state, code);
       if (existing) throw new Error(`${code} ya esta incluido en ${existing.id}.`);
       if (!hasDestination(state, order)) throw new Error(`${code} - ${order.client} no tiene domicilio ni GPS cargado.`);
@@ -1226,6 +1230,7 @@
   return {
     ensureState,
     ROUTE_STATUS,
+    isEligibleForRoutePlanning,
     migrateState,
     ensureRouteForOrder,
     createPlannedRoute,

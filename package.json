@@ -24,7 +24,8 @@
     "test:order-dispatch-protection": "node scripts/smoke-order-dispatch-protection-v126.js",
     "test:cache-update": "node scripts/smoke-cache-update-v126.js",
     "test:performance-100": "node scripts/benchmark-100-orders-v127.js",
-    "test:planner-scanner": "node scripts/smoke-planner-scanner-v128.js"
+    "test:planner-scanner": "node scripts/smoke-planner-scanner-v128.js",
+    "test:delivery-planner": "node scripts/smoke-delivery-planner-v130.js"
   },
   "engines": {
     "node": ">=18"

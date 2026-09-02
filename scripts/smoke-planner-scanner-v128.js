@@ -72,7 +72,7 @@ assert.equal(routeState.deliveryRoutes.length, 0);
 
 console.log(JSON.stringify({
   ok: true,
-  version: "8790-128",
+  version: "8790-130",
   plannerRows: orders.length,
   selectedFiltered: selected.size,
   consecutiveScans: scanCodes.length,
