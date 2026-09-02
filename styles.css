@@ -5323,10 +5323,112 @@ td small {
   font-weight: 850;
 }
 
-.delivery-planner-list {
+.delivery-planner-filters {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 10px;
+  grid-template-columns: minmax(260px, 1fr) 180px 200px;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.planner-filter-tabs {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.planner-filter-tabs button {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 750;
+}
+
+.planner-filter-tabs button.active {
+  border-color: var(--accent);
+  background: #e6f5f2;
+  color: var(--accent-dark);
+}
+
+.delivery-planner-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 230px;
+  gap: 12px;
+  align-items: start;
+}
+
+.delivery-planner-table {
+  max-height: 62vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+}
+
+.delivery-planner-table table {
+  min-width: 1280px;
+  font-size: 12px;
+}
+
+.delivery-planner-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f4f7f7;
+}
+
+.delivery-planner-table th,
+.delivery-planner-table td {
+  padding: 7px 8px;
+  white-space: nowrap;
+}
+
+.delivery-planner-table td:nth-child(4),
+.delivery-planner-table td:nth-child(6) {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.delivery-planner-table tr.selected td {
+  background: #e6f5f2;
+}
+
+.delivery-planner-table tr.invalid td {
+  background: #fff2f0;
+}
+
+.delivery-planner-routes {
+  position: sticky;
+  top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.delivery-planner-routes h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.planner-route-summary {
+  width: 100%;
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  text-align: left;
+}
+
+.planner-route-summary:hover {
+  border-color: var(--accent);
+}
+
+.planner-route-summary span,
+.planner-route-summary small {
+  color: var(--muted);
 }
 
 .delivery-planner-group {
@@ -6416,6 +6518,47 @@ td small {
 .order-label-modal,
 .order-scan-modal {
   width: min(680px, calc(100vw - 32px));
+}
+
+.assembly-fast-scan {
+  display: grid;
+  grid-template-columns: minmax(260px, 420px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: end;
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: 6px;
+  background: #f7faf9;
+}
+
+.assembly-fast-scan label {
+  display: grid;
+  gap: 5px;
+  font-weight: 800;
+}
+
+.assembly-fast-scan[data-tone="ok"] { border-left-color: #16834a; }
+.assembly-fast-scan[data-tone="warn"] { border-left-color: #bb6800; }
+.assembly-fast-scan[data-tone="danger"] { border-left-color: #c93b32; }
+
+.scan-highlight {
+  outline: 3px solid #16834a;
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .delivery-planner-filters,
+  .delivery-planner-workspace,
+  .assembly-fast-scan {
+    grid-template-columns: 1fr;
+  }
+
+  .delivery-planner-routes {
+    position: static;
+    order: -1;
+  }
 }
 
 .label-preview,

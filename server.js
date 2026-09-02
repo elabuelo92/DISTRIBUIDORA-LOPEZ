@@ -20,7 +20,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-127";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-128";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -8362,6 +8362,37 @@ const server = http.createServer(async (req, res) => {
         }), [], { performanceStartedAt, atomic: true });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo planificar la ruta." });
+      }
+      return;
+    }
+
+    const routeUnplanMatch = requestUrl.pathname.match(/^\/api\/delivery\/routes\/([^/]+)\/unplan$/);
+    if (routeUnplanMatch && req.method === "POST") {
+      const performanceStartedAt = performance.now();
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Solo administracion puede deshacer una planificacion." });
+        return;
+      }
+      const input = JSON.parse(await readBody(req) || "{}");
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      try {
+        const routeId = decodeURIComponent(routeUnplanMatch[1]);
+        const previousRoute = entitySnapshot(currentState, "ruta", routeId);
+        const route = deliveryEngine.removePlannedRoute(currentState, routeId, deliveryContext(sessionUser, input));
+        writeCompactStateResponse(res, currentState, { removedRouteId: route.id }, auditEntry(req, sessionUser, input, {
+          action: "RUTA_PLANIFICADA_DESHECHA",
+          entityType: "ruta",
+          entityId: route.id,
+          entityLabel: route.zone || route.id,
+          previousValue: previousRoute,
+          newValue: null,
+          note: `${route.stops.length} pedidos devueltos a planificacion`
+        }), [], { performanceStartedAt, atomic: true });
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo deshacer la planificacion." });
       }
       return;
     }

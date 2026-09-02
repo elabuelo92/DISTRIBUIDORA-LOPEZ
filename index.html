@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-127-r20260902a">
+    <link rel="manifest" href="manifest.json?v=8790-128-r20260902b">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-127-r20260902a">
+    <link rel="stylesheet" href="styles.css?v=8790-128-r20260902b">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -159,8 +159,8 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-127</strong>
-              <small data-version-build>Actualizada 02/09/2026 00:10</small>
+              <strong data-version-value>8790-128</strong>
+              <small data-version-build>Actualizada 02/09/2026 05:35</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
             <button class="ghost-btn app-back-btn" id="appBackBtn" type="button">Volver</button>
@@ -855,8 +855,8 @@
           <section class="panel admin-only delivery-planner-panel">
             <div class="panel-header">
               <div>
-                <h2>Planificador de rutas</h2>
-                <p>Administracion planifica pedidos listos para despacho y publica cuando salen a reparto</p>
+                <h2>Planificacion rapida</h2>
+                <p>Organizar pedidos por lote sin abrirlos individualmente</p>
               </div>
             </div>
             <form id="deliveryPlannerForm" class="delivery-planner-form">
@@ -878,7 +878,7 @@
                   <input id="deliveryPlannerDriverLabel" name="driverLabel" autocomplete="off" value="Reparto 1">
                 </label>
                 <label>
-                  Orden de armado
+                  Ordenar por
                   <select id="deliveryPlannerSort" name="sort">
                     <option value="route">Ruta</option>
                     <option value="zone">Zona</option>
@@ -889,17 +889,31 @@
                   </select>
                 </label>
               </div>
+              <div class="delivery-planner-filters">
+                <input id="deliveryPlannerSearch" type="search" autocomplete="off" placeholder="Buscar pedido, cliente, direccion o telefono">
+                <select id="deliveryPlannerZoneFilter" aria-label="Filtrar por zona"><option value="all">Todas las zonas</option></select>
+                <select id="deliveryPlannerSellerFilter" aria-label="Filtrar por vendedor"><option value="all">Todos los vendedores</option></select>
+                <div class="planner-filter-tabs" role="group" aria-label="Filtros rapidos">
+                  <button type="button" data-planner-filter="all">Todos</button>
+                  <button type="button" data-planner-filter="unassigned" class="active">Sin asignar</button>
+                  <button type="button" data-planner-filter="assigned">Con ruta</button>
+                  <button type="button" data-planner-filter="no-gps">Sin GPS</button>
+                  <button type="button" data-planner-filter="with-hours">Con horario</button>
+                  <button type="button" data-planner-filter="urgent">Urgentes</button>
+                </div>
+              </div>
               <div class="delivery-planner-actions">
-                <label class="inline-check">
-                  <input id="deliveryPlannerGroupRoute" type="checkbox" checked>
-                  Agrupar por ruta
-                </label>
+                <button class="secondary-btn" id="selectFilteredDeliveryPlannerBtn" type="button">Seleccionar filtrados</button>
                 <button class="secondary-btn" id="clearDeliveryPlannerBtn" type="button">Limpiar seleccion</button>
-                <button class="primary-btn" type="submit">Crear hoja planificada</button>
+                <button class="secondary-btn" id="undoDeliveryPlannerBtn" type="button" hidden>Deshacer ultima asignacion</button>
+                <button class="primary-btn" id="deliveryPlannerSubmit" type="submit">Crear hoja planificada</button>
               </div>
             </form>
             <div class="delivery-planner-summary" id="deliveryPlannerSummary"></div>
-            <div class="delivery-planner-list" id="deliveryPlannerList"></div>
+            <div class="delivery-planner-workspace">
+              <div class="responsive-table delivery-planner-table"><table><thead><tr><th><input id="deliveryPlannerSelectAll" type="checkbox" aria-label="Seleccionar resultados"></th><th>Orden</th><th>Pedido</th><th>Cliente</th><th>Zona</th><th>Direccion</th><th>Bultos</th><th>Importe</th><th>Horario</th><th>Vendedor</th><th>Estado</th><th>Ruta</th><th>GPS</th></tr></thead><tbody id="deliveryPlannerList"></tbody></table></div>
+              <aside class="delivery-planner-routes"><h3>Rutas del dia</h3><div id="deliveryPlannerRoutes"></div></aside>
+            </div>
           </section>
           <section class="panel delivery-active-panel">
             <div class="panel-header">
@@ -2721,7 +2735,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-127</span>
+          <span id="appFooterVersion">Version del sistema: 8790-128</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -4359,17 +4373,17 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-127-r20260902a"></script>
-    <script src="maps-config.js?v=8790-127-r20260902a"></script>
-    <script src="order-engine.js?v=8790-127-r20260902a"></script>
-    <script src="account-engine.js?v=8790-127-r20260902a"></script>
-    <script src="delivery-engine.js?v=8790-127-r20260902a"></script>
-    <script src="legal-engine.js?v=8790-127-r20260902a"></script>
-    <script src="client-portfolio-engine.js?v=8790-127-r20260902a"></script>
-    <script src="client-hours.js?v=8790-127-r20260902a"></script>
-    <script src="share-engine.js?v=8790-127-r20260902a"></script>
-    <script src="progressive-list.js?v=8790-127-r20260902a"></script>
-    <script src="app.js?v=8790-127-r20260902a"></script>
+    <script src="config.js?v=8790-128-r20260902b"></script>
+    <script src="maps-config.js?v=8790-128-r20260902b"></script>
+    <script src="order-engine.js?v=8790-128-r20260902b"></script>
+    <script src="account-engine.js?v=8790-128-r20260902b"></script>
+    <script src="delivery-engine.js?v=8790-128-r20260902b"></script>
+    <script src="legal-engine.js?v=8790-128-r20260902b"></script>
+    <script src="client-portfolio-engine.js?v=8790-128-r20260902b"></script>
+    <script src="client-hours.js?v=8790-128-r20260902b"></script>
+    <script src="share-engine.js?v=8790-128-r20260902b"></script>
+    <script src="progressive-list.js?v=8790-128-r20260902b"></script>
+    <script src="app.js?v=8790-128-r20260902b"></script>
   </body>
 </html>
 

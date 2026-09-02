@@ -542,7 +542,16 @@ let deliverySignatureDirty = false;
 let deliveryExceptionSignatureDirty = false;
 let deliveryPlannerSelection = new Set();
 let deliveryPlannerSortKey = "route";
-let deliveryPlannerGroupByRoute = true;
+let deliveryPlannerFilter = "unassigned";
+let deliveryPlannerSearchTerm = "";
+let deliveryPlannerZoneFilter = "all";
+let deliveryPlannerSellerFilter = "all";
+let deliveryPlannerUndoRouteId = "";
+let deliveryMapVisible = false;
+let assemblyFastScanBuffer = "";
+let assemblyFastScanLastKeyAt = 0;
+let assemblyFastScanCounts = new Map();
+let assemblyFastScanIndex = { signature: "", labels: new Map(), products: new Map() };
 let orderEditTargetCode = "";
 let orderEditDraftItems = [];
 let orderLabelTargetCode = "";
@@ -2374,6 +2383,12 @@ function applyOperationalPatches(payload) {
     if (routeIndex >= 0) state.deliveryRoutes[routeIndex] = payload.route;
     else state.deliveryRoutes = [payload.route, ...(state.deliveryRoutes || [])];
     persistLocalMeta("route-patch");
+    scheduleRenderForCurrentUser();
+  }
+  if (payload.removedRouteId) {
+    state.deliveryRoutes = (state.deliveryRoutes || []).filter((route) => route.id !== payload.removedRouteId);
+    if (activeDeliveryRouteId === payload.removedRouteId) activeDeliveryRouteId = "";
+    persistLocalMeta("route-removed");
     scheduleRenderForCurrentUser();
   }
 }
@@ -8607,6 +8622,13 @@ function renderAssemblyControlPanel() {
         <span><i class="assembly-dot labeled"></i>Etiquetado</span>
         <span><i class="assembly-dot ready"></i>Listo para despacho</span>
       </div>
+      <div class="assembly-fast-scan" data-tone="info">
+        <label>
+          <span>Escaner rapido</span>
+          <input id="assemblyFastScanInput" type="text" autocomplete="off" placeholder="Escanear etiqueta o codigo de producto">
+        </label>
+        <div id="assemblyFastScanStatus" role="status" aria-live="polite">Listo para recibir lecturas. No modifica cantidades del pedido.</div>
+      </div>
       <div class="responsive-table assembly-control-table">
         <table>
           <thead>
@@ -8886,9 +8908,36 @@ function deliveryOrderDestinationInfo(order) {
   };
 }
 
+function deliveryOrderHasGps(order) {
+  return Boolean(clientGpsPoint(orderClient(order)));
+}
+
+function deliveryPlannerRoute(order) {
+  return deliveryRouteForOrder(order.code);
+}
+
 function deliveryPlannerCandidates() {
+  const term = normalizeForMatch(deliveryPlannerSearchTerm);
   return state.orders
-    .filter((order) => [ORDER_STATUS.READY_DISPATCH, ORDER_STATUS.NOT_DELIVERED, ORDER_STATUS.POSTPONED].includes(order.status) && !routeContainsActiveOrder(order.code))
+    .filter((order) => [ORDER_STATUS.READY_DISPATCH, ORDER_STATUS.NOT_DELIVERED, ORDER_STATUS.POSTPONED].includes(order.status))
+    .filter((order) => {
+      const route = deliveryPlannerRoute(order);
+      const destination = deliveryOrderDestinationInfo(order);
+      const hours = orderHoursText(order);
+      const priority = normalizeForMatch(order.priority || "");
+      if (deliveryPlannerFilter === "unassigned" && route) return false;
+      if (deliveryPlannerFilter === "assigned" && !route) return false;
+      if (deliveryPlannerFilter === "no-gps" && deliveryOrderHasGps(order)) return false;
+      if (deliveryPlannerFilter === "with-hours" && !hours) return false;
+      if (deliveryPlannerFilter === "urgent" && !priority.includes("urgent")) return false;
+      if (deliveryPlannerZoneFilter !== "all" && orderZoneText(order) !== deliveryPlannerZoneFilter) return false;
+      if (deliveryPlannerSellerFilter !== "all" && String(order.seller || "") !== deliveryPlannerSellerFilter) return false;
+      if (!term) return true;
+      return normalizeForMatch([
+        order.code, order.client, orderAddressText(order), order.phone,
+        orderZoneText(order), orderRouteText(order), order.seller
+      ].join(" ")).includes(term);
+    })
     .sort((a, b) => compareOrdersBySort(a, b, deliveryPlannerSortKey));
 }
 
@@ -8898,20 +8947,54 @@ function deliveryPlannerGroupKey(order) {
 
 function renderDeliveryPlannerOrder(order) {
   const destination = deliveryOrderDestinationInfo(order);
-  const route = deliveryPlannerGroupKey(order);
+  const route = deliveryPlannerRoute(order);
   const assembly = orderAssemblyInfo(order);
   const selected = deliveryPlannerSelection.has(order.code);
   return `
-    <label class="delivery-planner-order ${selected ? "selected" : ""} ${destination.hasDestination ? "" : "invalid"}">
-      <input type="checkbox" data-planner-order="${escapeHtml(order.code)}" ${selected ? "checked" : ""} ${destination.hasDestination ? "" : "disabled"}>
-      <span>
-        <strong>${escapeHtml(order.code)} - ${escapeHtml(order.client)}</strong>
-        <small>${escapeHtml(route)} - ${escapeHtml(orderZoneText(order))} - ${escapeHtml(orderHoursText(order))}</small>
-        <small>${escapeHtml(destination.text)} - ${money.format(order.amount)} - Orden ${escapeHtml(formatAssemblyOrderNumber(assembly))} - ${escapeHtml(String(assembly.bultos || 0))} bultos</small>
-      </span>
-      <em>${escapeHtml(order.priority || "Normal")}</em>
-    </label>
+    <tr class="${selected ? "selected" : ""} ${destination.hasDestination ? "" : "invalid"}" data-planner-row="${escapeHtml(order.code)}">
+      <td><input type="checkbox" data-planner-order="${escapeHtml(order.code)}" aria-label="Seleccionar ${escapeHtml(order.code)}" ${selected ? "checked" : ""} ${(!destination.hasDestination || route) ? "disabled" : ""}></td>
+      <td>${escapeHtml(formatAssemblyOrderNumber(assembly))}</td>
+      <td><strong>${escapeHtml(order.code)}</strong></td>
+      <td><strong>${escapeHtml(order.client)}</strong></td>
+      <td>${escapeHtml(orderZoneText(order) || "-")}</td>
+      <td title="${escapeHtml(destination.text)}">${escapeHtml(orderAddressText(order) || destination.text)}</td>
+      <td>${escapeHtml(String(assembly.bultos || 0))}</td>
+      <td>${money.format(order.amount)}</td>
+      <td>${escapeHtml(orderHoursText(order) || "-")}</td>
+      <td>${escapeHtml(order.seller || "-")}</td>
+      <td><span class="tag ${orderStatusClass(order.status)}">${escapeHtml(order.status)}</span></td>
+      <td>${escapeHtml(route ? route.id : "Sin asignar")}</td>
+      <td>${deliveryOrderHasGps(order) ? "Si" : "No"}</td>
+    </tr>
   `;
+}
+
+function refreshDeliveryPlannerSelectionUi(candidates = deliveryPlannerCandidates()) {
+  const selectedOrders = (state.orders || []).filter((order) => deliveryPlannerSelection.has(order.code));
+  const selectedVisible = candidates.filter((order) => deliveryPlannerSelection.has(order.code)).length;
+  document.querySelectorAll("[data-planner-row]").forEach((row) => row.classList.toggle("selected", deliveryPlannerSelection.has(row.dataset.plannerRow)));
+  const selected = byId("deliveryPlannerSelectedSummary");
+  if (selected) selected.textContent = `${selectedOrders.length} seleccionados (${selectedVisible} visibles) - ${money.format(selectedOrders.reduce((sum, order) => sum + numeric(order.amount, 0), 0))}`;
+  const submit = byId("deliveryPlannerSubmit");
+  if (submit) submit.disabled = !selectedOrders.length;
+  const selectable = Array.from(document.querySelectorAll("[data-planner-order]:not(:disabled)"));
+  const master = byId("deliveryPlannerSelectAll");
+  if (master) {
+    master.checked = selectable.length > 0 && selectable.every((checkbox) => checkbox.checked);
+    master.indeterminate = selectable.some((checkbox) => checkbox.checked) && !master.checked;
+  }
+}
+
+function renderDeliveryPlannerRoutes() {
+  const target = byId("deliveryPlannerRoutes");
+  if (!target) return;
+  const selectedDay = byId("deliveryPlannerDay")?.value || routeDayToday();
+  const routes = (state.deliveryRoutes || []).filter((route) => !isDeliveryRouteClosed(route) && String(route.day || "").slice(0, 10) === selectedDay);
+  target.innerHTML = routes.length ? routes.map((route) => {
+    const orders = (route.stops || []).map((stop) => state.orders.find((order) => order.code === stop.orderCode)).filter(Boolean);
+    const packages = orders.reduce((sum, order) => sum + numeric(orderAssemblyInfo(order).bultos, 0), 0);
+    return `<button type="button" class="planner-route-summary" data-delivery-route="${escapeHtml(route.id)}"><strong>${escapeHtml(route.id)}</strong><span>${orders.length} pedidos / ${packages} bultos</span><small>${escapeHtml(route.deviceLabel || route.driverUser || "Sin repartidor")}</small></button>`;
+  }).join("") : '<p class="empty-note">Todavia no hay rutas abiertas.</p>';
 }
 
 function renderDeliveryPlanner() {
@@ -8921,47 +9004,37 @@ function renderDeliveryPlanner() {
   if (!form || !list || !summary) return;
   const day = byId("deliveryPlannerDay");
   if (day && !day.value) day.value = routeDayToday();
+  const zoneSelect = byId("deliveryPlannerZoneFilter");
+  const sellerSelect = byId("deliveryPlannerSellerFilter");
+  const zones = Array.from(new Set((state.orders || []).map(orderZoneText).filter(Boolean))).sort((a, b) => a.localeCompare(b, "es"));
+  const sellers = Array.from(new Set((state.orders || []).map((order) => order.seller).filter(Boolean))).sort((a, b) => a.localeCompare(b, "es"));
+  if (zoneSelect && zoneSelect.options.length !== zones.length + 1) zoneSelect.innerHTML = '<option value="all">Todas las zonas</option>' + zones.map((zone) => `<option value="${escapeHtml(zone)}">${escapeHtml(zone)}</option>`).join("");
+  if (sellerSelect && sellerSelect.options.length !== sellers.length + 1) sellerSelect.innerHTML = '<option value="all">Todos los vendedores</option>' + sellers.map((seller) => `<option value="${escapeHtml(seller)}">${escapeHtml(seller)}</option>`).join("");
+  if (zoneSelect) zoneSelect.value = deliveryPlannerZoneFilter;
+  if (sellerSelect) sellerSelect.value = deliveryPlannerSellerFilter;
+  document.querySelectorAll("[data-planner-filter]").forEach((button) => button.classList.toggle("active", button.dataset.plannerFilter === deliveryPlannerFilter));
 
   const candidates = deliveryPlannerCandidates();
-  const candidateCodes = new Set(candidates.map((order) => order.code));
-  deliveryPlannerSelection = new Set(Array.from(deliveryPlannerSelection).filter((code) => candidateCodes.has(code)));
-  const selectedOrders = candidates.filter((order) => deliveryPlannerSelection.has(order.code));
+  const selectableCodes = new Set((state.orders || [])
+    .filter((order) => [ORDER_STATUS.READY_DISPATCH, ORDER_STATUS.NOT_DELIVERED, ORDER_STATUS.POSTPONED].includes(order.status))
+    .filter((order) => !deliveryPlannerRoute(order) && deliveryOrderDestinationInfo(order).hasDestination)
+    .map((order) => order.code));
+  deliveryPlannerSelection = new Set(Array.from(deliveryPlannerSelection).filter((code) => selectableCodes.has(code)));
+  const selectedOrders = (state.orders || []).filter((order) => deliveryPlannerSelection.has(order.code));
   const blocked = candidates.filter((order) => !deliveryOrderDestinationInfo(order).hasDestination).length;
   const routeCount = new Set(candidates.map(deliveryPlannerGroupKey)).size;
   const total = selectedOrders.reduce((sum, order) => sum + numeric(order.amount, 0), 0);
   summary.innerHTML = `
-    <span>${candidates.length} listos para despacho</span>
-    <span>${selectedOrders.length} seleccionados</span>
+    <span>${candidates.length} resultados</span>
+    <span id="deliveryPlannerSelectedSummary">${selectedOrders.length} seleccionados (${candidates.filter((order) => deliveryPlannerSelection.has(order.code)).length} visibles) - ${money.format(total)}</span>
     <span>${money.format(total)}</span>
     <span>${routeCount} rutas detectadas</span>
     <span>${blocked} con domicilio pendiente</span>
   `;
 
-  if (!candidates.length) {
-    list.innerHTML = '<div class="empty-note">No hay pedidos listos para despacho disponibles para planificar.</div>';
-    return;
-  }
-  if (!deliveryPlannerGroupByRoute) {
-    list.innerHTML = candidates.map(renderDeliveryPlannerOrder).join("");
-    return;
-  }
-  const groups = candidates.reduce((acc, order) => {
-    const key = deliveryPlannerGroupKey(order);
-    if (!acc.has(key)) acc.set(key, []);
-    acc.get(key).push(order);
-    return acc;
-  }, new Map());
-  list.innerHTML = Array.from(groups.entries()).map(([route, orders]) => `
-    <section class="delivery-planner-group">
-      <div class="delivery-planner-group-head">
-        <strong>${escapeHtml(route)}</strong>
-        <span>${orders.length} pedidos</span>
-      </div>
-      <div class="delivery-planner-group-list">
-        ${orders.map(renderDeliveryPlannerOrder).join("")}
-      </div>
-    </section>
-  `).join("");
+  list.innerHTML = candidates.length ? candidates.map(renderDeliveryPlannerOrder).join("") : '<tr><td colspan="13" class="stock-empty">No hay pedidos para los filtros activos.</td></tr>';
+  renderDeliveryPlannerRoutes();
+  refreshDeliveryPlannerSelectionUi(candidates);
 }
 
 function isDeliveryRouteClosed(routeOrStatus) {
@@ -9174,10 +9247,12 @@ function renderDeliveryActivePanel(route, routes) {
   const canClaim = currentUser?.role === "driver" && isDeliveryRoutePublished(route) && assignedHere && !route.deviceId;
   const canCloseRoute = !route.closure && isDeliveryRoutePublished(route) && (isAdminUser() || assignedHere) && allStopsManaged;
   const directionsUrl = deliveryRouteDirectionsUrl(route);
+  const showMap = currentUser?.role === "driver" || deliveryMapVisible;
 
   title.textContent = `${route.zone || "Ruta"} - ${route.id}`;
   meta.textContent = `${route.day || "Sin dia"} - ${route.deviceLabel || route.driverUser || "Sin dispositivo"} - ${stats.closed}/${stats.stops.length} gestionadas`;
   actions.innerHTML = `
+    ${isAdminUser() ? `<button class="secondary-btn" type="button" data-delivery-map-mode="${showMap ? "table" : "map"}">${showMap ? "Ver tabla" : "Ver mapa"}</button>` : ""}
     ${directionsUrl ? `<button class="secondary-btn" type="button" data-delivery-route-map-open="${escapeHtml(route.id)}">Abrir recorrido</button>` : ""}
     ${canClaim ? `<button class="primary-btn" type="button" data-claim-route="${escapeHtml(route.id)}">Tomar Ruta</button>` : ""}
     ${canCloseRoute ? `<button class="primary-btn" type="button" data-close-route="${escapeHtml(route.id)}">Rendir caja</button>` : ""}
@@ -9209,7 +9284,10 @@ function renderDeliveryActivePanel(route, routes) {
       <span><small>Pendiente</small><strong>${money.format(route.pendingTotal || 0)}</strong></span>
     </div>
   `;
-  renderDeliveryRouteMap(route);
+  const mapShell = byId("deliveryRouteMap")?.closest(".delivery-route-map-shell");
+  if (mapShell) mapShell.hidden = !showMap;
+  if (showMap) renderDeliveryRouteMap(route);
+  else deliveryMapRenderToken += 1;
 }
 
 function deliveryMapEmpty(message, detail = "") {
@@ -16305,9 +16383,83 @@ function openOrderScanDialog(code) {
   window.setTimeout(() => byId("orderScanValue").focus(), 80);
 }
 
+function setAssemblyFastScanStatus(message, tone = "info") {
+  const target = byId("assemblyFastScanStatus");
+  if (!target) return;
+  target.textContent = message;
+  target.closest(".assembly-fast-scan")?.setAttribute("data-tone", tone);
+}
+
+function normalizeScannerCode(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function assemblyScannerIndex() {
+  const orders = assemblyControlOrders();
+  const signature = `${state.version || ""}:${(state.products || []).length}:${orders.map((order) => `${order.code}:${order.updatedAt || ""}`).join("|")}`;
+  if (assemblyFastScanIndex.signature === signature) return assemblyFastScanIndex;
+  const labels = new Map();
+  const products = new Map();
+  orders.forEach((order) => {
+    labels.set(normalizeScannerCode(order.code), order);
+    orderPackageLabels(order).forEach((label) => labels.set(normalizeScannerCode(label.scanCode), order));
+  });
+  (state.products || []).forEach((product) => {
+    [product.codigo_barras, product.barcode, product.codigo_producto, product.code, product.codigo].filter(Boolean)
+      .forEach((value) => products.set(normalizeScannerCode(value), product));
+  });
+  assemblyFastScanIndex = { signature, labels, products };
+  return assemblyFastScanIndex;
+}
+
+function findAssemblyScanTarget(scanValue) {
+  const code = normalizeScannerCode(scanValue);
+  if (!code) return null;
+  const index = assemblyScannerIndex();
+  if (index.labels.has(code)) return { type: "label", order: index.labels.get(code) };
+  const product = index.products.get(code);
+  if (!product) return null;
+  const productCodes = new Set([product.codigo_producto, product.code, product.codigo, product.id].filter(Boolean).map(normalizeScannerCode));
+  const orders = assemblyControlOrders().filter((order) => assemblyOrderItems(order).some((item) => (
+    productCodes.has(normalizeScannerCode(item.productCode || item.codigo_producto || item.code || item.productId))
+    || normalizeForMatch(item.name || item.descripcion) === normalizeForMatch(product.name || product.descripcion)
+  )));
+  return { type: "product", product, orders };
+}
+
+function processAssemblyFastScan(scanValue) {
+  const code = normalizeScannerCode(scanValue);
+  const input = byId("assemblyFastScanInput");
+  if (input) input.value = "";
+  const target = findAssemblyScanTarget(code);
+  if (!target) {
+    setAssemblyFastScanStatus(`Codigo ${code || "vacio"}: no encontrado.`, "danger");
+    return;
+  }
+  if (target.type === "label") {
+    setAssemblyFastScanStatus(`Etiqueta encontrada: ${target.order.code}. Validando...`, "ok");
+    openOrderScanDialog(target.order.code);
+    byId("orderScanValue").value = code;
+    byId("orderScanForm").requestSubmit();
+    return;
+  }
+  const count = (assemblyFastScanCounts.get(code) || 0) + 1;
+  assemblyFastScanCounts.set(code, count);
+  const name = target.product.name || target.product.descripcion || code;
+  if (!target.orders.length) {
+    setAssemblyFastScanStatus(`${name}: producto encontrado, sin pedidos activos de armado. Lecturas: ${count}.`, "warn");
+    return;
+  }
+  const first = document.querySelector(`[data-order-row="${CSS.escape(target.orders[0].code)}"]`);
+  first?.scrollIntoView({ behavior: "smooth", block: "center" });
+  first?.classList.add("scan-highlight");
+  window.setTimeout(() => first?.classList.remove("scan-highlight"), 1600);
+  setAssemblyFastScanStatus(`${name}: ${target.orders.length} pedido(s) activo(s). Lecturas: ${count}.`, "ok");
+}
+
 async function submitOrderScan(event) {
   event.preventDefault();
-  const submit = event.submitter;
+  const submit = event.submitter || byId("orderScanForm").querySelector('[type="submit"]');
   submit.disabled = true;
   byId("orderScanMessage").textContent = "Validando scanner...";
   try {
@@ -20373,15 +20525,44 @@ byId("clearDeliveryPlannerBtn").addEventListener("click", () => {
   renderDelivery();
 });
 
+byId("selectFilteredDeliveryPlannerBtn").addEventListener("click", () => {
+  deliveryPlannerCandidates().forEach((order) => {
+    if (!deliveryPlannerRoute(order) && deliveryOrderDestinationInfo(order).hasDestination) deliveryPlannerSelection.add(order.code);
+  });
+  document.querySelectorAll("[data-planner-order]:not(:disabled)").forEach((checkbox) => { checkbox.checked = true; });
+  refreshDeliveryPlannerSelectionUi();
+});
+
+byId("deliveryPlannerSelectAll").addEventListener("change", (event) => {
+  document.querySelectorAll("[data-planner-order]:not(:disabled)").forEach((checkbox) => {
+    checkbox.checked = event.target.checked;
+    if (event.target.checked) deliveryPlannerSelection.add(checkbox.dataset.plannerOrder);
+    else deliveryPlannerSelection.delete(checkbox.dataset.plannerOrder);
+  });
+  refreshDeliveryPlannerSelectionUi();
+});
+
+byId("deliveryPlannerSearch").addEventListener("input", (event) => {
+  deliveryPlannerSearchTerm = event.target.value;
+  renderDeliveryPlanner();
+});
+
+byId("deliveryPlannerZoneFilter").addEventListener("change", (event) => {
+  deliveryPlannerZoneFilter = event.target.value;
+  renderDeliveryPlanner();
+});
+
+byId("deliveryPlannerSellerFilter").addEventListener("change", (event) => {
+  deliveryPlannerSellerFilter = event.target.value;
+  renderDeliveryPlanner();
+});
+
 byId("deliveryPlannerSort").addEventListener("change", (event) => {
   deliveryPlannerSortKey = event.target.value;
   renderDeliveryPlanner();
 });
 
-byId("deliveryPlannerGroupRoute").addEventListener("change", (event) => {
-  deliveryPlannerGroupByRoute = event.target.checked;
-  renderDeliveryPlanner();
-});
+byId("deliveryPlannerDay").addEventListener("change", renderDeliveryPlanner);
 
 byId("deliveryPlannerForm").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -20401,9 +20582,28 @@ byId("deliveryPlannerForm").addEventListener("submit", async (event) => {
     });
     deliveryPlannerSelection.clear();
     activeDeliveryRouteId = payload.route.id;
-    window.alert(`Hoja ${payload.route.id} planificada. Revisar el orden y publicar despacho cuando salga a reparto.`);
+    deliveryPlannerUndoRouteId = payload.route.id;
+    const undo = byId("undoDeliveryPlannerBtn");
+    if (undo) {
+      undo.hidden = false;
+      undo.textContent = `Deshacer ${payload.route.id}`;
+    }
+    showCompactNotice(`Hoja ${payload.route.id} planificada. Puede deshacerla mientras no se publique.`, "ok");
   } catch (error) {
     window.alert(error.message || "No se pudo crear la hoja de ruta.");
+  }
+});
+
+byId("undoDeliveryPlannerBtn").addEventListener("click", async () => {
+  if (!deliveryPlannerUndoRouteId) return;
+  const routeId = deliveryPlannerUndoRouteId;
+  try {
+    await postOperationalAction(`api/delivery/routes/${encodeURIComponent(routeId)}/unplan`, { reason: "Deshacer ultima asignacion masiva" });
+    deliveryPlannerUndoRouteId = "";
+    byId("undoDeliveryPlannerBtn").hidden = true;
+    showCompactNotice(`${routeId} deshecha. Los pedidos volvieron a Sin asignar.`, "warn");
+  } catch (error) {
+    window.alert(error.message || "No se pudo deshacer la planificacion.");
   }
 });
 
@@ -20429,7 +20629,49 @@ document.addEventListener("change", (event) => {
   if (!plannerOrder) return;
   if (plannerOrder.checked) deliveryPlannerSelection.add(plannerOrder.dataset.plannerOrder);
   else deliveryPlannerSelection.delete(plannerOrder.dataset.plannerOrder);
+  event.target.closest("[data-planner-row]")?.classList.toggle("selected", plannerOrder.checked);
+  refreshDeliveryPlannerSelectionUi();
+});
+
+document.addEventListener("click", (event) => {
+  const filter = event.target.closest("[data-planner-filter]");
+  if (!filter) return;
+  deliveryPlannerFilter = filter.dataset.plannerFilter;
   renderDeliveryPlanner();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (!location.hash.includes("armado")) return;
+  const editable = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement;
+  const scannerInput = event.target?.id === "assemblyFastScanInput";
+  if (editable && !scannerInput) return;
+  const now = performance.now();
+  if (event.key === "Enter") {
+    const value = scannerInput ? event.target.value : assemblyFastScanBuffer;
+    if (value) {
+      event.preventDefault();
+      processAssemblyFastScan(value);
+    }
+    assemblyFastScanBuffer = "";
+    return;
+  }
+  if (event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (now - assemblyFastScanLastKeyAt > 90) assemblyFastScanBuffer = "";
+  assemblyFastScanBuffer += event.key;
+  assemblyFastScanLastKeyAt = now;
+});
+
+document.addEventListener("keydown", (event) => {
+  if (!location.hash.includes("reparto")) return;
+  const plannerContext = event.target?.closest?.(".delivery-planner-panel");
+  if (!plannerContext) return;
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+    event.preventDefault();
+    byId("selectFilteredDeliveryPlannerBtn").click();
+  } else if (event.key === "Escape") {
+    deliveryPlannerSelection.clear();
+    renderDeliveryPlanner();
+  }
 });
 
 document.addEventListener("change", (event) => {
@@ -20445,6 +20687,12 @@ document.addEventListener("keydown", (event) => {
 });
 
 document.addEventListener("click", async (event) => {
+  const mapMode = event.target.closest("[data-delivery-map-mode]");
+  if (mapMode) {
+    deliveryMapVisible = mapMode.dataset.deliveryMapMode === "map";
+    renderDelivery();
+    return;
+  }
   const presenceMapsButton = event.target.closest("[data-presence-open-maps]");
   if (presenceMapsButton) {
     event.preventDefault();

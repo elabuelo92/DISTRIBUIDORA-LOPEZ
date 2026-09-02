@@ -471,6 +471,23 @@
     return route;
   }
 
+  function removePlannedRoute(state, routeIdValue, context) {
+    migrateState(state);
+    const index = state.deliveryRoutes.findIndex((route) => route.id === routeIdValue);
+    if (index < 0) throw new Error("Hoja de ruta no encontrada.");
+    const route = state.deliveryRoutes[index];
+    if (route.status !== ROUTE_STATUS.PLANNED || route.publishedAt || route.startedAt) {
+      throw new Error("Solo se puede deshacer una ruta que aun no fue publicada ni iniciada.");
+    }
+    state.deliveryRoutes.splice(index, 1);
+    appendAudit(state, "RUTA_PLANIFICADA_DESHECHA", null, route, {
+      ...(context || {}),
+      note: `${route.stops.length} pedidos devueltos a planificacion`
+    });
+    state.activity.unshift({ type: "Reparto", title: `${route.id} deshecha`, text: `${route.stops.length} pedidos volvieron a quedar sin asignar.` });
+    return route;
+  }
+
   function publishRoute(state, routeIdValue, context) {
     migrateState(state);
     const route = findRoute(state, routeIdValue);
@@ -1212,6 +1229,7 @@
     migrateState,
     ensureRouteForOrder,
     createPlannedRoute,
+    removePlannedRoute,
     reorderRoute,
     publishRoute,
     claimRoute,
