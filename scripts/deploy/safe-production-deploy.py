@@ -73,7 +73,12 @@ if [ -n "$(git status --porcelain --untracked-files=no)" ]; then echo 'ERROR: RE
 OLD_COMMIT="$(git rev-parse HEAD)"
 OLD_VERSION="$(sudo grep '^DL_VERSION=' /etc/distribuidora-lopez.env | head -n1 | cut -d= -f2- || true)"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-TARGET_DATE="$(TZ=America/Argentina/Buenos_Aires date +%F)"
+LOCAL_HOUR="$(TZ=America/Argentina/Buenos_Aires date +%H)"
+if [ "$LOCAL_HOUR" -lt 7 ]; then
+  TARGET_DATE="$(TZ=America/Argentina/Buenos_Aires date -d 'yesterday' +%F)"
+else
+  TARGET_DATE="$(TZ=America/Argentina/Buenos_Aires date +%F)"
+fi
 BACKUP_DIR="{BACKUP_ROOT}/emergency-$STAMP"
 sudo mkdir -p "$BACKUP_DIR"
 

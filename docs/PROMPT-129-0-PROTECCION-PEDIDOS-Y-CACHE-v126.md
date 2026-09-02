@@ -17,6 +17,8 @@ Todo despliegue ejecutado con `scripts/deploy/safe-production-deploy.py` debe:
 9. continuar solo con diferencia cero;
 10. restaurar codigo, configuracion y datos si salud o comparacion fallan.
 
+Entre las 00:00 y las 06:59, la fecha operativa protegida es la jornada calendario anterior. Esto evita perder cobertura cuando el mantenimiento posterior a las 18 cruza la medianoche.
+
 ## Archivos de evidencia
 
 Cada backup de despliegue contiene:
