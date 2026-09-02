@@ -488,7 +488,10 @@
       }
     });
     route.stops.forEach((stop) => {
-      const order = orderEngine.advanceOrder(state, stop.orderCode, context && context.user || "Administracion");
+      const order = orderEngine.advanceOrder(state, stop.orderCode, context && context.user || "Administracion", {
+        skipMigration: true,
+        skipShortageRebuild: true
+      });
       if (order.status !== STATUS.DISPATCHED) throw new Error(`${order.code} no pudo pasar a Despachado.`);
       const refreshed = stopFromOrder(state, order);
       Object.assign(stop, refreshed, { status: STATUS.DISPATCHED, sequence: stop.sequence });
@@ -497,6 +500,7 @@
     route.publishedAt = nowIso();
     route.updatedAt = route.publishedAt;
     appendAudit(state, "RUTA_PUBLICADA_DESPACHO", null, route, context || {});
+    state.shortages = orderEngine.buildShortageList(state);
     state.activity.unshift({ type: "Reparto", title: `${route.id} publicada`, text: `Ruta despachada para ${route.deviceLabel}.` });
     return route;
   }

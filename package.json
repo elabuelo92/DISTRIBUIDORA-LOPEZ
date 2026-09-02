@@ -22,7 +22,8 @@
     "test:commercial-prices": "node scripts/smoke-commercial-prices-v116.js",
     "test:print-label": "node scripts/smoke-print-label-v117.js",
     "test:order-dispatch-protection": "node scripts/smoke-order-dispatch-protection-v126.js",
-    "test:cache-update": "node scripts/smoke-cache-update-v126.js"
+    "test:cache-update": "node scripts/smoke-cache-update-v126.js",
+    "test:performance-100": "node scripts/benchmark-100-orders-v127.js"
   },
   "engines": {
     "node": ">=18"

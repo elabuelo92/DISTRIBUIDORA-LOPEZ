@@ -182,9 +182,9 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-126";
-const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "30/08/2026 23:55 ART";
-const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-30T23:55:41-03:00";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-127";
+const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "02/09/2026 00:10 ART";
+const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-09-02T00:10:00-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
 const THEME_STORAGE_KEY = "dlThemeMode";
 
@@ -2361,6 +2361,23 @@ function applyOrderPatches(orders, version) {
   scheduleRenderForCurrentUser();
 }
 
+function applyOperationalPatches(payload) {
+  if (!payload || payload.state) return;
+  if (payload.version) syncVersion = Math.max(Number(syncVersion || 0), Number(payload.version || 0));
+  const orderPatches = [
+    ...(Array.isArray(payload.orders) ? payload.orders : []),
+    ...(payload.order && payload.order.code ? [payload.order] : [])
+  ];
+  if (orderPatches.length) applyOrderPatches(orderPatches, payload.version);
+  if (payload.route && payload.route.id) {
+    const routeIndex = (state.deliveryRoutes || []).findIndex((route) => route.id === payload.route.id);
+    if (routeIndex >= 0) state.deliveryRoutes[routeIndex] = payload.route;
+    else state.deliveryRoutes = [payload.route, ...(state.deliveryRoutes || [])];
+    persistLocalMeta("route-patch");
+    scheduleRenderForCurrentUser();
+  }
+}
+
 async function postOperationalAction(path, body, options = {}) {
   const response = await fetchWithTimeout(apiUrl(path), {
     method: "POST",
@@ -2376,6 +2393,7 @@ async function postOperationalAction(path, body, options = {}) {
     throw error;
   }
   applyServerStatePayload(payload);
+  applyOperationalPatches(payload);
   cleanupOperationalLocalData(`operacion ${path}`);
   return payload;
 }

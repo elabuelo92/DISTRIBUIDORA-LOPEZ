@@ -20,7 +20,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-126";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-127";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -8339,6 +8339,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (requestUrl.pathname === "/api/delivery/routes/plan" && req.method === "POST") {
+      const performanceStartedAt = performance.now();
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
       if (sessionUser.role !== "admin") {
@@ -8350,7 +8351,7 @@ const server = http.createServer(async (req, res) => {
       const currentState = currentPayload.state || {};
       try {
         const route = deliveryEngine.createPlannedRoute(currentState, input, deliveryContext(sessionUser, input));
-        writeStateResponse(res, currentState, { route }, auditEntry(req, sessionUser, input, {
+        writeCompactStateResponse(res, currentState, { route }, auditEntry(req, sessionUser, input, {
           action: "RUTA_PLANIFICADA",
           entityType: "ruta",
           entityId: route.id,
@@ -8358,7 +8359,7 @@ const server = http.createServer(async (req, res) => {
           previousValue: null,
           newValue: route,
           note: `${(route.stops || []).length} pedidos planificados`
-        }));
+        }), [], { performanceStartedAt, atomic: true });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo planificar la ruta." });
       }
@@ -8367,6 +8368,7 @@ const server = http.createServer(async (req, res) => {
 
     const routeReorderMatch = requestUrl.pathname.match(/^\/api\/delivery\/routes\/([^/]+)\/reorder$/);
     if (routeReorderMatch && req.method === "POST") {
+      const performanceStartedAt = performance.now();
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
       if (sessionUser.role !== "admin") {
@@ -8385,7 +8387,7 @@ const server = http.createServer(async (req, res) => {
           input.orderCodes || [],
           deliveryContext(sessionUser, input)
         );
-        writeStateResponse(res, currentState, { route }, auditEntry(req, sessionUser, input, {
+        writeCompactStateResponse(res, currentState, { route }, auditEntry(req, sessionUser, input, {
           action: "RUTA_REORDENADA",
           entityType: "ruta",
           entityId: routeId,
@@ -8393,7 +8395,7 @@ const server = http.createServer(async (req, res) => {
           previousValue: previousRoute,
           newValue: route,
           note: "Orden manual de paradas"
-        }));
+        }), [], { performanceStartedAt, atomic: true });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo reordenar la ruta." });
       }
@@ -8402,6 +8404,7 @@ const server = http.createServer(async (req, res) => {
 
     const routePublishMatch = requestUrl.pathname.match(/^\/api\/delivery\/routes\/([^/]+)\/publish$/);
     if (routePublishMatch && req.method === "POST") {
+      const performanceStartedAt = performance.now();
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
       if (sessionUser.role !== "admin") {
@@ -8415,12 +8418,16 @@ const server = http.createServer(async (req, res) => {
         const routeId = decodeURIComponent(routePublishMatch[1]);
         const previousRoute = entitySnapshot(currentState, "ruta", routeId);
         const previousOrdersByCode = new Map((currentState.orders || []).map((order) => [order.code, cloneAuditValue(order)]));
+        const currentOrdersByCode = new Map((currentState.orders || []).map((order) => [order.code, order]));
         const route = deliveryEngine.publishRoute(
           currentState,
           routeId,
           deliveryContext(sessionUser, input)
         );
-        writeStateResponse(res, currentState, { route }, auditEntry(req, sessionUser, input, {
+        const changedOrders = (route.stops || [])
+          .map((stop) => currentOrdersByCode.get(stop.orderCode))
+          .filter(Boolean);
+        writeCompactStateResponse(res, currentState, { route, orders: changedOrders }, auditEntry(req, sessionUser, input, {
           action: "RUTA_PUBLICADA",
           entityType: "ruta",
           entityId: routeId,
@@ -8441,10 +8448,10 @@ const server = http.createServer(async (req, res) => {
             audience: ["admin", "driver"]
           }),
           ...(route.stops || []).map((stop) => {
-            const order = (currentState.orders || []).find((item) => item.code === stop.orderCode);
+            const order = currentOrdersByCode.get(stop.orderCode);
             return order ? orderStatusNotification(req, sessionUser, input, order, previousOrdersByCode.get(order.code), "PEDIDO_DESPACHADO") : null;
           })
-        ]);
+        ], { performanceStartedAt, atomic: true });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo publicar la ruta." });
       }

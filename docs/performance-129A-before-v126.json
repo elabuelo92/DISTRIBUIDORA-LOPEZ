@@ -1,0 +1,140 @@
+{
+  "ok": true,
+  "version": "8790-127-benchmark",
+  "startedAt": "2026-09-02T03:01:13.548Z",
+  "completedAt": "2026-09-02T03:02:19.427Z",
+  "results": [
+    {
+      "volume": 10,
+      "operations": {
+        "state": {
+          "ms": 96.4,
+          "bytes": 3286900
+        },
+        "clients": {
+          "ms": 16.8,
+          "bytes": 33685,
+          "serverTiming": "clients;dur=3.4"
+        },
+        "delivery": {
+          "ms": 15.2,
+          "bytes": 212
+        },
+        "plan": {
+          "ms": 144.4,
+          "bytes": 3321514,
+          "compact": false
+        },
+        "reorder": {
+          "ms": 126,
+          "bytes": 3325691,
+          "compact": false
+        },
+        "publish": {
+          "ms": 338.5,
+          "bytes": 3349056,
+          "compact": false
+        }
+      }
+    },
+    {
+      "volume": 50,
+      "operations": {
+        "state": {
+          "ms": 155.8,
+          "bytes": 3529341
+        },
+        "clients": {
+          "ms": 29.7,
+          "bytes": 33685,
+          "serverTiming": "clients;dur=9.7"
+        },
+        "delivery": {
+          "ms": 50.4,
+          "bytes": 212
+        },
+        "plan": {
+          "ms": 206.7,
+          "bytes": 3694946,
+          "compact": false
+        },
+        "reorder": {
+          "ms": 206.2,
+          "bytes": 3699123,
+          "compact": false
+        },
+        "publish": {
+          "ms": 3005.6,
+          "bytes": 3792528,
+          "compact": false
+        }
+      }
+    },
+    {
+      "volume": 100,
+      "operations": {
+        "state": {
+          "ms": 222.7,
+          "bytes": 3832924
+        },
+        "clients": {
+          "ms": 25.1,
+          "bytes": 33685,
+          "serverTiming": "clients;dur=8.3"
+        },
+        "delivery": {
+          "ms": 93.7,
+          "bytes": 212
+        },
+        "plan": {
+          "ms": 264,
+          "bytes": 4163432,
+          "compact": false
+        },
+        "reorder": {
+          "ms": 276,
+          "bytes": 4167615,
+          "compact": false
+        },
+        "publish": {
+          "ms": 10634.2,
+          "bytes": 4348780,
+          "compact": false
+        }
+      }
+    },
+    {
+      "volume": 200,
+      "operations": {
+        "state": {
+          "ms": 392.2,
+          "bytes": 4439224
+        },
+        "clients": {
+          "ms": 31.1,
+          "bytes": 33686,
+          "serverTiming": "clients;dur=13.4"
+        },
+        "delivery": {
+          "ms": 184.6,
+          "bytes": 212
+        },
+        "plan": {
+          "ms": 479.6,
+          "bytes": 5098374,
+          "compact": false
+        },
+        "reorder": {
+          "ms": 488.2,
+          "bytes": 5102557,
+          "compact": false
+        },
+        "publish": {
+          "ms": 39474.2,
+          "bytes": 5459022,
+          "compact": false
+        }
+      }
+    }
+  ]
+}

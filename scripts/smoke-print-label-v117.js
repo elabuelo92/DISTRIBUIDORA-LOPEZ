@@ -16,6 +16,6 @@ assert.match(appSource, /preserveAspectRatio="\$\{preserveAspectRatio\}" shape-r
 assert.match(appSource, /grid-template-rows: 15mm 16mm 20mm;/);
 assert.match(appSource, /\.smart-label-code svg \{ display: block; width: 100%; height: 13mm;/);
 assert.match(appSource, /-webkit-print-color-adjust: exact;/);
-assert.match(indexSource, /app\.js\?v=8790-126-r20260901a/);
+assert.match(indexSource, /app\.js\?v=8790-127-r20260902a/);
 
 console.log("OK: etiqueta Safari 100x60 usa ancho fisico completo y barras nitidas.");

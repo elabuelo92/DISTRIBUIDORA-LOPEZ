@@ -1560,8 +1560,8 @@
     state.stockMovements.unshift(...movements);
   }
 
-  function advanceOrder(state, code, actor) {
-    migrateState(state);
+  function advanceOrder(state, code, actor, options = {}) {
+    if (!options.skipMigration) migrateState(state);
     const order = getOrder(state, code);
     if (!order) throw new Error("Pedido no encontrado.");
     const target = nextStatus(order.status);
@@ -1580,7 +1580,7 @@
     if ([STATUS.ASSEMBLY, STATUS.DISPATCHED].includes(target)) order.print = true;
     addTrace(order, target, actor || "Administracion", `Pedido avanzado a ${target}`, order.updatedAt);
     state.activity.unshift({ type: "Pedidos", title: `${order.code} avanzo a ${target}`, text: `${order.client} - ${order.seller}.` });
-    state.shortages = buildShortageList(state);
+    if (!options.skipShortageRebuild) state.shortages = buildShortageList(state);
     return order;
   }
 
