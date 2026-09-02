@@ -65,7 +65,7 @@ echo __MEMORY__; free -h
 
 def deploy(client, version):
     version_q = shlex.quote(version)
-    command = f"""
+    command = rf"""
 set -euo pipefail
 cd {APP_DIR}
 if [ ! -d .git ]; then echo 'ERROR: APP_NOT_GIT'; exit 31; fi
@@ -73,8 +73,20 @@ if [ -n "$(git status --porcelain --untracked-files=no)" ]; then echo 'ERROR: RE
 OLD_COMMIT="$(git rev-parse HEAD)"
 OLD_VERSION="$(sudo grep '^DL_VERSION=' /etc/distribuidora-lopez.env | head -n1 | cut -d= -f2- || true)"
 STAMP="$(date +%Y%m%d-%H%M%S)"
+TARGET_DATE="$(TZ=America/Argentina/Buenos_Aires date +%F)"
 BACKUP_DIR="{BACKUP_ROOT}/emergency-$STAMP"
 sudo mkdir -p "$BACKUP_DIR"
+
+git fetch origin main
+git show origin/main:scripts/order-dispatch-snapshot.js > /tmp/dl-order-dispatch-snapshot.js
+node --check /tmp/dl-order-dispatch-snapshot.js
+DESTRUCTIVE_DIFF="$(git diff "$OLD_COMMIT" origin/main -- server.js order-engine.js delivery-engine.js scripts ':!scripts/smoke-*' ':!scripts/support-maintenance.js' | grep -E '^\+.*(DELETE[[:space:]]+FROM|TRUNCATE|DROP[[:space:]]+TABLE|state\.orders[[:space:]]*=[[:space:]]*\[\])' || true)"
+if [ -n "$DESTRUCTIVE_DIFF" ]; then
+  echo 'ERROR: DESTRUCTIVE_MIGRATION_REQUIRES_EXPLICIT_REVIEW'
+  echo "$DESTRUCTIVE_DIFF"
+  exit 34
+fi
+
 sudo tar -C /opt/distribuidora-lopez -czf "$BACKUP_DIR/app.tar.gz" app
 sudo systemctl stop {SERVICE}
 if ! sudo tar -C /opt/distribuidora-lopez -czf "$BACKUP_DIR/data.tar.gz" data; then
@@ -82,13 +94,31 @@ if ! sudo tar -C /opt/distribuidora-lopez -czf "$BACKUP_DIR/data.tar.gz" data; t
   echo 'ERROR: DATA_BACKUP_FAILED'
   exit 33
 fi
-sudo systemctl start {SERVICE}
 sudo cp /etc/distribuidora-lopez.env "$BACKUP_DIR/distribuidora-lopez.env"
 if [ -f {DATA_DIR}/integrity-manifest.json ]; then sudo cp {DATA_DIR}/integrity-manifest.json "$BACKUP_DIR/integrity-manifest.json"; fi
+sudo node /tmp/dl-order-dispatch-snapshot.js create --state {DATA_DIR}/demo-state.json --date "$TARGET_DATE" --output "$BACKUP_DIR/orders-today-before.json"
 sudo chown -R {USER}:{USER} "$BACKUP_DIR"
 echo "BACKUP=$BACKUP_DIR"
+echo "ORDER_SNAPSHOT_BEFORE=$BACKUP_DIR/orders-today-before.json"
 
-git fetch origin main
+rollback_deploy() {{
+  ROLLBACK_CODE="$1"
+  ROLLBACK_REASON="$2"
+  echo "ROLLBACK=$ROLLBACK_REASON"
+  sudo systemctl stop {SERVICE} || true
+  git reset --hard "$OLD_COMMIT"
+  sudo cp "$BACKUP_DIR/distribuidora-lopez.env" /etc/distribuidora-lopez.env
+  if [ -d {DATA_DIR} ]; then sudo mv {DATA_DIR} "$BACKUP_DIR/data-failed"; fi
+  sudo tar -C /opt/distribuidora-lopez -xzf "$BACKUP_DIR/data.tar.gz"
+  sudo systemctl start {SERVICE}
+  for attempt in $(seq 1 20); do
+    if curl -fsS --max-time 5 http://127.0.0.1:8790/api/health >/tmp/dl-health-rollback.json; then break; fi
+    sleep 1
+  done
+  cat /tmp/dl-health-rollback.json 2>/dev/null || true
+  exit "$ROLLBACK_CODE"
+}}
+
 git checkout main
 git reset --hard origin/main
 npm install --omit=dev --no-audit --no-fund
@@ -108,21 +138,23 @@ fi
 sudo bash -lc 'set -e; cd /opt/distribuidora-lopez/app; set -a; . /etc/distribuidora-lopez.env; set +a; node scripts/license-admin.js manifest; node scripts/license-admin.js status'
 sudo chown {USER}:{USER} {DATA_DIR}/integrity-manifest.json {DATA_DIR}/security-audit.log 2>/dev/null || true
 
-sudo systemctl restart {SERVICE}
+sudo systemctl start {SERVICE}
 for attempt in $(seq 1 20); do
   if curl -fsS --max-time 5 http://127.0.0.1:8790/api/health > /tmp/dl-health.json; then break; fi
   sleep 1
 done
 if ! curl -fsS --max-time 8 http://127.0.0.1:8790/api/health > /tmp/dl-health.json; then
-  echo 'DEPLOY_HEALTH_FAILED_ROLLBACK'
-  git reset --hard "$OLD_COMMIT"
-  sudo cp "$BACKUP_DIR/distribuidora-lopez.env" /etc/distribuidora-lopez.env
-  if [ -f "$BACKUP_DIR/integrity-manifest.json" ]; then sudo cp "$BACKUP_DIR/integrity-manifest.json" {DATA_DIR}/integrity-manifest.json; fi
-  sudo systemctl restart {SERVICE}
-  exit 41
+  rollback_deploy 41 'DEPLOY_HEALTH_FAILED'
 fi
+
+sudo node /tmp/dl-order-dispatch-snapshot.js create --state {DATA_DIR}/demo-state.json --date "$TARGET_DATE" --output "$BACKUP_DIR/orders-today-after.json"
+if ! sudo node /tmp/dl-order-dispatch-snapshot.js compare --before "$BACKUP_DIR/orders-today-before.json" --after "$BACKUP_DIR/orders-today-after.json" --output "$BACKUP_DIR/orders-today-comparison.json"; then
+  rollback_deploy 42 'ORDER_INTEGRITY_COMPARISON_FAILED'
+fi
+sudo chown -R {USER}:{USER} "$BACKUP_DIR"
 echo __DEPLOYED_COMMIT__; git rev-parse --short HEAD
 echo __BACKUP__; echo "$BACKUP_DIR"
+echo __ORDER_PROTECTION__; cat "$BACKUP_DIR/orders-today-comparison.json"; echo
 echo __HEALTH_LOCAL__; cat /tmp/dl-health.json; echo
 echo __HEALTH_PUBLIC__; curl -fsS --max-time 15 {PUBLIC_HEALTH}; echo
 echo __SERVICE__; systemctl show {SERVICE} -p MainPID -p MemoryCurrent -p ActiveState -p SubState --no-pager
@@ -134,7 +166,7 @@ echo __SERVICE__; systemctl show {SERVICE} -p MainPID -p MemoryCurrent -p Active
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=["inspect", "deploy"])
-    parser.add_argument("--version", default="8790-121")
+    parser.add_argument("--version", default="8790-126")
     args = parser.parse_args()
     client = connect()
     try:

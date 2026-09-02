@@ -20,7 +20,9 @@
     "test:order-workflow": "node scripts/smoke-order-workflow-v114.js",
     "test:suppliers-prices": "node scripts/smoke-suppliers-prices-v115.js",
     "test:commercial-prices": "node scripts/smoke-commercial-prices-v116.js",
-    "test:print-label": "node scripts/smoke-print-label-v117.js"
+    "test:print-label": "node scripts/smoke-print-label-v117.js",
+    "test:order-dispatch-protection": "node scripts/smoke-order-dispatch-protection-v126.js",
+    "test:cache-update": "node scripts/smoke-cache-update-v126.js"
   },
   "engines": {
     "node": ">=18"

@@ -182,7 +182,7 @@ const DELIVERY_CLOSED_ROUTE_STATUSES = new Set([
 const DELIVERY_CASH_DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10];
 const CONNECTION_CONFIG = window.DL_CONNECTION_CONFIG || {};
 const CONNECTION_TIMEOUTS = CONNECTION_CONFIG.TIMEOUTS || {};
-const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-121";
+const APP_VERSION = CONNECTION_CONFIG.VERSION || "8790-126";
 const APP_BUILD_LABEL = CONNECTION_CONFIG.BUILD_LABEL || "30/08/2026 23:55 ART";
 const APP_BUILD_AT = CONNECTION_CONFIG.BUILD_AT || "2026-08-30T23:55:41-03:00";
 const APP_RELEASE_CHANNEL = CONNECTION_CONFIG.RELEASE_CHANNEL || "Produccion";
@@ -3569,10 +3569,27 @@ function versionStatusTone() {
 function versionStatusMessage() {
   if (appVersionStatus.error) return `No se pudo verificar servidor: ${appVersionStatus.error}`;
   if (appVersionStatus.serverVersion && appVersionStatus.serverVersion !== APP_VERSION) {
-    return `Atencion: navegador ${APP_VERSION}, servidor ${appVersionStatus.serverVersion}. Refrescar con Ctrl+F5 o limpiar cache.`;
+    return `Actualizacion disponible: navegador ${APP_VERSION}, servidor ${appVersionStatus.serverVersion}. La aplicacion se actualizara automaticamente.`;
   }
   if (appVersionStatus.ok) return `Version confirmada con servidor ${appVersionStatus.serverVersion || APP_VERSION}.`;
   return "Pendiente de verificar contra el servidor.";
+}
+
+let automaticVersionReloadScheduled = false;
+
+function scheduleAutomaticVersionReload(serverVersion) {
+  const targetVersion = String(serverVersion || "").trim();
+  if (!targetVersion || targetVersion === APP_VERSION || automaticVersionReloadScheduled) return;
+  const guardKey = "dlAutomaticReloadVersion";
+  if (sessionStorage.getItem(guardKey) === targetVersion) return;
+  automaticVersionReloadScheduled = true;
+  sessionStorage.setItem(guardKey, targetVersion);
+  showCompactNotice(`Actualizando el sistema a ${targetVersion}...`, "warn");
+  window.setTimeout(() => {
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set("appVersion", targetVersion);
+    window.location.replace(nextUrl.toString());
+  }, 900);
 }
 
 function applyHealthVersionStatus(payload) {
@@ -3586,6 +3603,8 @@ function applyHealthVersionStatus(payload) {
     error: ""
   };
   renderVersionStatus();
+  if (mismatch) scheduleAutomaticVersionReload(serverVersion);
+  else sessionStorage.removeItem("dlAutomaticReloadVersion");
 }
 
 function renderVersionStatus() {
@@ -20670,7 +20689,27 @@ renderVersionStatus();
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js").catch(() => {});
+    let reloadingForWorker = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloadingForWorker) return;
+      reloadingForWorker = true;
+      window.location.reload();
+    });
+    navigator.serviceWorker.register(`sw.js?v=${encodeURIComponent(APP_VERSION)}`, { updateViaCache: "none" })
+      .then((registration) => {
+        registration.update().catch(() => {});
+        if (registration.waiting) registration.waiting.postMessage({ type: "SKIP_WAITING" });
+        registration.addEventListener("updatefound", () => {
+          const worker = registration.installing;
+          if (!worker) return;
+          worker.addEventListener("statechange", () => {
+            if (worker.state === "installed" && navigator.serviceWorker.controller) {
+              worker.postMessage({ type: "SKIP_WAITING" });
+            }
+          });
+        });
+      })
+      .catch(() => {});
   });
 }
 

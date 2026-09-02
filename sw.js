@@ -1,4 +1,4 @@
-const CACHE_NAME = "distribuidora-lopez-servidor-unico-8790-v125";
+const CACHE_NAME = "distribuidora-lopez-servidor-unico-8790-v126";
 const ASSETS = [
   "./manifest.json",
   "./icons/icon.svg",
@@ -20,6 +20,10 @@ self.addEventListener("activate", (event) => {
     ))
   );
   self.clients.claim();
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("fetch", (event) => {

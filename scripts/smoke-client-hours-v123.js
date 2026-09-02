@@ -30,4 +30,4 @@ assert.match(appSource, /function readMobileClientVisitHours\(visitDay\)/);
 assert.match(appSource, /const hours = readMobileClientVisitHours\(visitDay\);/);
 assert.doesNotMatch(indexSource, /id="mobileClientHoursGrid"/);
 
-console.log(JSON.stringify({ ok: true, version: "8790-125", days: schedule.length, rangesMonday: schedule[0].ranges.length, summary: hours.summary(schedule), legacyCompatible: true, mobileCompactRanges: true }, null, 2));
+console.log(JSON.stringify({ ok: true, version: "8790-126", days: schedule.length, rangesMonday: schedule[0].ranges.length, summary: hours.summary(schedule), legacyCompatible: true, mobileCompactRanges: true }, null, 2));
