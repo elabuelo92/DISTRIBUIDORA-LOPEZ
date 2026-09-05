@@ -1289,10 +1289,50 @@
     return (order.items || []).some((item) => positive(item.missingQty) > 0);
   }
 
+  function commercialLineIdentity(line) {
+    const code = normalizeText(line && (line.productCode || line.codigo_producto || line.code));
+    if (code) return `code:${code}`;
+    const name = normalizeText(line && (line.name || line.productName || line.product || line.descripcion));
+    return name ? `name:${name}` : "";
+  }
+
+  function commercialTargetItems(items, request, type) {
+    if (type === "general_discount") return Array.isArray(items) ? items : [];
+    const source = Array.isArray(items) ? items : [];
+    const targetLineKey = String(request && request.targetLineKey || "").trim();
+    const requestCode = normalizeText(request && request.productCode);
+    const requestName = normalizeText(request && request.productName);
+    let matches = [];
+    if (targetLineKey) {
+      matches = source.filter((line) => commercialLineIdentity(line) === targetLineKey);
+    } else if (requestCode) {
+      matches = source.filter((line) => normalizeText(line && line.productCode) === requestCode);
+    } else if (requestName) {
+      matches = source.filter((line) => normalizeText(line && line.name) === requestName);
+    }
+    if (matches.length > 1) {
+      throw new Error("La solicitud comercial coincide con mas de una linea. Seleccionar el producto por codigo.");
+    }
+    return matches;
+  }
+
   function createOrder(state, input, actor) {
     migrateState(state);
     const now = nowIso();
     const requested = prepareRequestedItems(state, input.items);
+    const commercialInput = input && input.commercialRequest && typeof input.commercialRequest === "object"
+      ? input.commercialRequest
+      : null;
+    let commercialTarget = null;
+    if (commercialInput && commercialInput.type && commercialInput.type !== "general_discount") {
+      const projectedItems = requested.map(({ product }) => ({
+        productCode: productCode(product),
+        name: productName(product)
+      }));
+      const targetItems = commercialTargetItems(projectedItems, commercialInput, commercialInput.type);
+      if (targetItems.length !== 1) throw new Error("El producto de la solicitud comercial no pertenece al pedido.");
+      commercialTarget = targetItems[0];
+    }
     const items = requested.map(({ product, qty, raw }) => {
       const stock = inventory(product);
       const reservedQty = Math.min(stock.available, qty);
@@ -1320,7 +1360,7 @@
       };
     });
     const hasShortage = items.some((item) => item.missingQty > 0);
-    const commercialRequest = input && input.commercialRequest && typeof input.commercialRequest === "object"
+    const commercialRequest = commercialInput
       ? {
         status: "Pendiente",
         requestedBy: String(actor || input.seller || "Preventa"),
@@ -1338,6 +1378,11 @@
         resolution: ""
       }
       : null;
+    if (commercialRequest && commercialTarget) {
+      commercialRequest.targetLineKey = commercialLineIdentity(commercialTarget);
+      commercialRequest.productCode = String(commercialTarget.productCode || "");
+      commercialRequest.productName = String(commercialTarget.name || "");
+    }
     const requiresCommercialApproval = Boolean(commercialRequest && commercialRequest.type && commercialRequest.motive);
     const status = requiresCommercialApproval ? STATUS.COMMERCIAL_APPROVAL : (hasShortage ? STATUS.PENDING : STATUS.READY);
     const order = {
@@ -1818,6 +1863,18 @@
       assembly: clone(order.assembly)
     };
 
+    const requested = prepareRequestedItems(state, nextInputItems);
+    if (order.commercialApproval && order.commercialApproval.type !== "general_discount"
+      && String(order.commercialApproval.status || "Pendiente") === "Pendiente") {
+      const projectedItems = requested.map(({ product }) => ({
+        productCode: productCode(product),
+        name: productName(product)
+      }));
+      if (commercialTargetItems(projectedItems, order.commercialApproval, order.commercialApproval.type).length !== 1) {
+        throw new Error("No se puede quitar el producto que posee una solicitud comercial pendiente.");
+      }
+    }
+
     if (reservationMode) {
       order.items.forEach((item) => {
         const product = findProduct(state, item);
@@ -1831,7 +1888,6 @@
       item.productCode || normalizeText(item.name),
       item
     ]));
-    const requested = prepareRequestedItems(state, nextInputItems);
     const nextItems = requested.map(({ product, qty, raw }) => {
       const key = productCode(product) || normalizeText(productName(product));
       const previousLine = previousItemsByKey.get(key) || {};
@@ -1959,14 +2015,6 @@
     return { order, audit };
   }
 
-  function commercialLineMatches(line, request) {
-    const requestCode = normalizeText(request && request.productCode);
-    const requestName = normalizeText(request && request.productName);
-    const lineCode = normalizeText(line && line.productCode);
-    const lineName = normalizeText(line && line.name);
-    return Boolean((requestCode && requestCode === lineCode) || (requestName && requestName === lineName));
-  }
-
   function recalculateOrderLine(line) {
     const qty = positive(line && line.requestedQty);
     const unitPrice = positive(line && line.unitPrice);
@@ -1984,9 +2032,7 @@
     if (!request) return [];
     const type = String(request.type || "");
     const changed = [];
-    const targetItems = (order.items || []).filter((line) => (
-      type === "general_discount" || commercialLineMatches(line, request)
-    ));
+    const targetItems = commercialTargetItems(order.items || [], request, type);
     if (!targetItems.length) throw new Error("No se encontro el producto asociado a la solicitud comercial.");
 
     targetItems.forEach((line) => {

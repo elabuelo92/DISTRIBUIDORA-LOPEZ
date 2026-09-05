@@ -4854,12 +4854,12 @@ function renderMobileCommercialProductOptions() {
   const select = byId("mobileCommercialProduct");
   if (!select) return;
   const summary = getCartSummary();
-  const lines = summary.lines.length ? summary.lines : state.products.slice(0, 80).map((product) => ({ product }));
-  select.innerHTML = lines.map((line) => {
+  const lines = summary.lines;
+  select.innerHTML = lines.length ? lines.map((line) => {
     const product = line.product || {};
     const code = product.codigo_producto ? `${product.codigo_producto} - ` : "";
     return `<option value="${escapeHtml(product.codigo_producto || product.name)}">${escapeHtml(`${code}${product.name}`)}</option>`;
-  }).join("");
+  }).join("") : '<option value="">Agregar productos al pedido</option>';
 }
 
 function selectedCommercialProduct() {
@@ -8163,7 +8163,10 @@ function commercialApprovalSummary(order) {
   const value = request.type === "price_change"
     ? money.format(request.proposedValue || 0)
     : `${formatDecimalInput(request.discountPct || request.proposedValue || 0)}%`;
-  return `${typeLabel}: ${value}. ${request.productName ? `${request.productName}. ` : ""}${request.motive || ""}`;
+  const productLabel = request.productName
+    ? `${request.productCode ? `[${request.productCode}] ` : ""}${request.productName}. `
+    : "";
+  return `${typeLabel}: ${value}. ${productLabel}${request.motive || ""}`;
 }
 
 function renderCommercialApprovalBadge(order) {
