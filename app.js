@@ -4540,7 +4540,7 @@ function orderCommission(order, options = {}) {
 }
 
 function allowPreorderWithoutStock() {
-  return Boolean(state.salesPolicy && state.salesPolicy.allowPreorderWithoutStock === true);
+  return true;
 }
 
 function cartCommission(summary) {
@@ -5031,14 +5031,13 @@ function renderMobileProductOptions() {
     const tone = available <= 0 ? "danger" : available < product.min ? "warn" : "ok";
     const price = productPriceForUser(product);
     const presentation = product.presentacion || product.presentation || product.unidad_venta || product.unit || product.bultos || "Unidad";
-    const blocked = available <= 0 && !allowPreorderWithoutStock();
     const stockLabel = available <= 0
       ? "SIN STOCK"
       : available < numeric(product.stock_minimo ?? product.min, 0)
         ? `STOCK BAJO - Disponible ${available}`
         : `Disponible ${available}`;
     return `
-      <button class="mobile-picker-option mobile-product-option ${tone === "danger" ? "is-out-of-stock" : tone === "warn" ? "is-low-stock" : ""} ${product.name === mobileProduct ? "active" : ""}" type="button" data-mobile-product-option="${escapeHtml(product.name)}" ${blocked ? "disabled aria-disabled=\"true\"" : ""}>
+      <button class="mobile-picker-option mobile-product-option ${tone === "danger" ? "is-out-of-stock" : tone === "warn" ? "is-low-stock" : ""} ${product.name === mobileProduct ? "active" : ""}" type="button" data-mobile-product-option="${escapeHtml(product.name)}">
         <strong>${escapeHtml(product.name)}</strong>
         <small>${escapeHtml(`${product.codigo_producto || "S/C"} - ${presentation} - ${money.format(price)}`)}</small>
         <span class="mobile-stock-status ${tone}">${tone === "warn" ? "⚠ " : ""}${escapeHtml(stockLabel)}</span>
@@ -5089,14 +5088,13 @@ function renderMobileProductInfo() {
   const price = productPriceForUser(product);
   const noStock = stock.available <= 0;
   const lowStock = !noStock && stock.available < numeric(product.stock_minimo ?? product.min, 0);
-  const policyAllows = allowPreorderWithoutStock();
   info.classList.toggle("danger", noStock);
   info.classList.toggle("warn", lowStock);
   info.textContent = noStock
-    ? `${code}${rubric}SIN STOCK. ${policyAllows ? "Preventa sin stock autorizada por Administracion." : "No se puede agregar al pedido."} Precio ${money.format(price)} - ${currentUserPriceListLabel()}`
+    ? `${code}${rubric}SIN STOCK. Se permite cargar; el faltante quedara pendiente para abastecimiento. Precio ${money.format(price)} - ${currentUserPriceListLabel()}`
     : `${code}${rubric}${lowStock ? "⚠ STOCK BAJO - " : ""}Disponible ${stock.available} - Fisico ${stock.physical} - En transito ${stock.inTransit} - Precio ${money.format(price)} - ${currentUserPriceListLabel()} - Subtotal ${money.format(qty * price)}`;
-  addButton.disabled = noStock && !policyAllows;
-  qtyInput.disabled = noStock && !policyAllows;
+  addButton.disabled = false;
+  qtyInput.disabled = false;
 }
 
 function renderMobileCart() {
@@ -17340,11 +17338,6 @@ async function addMobileClientFromQuickForm() {
 function addSelectedMobileProduct() {
   const product = state.products.find((item) => item.name === mobileProduct);
   if (!product) return;
-  if (OrderEngine.inventory(product).available <= 0 && !allowPreorderWithoutStock()) {
-    window.alert("SIN STOCK. Administracion no habilito la preventa de productos agotados.");
-    renderMobileProductInfo();
-    return;
-  }
   const qtyInput = byId("mobileProductQty");
   const qty = Math.max(1, Number(qtyInput.value || 1));
   mobileCart[product.name] = Math.max(0, Number(mobileCart[product.name] || 0)) + qty;

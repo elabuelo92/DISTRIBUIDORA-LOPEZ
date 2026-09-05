@@ -85,22 +85,21 @@ async function request(url, cookie, body) {
   const cookie = await login();
   const orderBody = { client: "Cliente Politica", seller: "Administracion", items: [{ productCode: "POL-ZERO", qty: 1, unitPrice: 100 }], paymentMethod: "Contado", source: "dashboard" };
 
-  const blocked = await request("/api/orders", cookie, orderBody);
-  assert.equal(blocked.response.status, 409);
-  assert.equal(blocked.payload.code, "OUT_OF_STOCK_BLOCKED");
+  const acceptedWithoutPolicy = await request("/api/orders", cookie, orderBody);
+  assert.equal(acceptedWithoutPolicy.response.status, 200, acceptedWithoutPolicy.payload.error);
+  assert.equal(acceptedWithoutPolicy.payload.order.items[0].missingQty, 1);
 
   const wrongPassword = await request("/api/admin/sales-policy", cookie, { allowPreorderWithoutStock: true, motive: "Prueba", adminPassword: "incorrecta" });
   assert.equal(wrongPassword.response.status, 403);
+
+  const disableAttempt = await request("/api/admin/sales-policy", cookie, { allowPreorderWithoutStock: false, motive: "Prueba de bloqueo", adminPassword: "Lopez2026!" });
+  assert.equal(disableAttempt.response.status, 409);
 
   const enabled = await request("/api/admin/sales-policy", cookie, { allowPreorderWithoutStock: true, motive: "Prueba automatizada", adminPassword: "Lopez2026!" });
   assert.equal(enabled.response.status, 200, enabled.payload.error);
   assert.equal(enabled.payload.salesPolicy.allowPreorderWithoutStock, true);
 
-  const accepted = await request("/api/orders", cookie, orderBody);
-  assert.equal(accepted.response.status, 200, accepted.payload.error);
-  assert.equal(accepted.payload.order.items[0].missingQty, 1);
-
-  console.log(JSON.stringify({ ok: true, version: health.version, blockedWithoutPolicy: true, wrongPasswordRejected: true, allowedWithPolicy: true, auditAction: "POLITICA_PREVENTA_STOCK_ACTUALIZADA" }, null, 2));
+  console.log(JSON.stringify({ ok: true, version: health.version, acceptedWithStoredPolicyOff: true, missingQty: 1, wrongPasswordRejected: true, disablingRejected: true, permanentPolicy: true, auditAction: "POLITICA_PREVENTA_STOCK_ACTUALIZADA" }, null, 2));
 })().finally(() => {
   child.kill();
   fs.rmSync(tempDir, { recursive: true, force: true });

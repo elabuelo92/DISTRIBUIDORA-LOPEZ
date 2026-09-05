@@ -170,9 +170,11 @@ stockState.products[0].stock_actual = 0;
 stockState.products[0].stock_disponible = 0;
 engine.migrateState(stockState);
 const quote = engine.quoteOrder(stockState, { items: [{ productCode: "GEN-1", qty: 1, unitPrice: 100 }] });
-assert.throws(() => engine.assertPreventaStockPolicy(stockState, quote.items), (error) => error.code === "OUT_OF_STOCK_BLOCKED");
+const shortage = engine.assertPreventaStockPolicy(stockState, quote.items);
+assert.equal(shortage.length, 1);
+assert.equal(shortage[0].productCode, "GEN-1");
 stockState.salesPolicy.allowPreorderWithoutStock = true;
-assert.deepEqual(engine.assertPreventaStockPolicy(stockState, quote.items), []);
+assert.equal(engine.assertPreventaStockPolicy(stockState, quote.items).length, 1);
 
 console.log(JSON.stringify({
   ok: true,
@@ -186,7 +188,7 @@ console.log(JSON.stringify({
   cancelled: cancelled.seller.total,
   returned: returned.seller.total,
   effectiveSeller: general.seller.user,
-  stockBlockedWithoutPolicy: true,
-  stockAllowedWithPolicy: true,
+  stockShortageReported: true,
+  stockNeverBlocksSale: true,
   historicalRuleSnapshot: general.seller.lines[0].ruleSnapshot
 }, null, 2));

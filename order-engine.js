@@ -1460,13 +1460,7 @@
   }
 
   function assertPreventaStockPolicy(state, items) {
-    if (state && state.salesPolicy && state.salesPolicy.allowPreorderWithoutStock === true) return [];
-    const blocked = outOfStockProducts(state, items);
-    if (!blocked.length) return [];
-    const error = new Error(`SIN STOCK: ${blocked.map((item) => item.name).join(", ")}. Administracion no habilito la preventa de productos agotados.`);
-    error.code = "OUT_OF_STOCK_BLOCKED";
-    error.products = blocked;
-    throw error;
+    return outOfStockProducts(state, items);
   }
 
   function addTrace(order, status, actor, note, at, gps, action) {

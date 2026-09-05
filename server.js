@@ -20,7 +20,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-132";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-133";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -6338,6 +6338,10 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 403, { ok: false, error: "La clave administrativa no es correcta." });
         return;
       }
+      if (input.allowPreorderWithoutStock !== true) {
+        sendJson(res, 409, { ok: false, error: "La preventa sin stock es una regla operativa permanente y no puede desactivarse." });
+        return;
+      }
       const currentPayload = readStateFileCached();
       const currentState = currentPayload.state || {};
       const previous = currentState.salesPolicy && typeof currentState.salesPolicy === "object"
@@ -6345,7 +6349,7 @@ const server = http.createServer(async (req, res) => {
         : { allowPreorderWithoutStock: false };
       currentState.salesPolicy = {
         ...previous,
-        allowPreorderWithoutStock: input.allowPreorderWithoutStock === true,
+        allowPreorderWithoutStock: true,
         updatedAt: new Date().toISOString(),
         updatedBy: sessionUser.name,
         motive
