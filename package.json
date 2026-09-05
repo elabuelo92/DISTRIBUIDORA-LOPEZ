@@ -15,6 +15,7 @@
     "generate:seller-pins": "node scripts/generate-seller-pins.js --apply",
     "test:preventa-commissions": "node scripts/smoke-preventa-commissions-v111.js && node scripts/smoke-sales-policy-v111.js",
     "test:commission-governance": "node scripts/smoke-commission-governance-v122.js",
+    "test:commission-account": "node scripts/smoke-commission-account-v134.js && node scripts/smoke-commission-account-http-v134.js",
     "test:client-hours": "node scripts/smoke-client-hours-v123.js",
     "test:progressive-lists": "node scripts/smoke-progressive-lists-v124.js",
     "test:order-workflow": "node scripts/smoke-order-workflow-v114.js",

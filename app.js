@@ -11970,10 +11970,17 @@ function renderCommissionOptions() {
   const rubrics = byId("commissionRubricOptions");
   const products = byId("commissionProductOptions");
   if (users) {
-    users.innerHTML = [
-      ...(state.sellers || []).map((seller) => seller.name),
-      ...(demoUsers || []).filter((user) => user.role === "driver").map((user) => user.name)
-    ].filter(Boolean).map((name) => `<option value="${escapeHtml(name)}"></option>`).join("");
+    const selected = users.value;
+    const role = byId("commissionRuleForm")?.elements.role.value || "seller";
+    const people = role === "driver"
+      ? (demoUsers || []).filter((user) => user.role === "driver" && user.active !== false)
+      : (state.sellers || []).filter((seller) => seller.active !== false);
+    const generalLabel = role === "driver" ? "Regla general para todos los repartidores" : "Regla general para todos los vendedores";
+    users.innerHTML = `<option value="">${generalLabel}</option>` + people
+      .filter((person) => person.name)
+      .sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }))
+      .map((person) => `<option value="${escapeHtml(person.name)}">${escapeHtml(person.name)}${person.username ? ` (${escapeHtml(person.username)})` : ""}</option>`).join("");
+    if ([...users.options].some((option) => option.value === selected)) users.value = selected;
   }
   if (rubrics) {
     const values = ["*", ...new Set((state.products || []).map((product) => product.rubro || product.category || product.familia || "").filter(Boolean)), "Cigarrillos"];
@@ -11997,6 +12004,14 @@ function renderCommissionOptions() {
     simulatorSeller.innerHTML = sellers.map((seller) => `<option value="${escapeHtml(seller.name)}">${escapeHtml(seller.name)}</option>`).join("");
     if (sellers.some((seller) => seller.name === selected)) simulatorSeller.value = selected;
   }
+}
+
+function renderCommissionScopeFields() {
+  const form = byId("commissionRuleForm");
+  if (!form) return;
+  const scope = String(form.elements.scopeType?.value || "general");
+  byId("commissionRubroField").hidden = scope !== "rubro";
+  byId("commissionProductField").hidden = scope !== "product";
 }
 
 function renderCommissionSimulator() {
@@ -12053,7 +12068,7 @@ function commissionReportData() {
       const item = (order.items || [])[index] || {};
       const key = line.productCode || line.productName || `line-${index}`;
       const row = products.get(key) || { product: line.productName || item.name || key, qty: 0, gross: 0, weightedPercent: 0, commission: 0 };
-      row.qty += numeric(item.qty || item.quantity || item.cantidad, 0);
+      row.qty += numeric(line.quantity ?? item.requestedQty ?? item.qty ?? item.quantity ?? item.cantidad, 0);
       row.gross += numeric(line.baseAmount, 0);
       row.weightedPercent += numeric(line.baseAmount, 0) * numeric(line.percent, 0);
       row.commission += numeric(line.commission, 0);
@@ -12063,6 +12078,15 @@ function commissionReportData() {
   const productRows = Array.from(products.values()).map((row) => ({ ...row, percent: row.gross > 0 ? row.weightedPercent / row.gross : 0 }))
     .sort((a, b) => a.product.localeCompare(b.product, "es", { sensitivity: "base" }));
   return { seller, from, to, orders, users: Array.from(users.values()).sort((a, b) => a.user.localeCompare(b.user, "es")), products: productRows };
+}
+
+function commissionAccountData(report = commissionReportData()) {
+  if (report.seller === "all" || !OrderEngine || typeof OrderEngine.commissionAccountStatement !== "function") return null;
+  return OrderEngine.commissionAccountStatement(state, {
+    seller: report.seller,
+    dateFrom: report.from,
+    dateTo: report.to
+  });
 }
 
 function renderCommissionCards() {
@@ -12087,9 +12111,10 @@ function renderCommissionCards() {
   `).join("");
   const integritySummary = byId("commissionIntegritySummary");
   if (integritySummary) {
+    const missingSpecific = integrity.sellersWithoutSpecificRule || [];
     integritySummary.innerHTML = integrity.conflicts.length
       ? `<div class="inline-alert warn"><strong>Control de reglas: ${integrity.conflicts.length} conflicto(s)</strong><span>${integrity.conflicts.map((item) => `${item.user}: ${item.percents.join("% / ")}% (${item.ruleId} y ${item.otherRuleId})`).join(" - ")}</span></div>`
-      : '<div class="inline-alert ok"><strong>Control de reglas correcto</strong><span>No se detectaron reglas activas superpuestas para el mismo vendedor y alcance.</span></div>';
+      : `<div class="inline-alert ${missingSpecific.length ? "warn" : "ok"}"><strong>Control de reglas correcto</strong><span>No hay superposiciones.${missingSpecific.length ? ` Usan regla general: ${missingSpecific.map((seller) => seller.name).join(", ")}.` : " Todos los vendedores poseen regla especifica."}</span></div>`;
   }
 }
 
@@ -12143,12 +12168,37 @@ function renderCommissionSummary() {
   `).join("") : '<article class="stock-item"><span class="tag warn">Sin datos</span><strong>No hay comisiones computadas</strong><p>Se generaran al confirmar pedidos y entregar rutas.</p></article>';
   const detail = byId("commissionProductDetailTable");
   if (detail) detail.innerHTML = report.products.length ? report.products.map((row) => `<tr><td><strong>${escapeHtml(row.product)}</strong></td><td>${escapeHtml(row.qty)}</td><td>${money.format(row.gross)}</td><td>${row.percent.toFixed(2)}%</td><td><strong>${money.format(row.commission)}</strong></td></tr>`).join("") : '<tr><td class="stock-empty" colspan="5">Sin productos para el periodo seleccionado.</td></tr>';
+  const account = commissionAccountData(report);
+  const accountCards = byId("commissionAccountCards");
+  if (accountCards) {
+    accountCards.innerHTML = account ? [
+      { label: "Devengado", value: money.format(account.accrued), tone: "info" },
+      { label: "Pagado", value: money.format(account.paid), tone: "ok" },
+      { label: "Saldo pendiente", value: money.format(account.balance), tone: account.balance > 0 ? "warn" : "ok" }
+    ].map((item) => `<article class="price-list-kpi ${item.tone}"><span>${item.label}</span><strong>${item.value}</strong><small>${escapeHtml(account.seller)}</small></article>`).join("")
+      : '<article class="price-list-kpi info"><span>Estado de cuenta</span><strong>Seleccionar vendedor</strong><small>Los pagos parciales se consultan por periodo.</small></article>';
+  }
+  const paymentsTable = byId("commissionPaymentsTable");
+  if (paymentsTable) {
+    paymentsTable.innerHTML = account && account.payments.length ? account.payments.map((payment) => `<tr>
+      <td>${escapeHtml(formatDateTimeParts(payment.at).date)} ${escapeHtml(formatDateTimeParts(payment.at).time)}</td>
+      <td><strong>${money.format(payment.amount)}</strong></td>
+      <td>${escapeHtml(payment.method)}</td>
+      <td>${escapeHtml(payment.reference || payment.motive || "-")}</td>
+      <td>${escapeHtml(payment.user || "Administracion")}</td>
+    </tr>`).join("") : '<tr><td class="stock-empty" colspan="5">Sin pagos registrados para esta cuenta y periodo.</td></tr>';
+  }
 }
 
 function commissionReportHtml() {
   const report = commissionReportData();
-  const rows = report.products.map((row) => `<tr><td>${escapeHtml(row.product)}</td><td>${escapeHtml(row.qty)}</td><td>${money.format(row.gross)}</td><td>${row.percent.toFixed(2)}%</td><td>${money.format(row.commission)}</td></tr>`).join("");
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Rendicion de comisiones</title><style>body{font:13px Arial;margin:24px;color:#111}h1{font-size:20px}table{width:100%;border-collapse:collapse}th,td{padding:7px;border-bottom:1px solid #bbb;text-align:left}th{background:#eee}@page{size:A4;margin:12mm}</style></head><body><h1>Rendicion de comisiones</h1><p>Vendedor: ${escapeHtml(report.seller === "all" ? "Todos" : report.seller)} | Periodo: ${escapeHtml(report.from || "Inicio")} a ${escapeHtml(report.to || "Hoy")}</p><table><thead><tr><th>Producto</th><th>Cantidad</th><th>Monto bruto</th><th>%</th><th>Comision</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+  const account = commissionAccountData(report);
+  const rows = report.products.map((row) => `<tr><td>${escapeHtml(row.product)}</td><td class="num">${escapeHtml(row.qty)}</td><td class="num">${money.format(row.gross)}</td><td class="num">${row.percent.toFixed(2)}%</td><td class="num"><strong>${money.format(row.commission)}</strong></td></tr>`).join("");
+  const totalGross = report.products.reduce((sum, row) => sum + numeric(row.gross, 0), 0);
+  const totalCommission = report.products.reduce((sum, row) => sum + numeric(row.commission, 0), 0);
+  const payments = account && account.payments.length ? `<h2>Pagos registrados</h2><table><thead><tr><th>Fecha</th><th>Medio</th><th>Referencia</th><th class="num">Importe</th></tr></thead><tbody>${account.payments.map((payment) => `<tr><td>${escapeHtml(formatDateTimeParts(payment.at).date)}</td><td>${escapeHtml(payment.method)}</td><td>${escapeHtml(payment.reference || payment.motive)}</td><td class="num">${money.format(payment.amount)}</td></tr>`).join("")}</tbody></table>` : "";
+  const balance = account ? `<div class="totals"><span>Devengado <b>${money.format(account.accrued)}</b></span><span>Pagado <b>${money.format(account.paid)}</b></span><span>Saldo <b>${money.format(account.balance)}</b></span></div>` : "";
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Rendicion de comisiones</title><style>body{font:12px Arial;margin:0;color:#111}h1{font-size:19px;margin:0 0 5px}h2{font-size:14px;margin:18px 0 5px}p{margin:0 0 12px}.totals{display:flex;gap:24px;border:1px solid #999;padding:8px;margin:10px 0}.totals span{display:grid;gap:3px}.totals b{font-size:15px}table{width:100%;border-collapse:collapse}th,td{padding:5px;border-bottom:1px solid #bbb;text-align:left}th{background:#eee}.num{text-align:right;white-space:nowrap}tfoot td{font-weight:bold;border-top:2px solid #333}@page{size:A4;margin:10mm}</style></head><body><h1>Rendicion de comisiones</h1><p>Vendedor: ${escapeHtml(report.seller === "all" ? "Todos" : report.seller)} | Periodo: ${escapeHtml(report.from || "Inicio")} a ${escapeHtml(report.to || "Hoy")}</p>${balance}<table><thead><tr><th>Producto</th><th class="num">Cantidad</th><th class="num">Monto bruto</th><th class="num">%</th><th class="num">Comision</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td>TOTAL</td><td></td><td class="num">${money.format(totalGross)}</td><td></td><td class="num">${money.format(totalCommission)}</td></tr></tfoot></table>${payments}</body></html>`;
 }
 
 function printCommissionReport() {
@@ -12163,25 +12213,63 @@ function printCommissionReport() {
 
 function exportCommissionReportExcel() {
   const report = commissionReportData();
+  const account = commissionAccountData(report);
   const rows = [["Producto", "Cantidad", "Monto bruto", "% aplicado", "Comision"], ...report.products.map((row) => [row.product, row.qty, row.gross, row.percent.toFixed(2), row.commission])];
-  const html = `<html><head><meta charset="utf-8"></head><body><table>${rows.map((row) => `<tr>${row.map((value) => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`).join("")}</table></body></html>`;
+  const paymentRows = account ? [["Fecha pago", "Importe", "Medio", "Referencia", "Usuario"], ...account.payments.map((payment) => [formatDateTimeParts(payment.at).date, payment.amount, payment.method, payment.reference || payment.motive, payment.user])] : [];
+  const accountRows = account ? [["Devengado", account.accrued], ["Pagado", account.paid], ["Saldo", account.balance]] : [];
+  const html = `<html><head><meta charset="utf-8"></head><body><h2>Detalle por producto</h2><table>${rows.map((row) => `<tr>${row.map((value) => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`).join("")}</table>${account ? `<h2>Estado de cuenta</h2><table>${accountRows.map((row) => `<tr>${row.map((value) => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`).join("")}</table><h2>Pagos</h2><table>${paymentRows.map((row) => `<tr>${row.map((value) => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`).join("")}</table>` : ""}</body></html>`;
   downloadBlob(`comisiones-${report.seller === "all" ? "todos" : normalizeSearchText(report.seller).replaceAll(" ", "-")}-${reportDateStamp()}.xls`, new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" }));
 }
 
-async function settleCommissionReport() {
+function settleCommissionReport() {
   const report = commissionReportData();
   if (report.seller === "all") return showCompactNotice("Seleccionar un vendedor para registrar el pago.", "warn");
   if (!report.from || !report.to) return showCompactNotice("Indicar fecha desde y hasta.", "warn");
-  const total = report.users.reduce((sum, row) => sum + numeric(row.total, 0), 0);
-  if (total <= 0) return showCompactNotice("No hay comisiones para liquidar en ese periodo.", "warn");
-  const motive = window.prompt(`Registrar pago de ${money.format(total)} a ${report.seller}. Indicar referencia u observacion:`);
-  if (!motive) return;
+  const account = commissionAccountData(report);
+  if (!account || account.balance <= 0) return showCompactNotice("No hay saldo pendiente en ese periodo.", "warn");
+  const form = byId("commissionPaymentForm");
+  form.elements.seller.value = report.seller;
+  form.elements.dateFrom.value = report.from;
+  form.elements.dateTo.value = report.to;
+  form.elements.amount.value = account.balance.toFixed(2);
+  form.elements.amount.max = account.balance.toFixed(2);
+  form.elements.method.value = "Transferencia";
+  form.elements.reference.value = "";
+  form.elements.motive.value = "";
+  byId("commissionPaymentMessage").textContent = "";
+  byId("commissionPaymentSummary").innerHTML = [
+    ["Vendedor", account.seller],
+    ["Devengado", money.format(account.accrued)],
+    ["Pagado", money.format(account.paid)],
+    ["Saldo", money.format(account.balance)]
+  ].map(([label, value]) => `<article class="price-list-kpi"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></article>`).join("");
+  byId("commissionPaymentDialog").showModal();
+}
+
+async function submitCommissionPayment() {
+  const form = byId("commissionPaymentForm");
+  const data = new FormData(form);
+  const submit = byId("commissionPaymentSubmitBtn");
+  submit.disabled = true;
+  submit.textContent = "Registrando...";
   try {
-    await postOperationalAction("api/commissions/settlements", { seller: report.seller, dateFrom: report.from, dateTo: report.to, total, motive });
+    const payload = await postOperationalAction("api/commissions/settlements", {
+      seller: data.get("seller"),
+      dateFrom: data.get("dateFrom"),
+      dateTo: data.get("dateTo"),
+      amount: Number(data.get("amount") || 0),
+      method: data.get("method"),
+      reference: String(data.get("reference") || "").trim(),
+      motive: String(data.get("motive") || "").trim()
+    });
+    byId("commissionPaymentDialog").close();
     renderCommissionsModule();
-    showCompactNotice("Pago de comision registrado sin borrar el historial.", "ok");
+    showCompactNotice(`Pago registrado. Saldo ${money.format(payload.statement.balance)}.`, "ok");
   } catch (error) {
-    showCompactNotice(error.message || "No se pudo registrar la liquidacion.", "danger");
+    byId("commissionPaymentMessage").textContent = error.message || "No se pudo registrar el pago.";
+  } finally {
+    submit.disabled = false;
+    submit.textContent = "Registrar pago";
   }
 }
 
@@ -12192,8 +12280,8 @@ function renderCommissionAudit() {
   list.innerHTML = rows.length ? rows.map((entry) => `
     <article class="activity">
       <span class="tag">${escapeHtml(entry.action || "Comision")}</span>
-      <strong>${escapeHtml(entry.user || "Administracion")} - ${escapeHtml(entry.ruleId || "")}</strong>
-      <p>${escapeHtml(entry.motive || "")}</p>
+      <strong>${escapeHtml(entry.user || "Administracion")} - ${escapeHtml(entry.ruleId || entry.settlementId || "")}</strong>
+      <p>${entry.amount ? `${money.format(entry.amount)} - ` : ""}${escapeHtml(entry.motive || "")}</p>
       <small>${escapeHtml(entry.date || "")} ${escapeHtml(entry.time || "")}</small>
     </article>
   `).join("") : '<article class="activity"><span class="tag ok">Sin cambios</span><strong>No hay auditoria de comisiones</strong><p>Los cambios de porcentaje quedaran aqui.</p></article>';
@@ -12202,6 +12290,7 @@ function renderCommissionAudit() {
 function renderCommissionsModule() {
   if (!byId("commissionCards")) return;
   renderCommissionOptions();
+  renderCommissionScopeFields();
   renderCommissionCards();
   renderCommissionRulesTable();
   renderCommissionSummary();
@@ -12215,13 +12304,18 @@ function resetCommissionRuleForm() {
   form.reset();
   form.elements.id.value = "";
   form.elements.role.value = "seller";
+  form.elements.userName.value = "";
+  form.elements.scopeType.value = "general";
   form.elements.rubro.value = "";
+  form.elements.productName.value = "";
   form.elements.percent.value = "";
   form.elements.priority.value = "10";
   form.elements.status.value = "Activa";
   byId("commissionRuleFormTitle").textContent = "Nueva regla de comision";
   byId("commissionRuleFormHint").textContent = "La regla general se usa solo cuando el vendedor no posee una regla especifica.";
   byId("saveCommissionRuleBtn").textContent = "Guardar nueva regla";
+  renderCommissionOptions();
+  renderCommissionScopeFields();
 }
 
 function fillCommissionRuleForm(ruleId) {
@@ -12230,7 +12324,9 @@ function fillCommissionRuleForm(ruleId) {
   if (!rule || !form) return;
   form.elements.id.value = rule.id;
   form.elements.role.value = rule.role;
+  renderCommissionOptions();
   form.elements.userName.value = rule.userLabel || rule.username || "";
+  form.elements.scopeType.value = rule.productCode || rule.productName ? "product" : (rule.rubro && rule.rubro !== "*" ? "rubro" : "general");
   form.elements.rubro.value = rule.rubro || "";
   form.elements.productName.value = rule.productName || rule.productCode || "";
   form.elements.percent.value = rule.percent;
@@ -12242,18 +12338,33 @@ function fillCommissionRuleForm(ruleId) {
   byId("commissionRuleFormTitle").textContent = "Editar porcentaje";
   byId("commissionRuleFormHint").textContent = `Porcentaje actual: ${rule.percent}%. El cambio cerrara esta vigencia y conservara el historial.`;
   byId("saveCommissionRuleBtn").textContent = "Guardar cambio";
+  renderCommissionScopeFields();
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function commissionRulePayload(extra = {}) {
   const form = byId("commissionRuleForm");
   const data = new FormData(form);
+  const role = String(data.get("role") || "seller").trim();
+  const userName = String(data.get("userName") || "").trim();
+  const person = role === "driver"
+    ? (demoUsers || []).find((user) => normalizeSearchText(user.name) === normalizeSearchText(userName) || normalizeSearchText(user.username) === normalizeSearchText(userName))
+    : (state.sellers || []).find((seller) => normalizeSearchText(seller.name) === normalizeSearchText(userName) || normalizeSearchText(seller.username) === normalizeSearchText(userName));
+  const scopeType = String(data.get("scopeType") || "general");
+  const productInput = String(data.get("productName") || "").trim();
+  const product = scopeType === "product" ? (state.products || []).find((item) => normalizeSearchText(item.codigo_producto) === normalizeSearchText(productInput) || normalizeSearchText(item.name) === normalizeSearchText(productInput)) : null;
+  if (userName && !person) throw new Error("Seleccionar un vendedor o repartidor valido de la lista.");
+  if (scopeType === "rubro" && !String(data.get("rubro") || "").trim()) throw new Error("Seleccionar el rubro de la regla.");
+  if (scopeType === "product" && !product) throw new Error("Seleccionar un producto valido de la lista.");
   return {
     id: String(data.get("id") || "").trim(),
-    role: String(data.get("role") || "seller").trim(),
-    userName: String(data.get("userName") || "").trim(),
-    rubro: String(data.get("rubro") || "").trim(),
-    productName: String(data.get("productName") || "").trim(),
+    role,
+    username: person && person.username || "",
+    userName: person && person.name || "",
+    userLabel: person && person.name || "",
+    rubro: scopeType === "rubro" ? String(data.get("rubro") || "").trim() : "*",
+    productCode: product && (product.codigo_producto || product.code) || "",
+    productName: product && product.name || "",
     percent: Number(data.get("percent") || 0),
     priority: Number(data.get("priority") || 0),
     startsAt: data.get("startsAt") ? `${data.get("startsAt")}T00:00:00.000Z` : "",
@@ -18041,6 +18152,11 @@ byId("commissionRulesTable").addEventListener("click", (event) => {
 });
 byId("saveCommissionRuleBtn").addEventListener("click", () => saveCommissionRule());
 byId("resetCommissionFormBtn").addEventListener("click", resetCommissionRuleForm);
+byId("commissionScopeType").addEventListener("change", renderCommissionScopeFields);
+byId("commissionRuleForm").elements.role.addEventListener("change", () => {
+  renderCommissionOptions();
+  renderCommissionScopeFields();
+});
 byId("exportCommissionsCsvBtn").addEventListener("click", exportCommissionsCsv);
 ["commissionReportSeller", "commissionReportFrom", "commissionReportTo"].forEach((id) => byId(id).addEventListener("change", renderCommissionSummary));
 ["commissionSimulatorSeller", "commissionSimulatorProduct", "commissionSimulatorBase"].forEach((id) => {
@@ -18049,6 +18165,7 @@ byId("exportCommissionsCsvBtn").addEventListener("click", exportCommissionsCsv);
 byId("commissionReportPrintBtn").addEventListener("click", printCommissionReport);
 byId("commissionReportExcelBtn").addEventListener("click", exportCommissionReportExcel);
 byId("commissionReportSettleBtn").addEventListener("click", settleCommissionReport);
+byId("commissionPaymentSubmitBtn").addEventListener("click", submitCommissionPayment);
 byId("mobileProgressDashboard").addEventListener("change", (event) => {
   if (event.target.id !== "mobileCommissionMonth") return;
   mobileCommissionMonth = event.target.value || mobileCommissionMonth;

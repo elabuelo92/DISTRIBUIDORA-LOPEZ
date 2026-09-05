@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-131-r20260905a">
+    <link rel="manifest" href="manifest.json?v=8790-132-r20260905b">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-131-r20260905a">
+    <link rel="stylesheet" href="styles.css?v=8790-132-r20260905b">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -159,7 +159,7 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-131</strong>
+              <strong data-version-value>8790-132</strong>
               <small data-version-build>Actualizada 05/09/2026 19:30</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
@@ -1755,17 +1755,26 @@
                   </select>
                 </label>
                 <label>
-                  Aplicar a vendedor especifico
-                  <input name="userName" list="commissionUserOptions" placeholder="Vacio = regla general para todos">
-                  <datalist id="commissionUserOptions"></datalist>
+                  Aplicar a
+                  <select name="userName" id="commissionUserOptions">
+                    <option value="">Regla general para todos los vendedores</option>
+                  </select>
                 </label>
                 <label>
+                  Alcance
+                  <select name="scopeType" id="commissionScopeType">
+                    <option value="general">General</option>
+                    <option value="rubro">Rubro / categoria</option>
+                    <option value="product">Producto especifico</option>
+                  </select>
+                </label>
+                <label id="commissionRubroField" hidden>
                   Rubro
                   <input name="rubro" list="commissionRubricOptions" placeholder="Ej: Cigarrillos o *">
                   <datalist id="commissionRubricOptions"></datalist>
                 </label>
-                <label>
-                  Producto especifico opcional
+                <label id="commissionProductField" hidden>
+                  Producto especifico
                   <input name="productName" list="commissionProductOptions" placeholder="Nombre o codigo del producto">
                   <datalist id="commissionProductOptions"></datalist>
                 </label>
@@ -1839,10 +1848,17 @@
                 <button class="primary-btn" id="commissionReportSettleBtn" type="button">Registrar pago</button>
               </div>
               <div class="activity-list" id="commissionSummaryList"></div>
+              <div class="price-list-kpis" id="commissionAccountCards"></div>
               <div class="table-wrap">
                 <table>
                   <thead><tr><th>Producto</th><th>Cantidad</th><th>Monto bruto</th><th>% aplicado</th><th>Comision</th></tr></thead>
                   <tbody id="commissionProductDetailTable"></tbody>
+                </table>
+              </div>
+              <div class="table-wrap commission-payment-history">
+                <table>
+                  <thead><tr><th>Fecha de pago</th><th>Importe</th><th>Medio</th><th>Referencia</th><th>Registrado por</th></tr></thead>
+                  <tbody id="commissionPaymentsTable"></tbody>
                 </table>
               </div>
             </section>
@@ -1857,6 +1873,35 @@
             </section>
           </div>
         </section>
+
+        <dialog id="commissionPaymentDialog" class="operational-dialog">
+          <form method="dialog" id="commissionPaymentForm" class="dialog-form">
+            <div class="dialog-heading">
+              <div><small>Cuenta del vendedor</small><h2>Registrar pago parcial</h2></div>
+              <button class="icon-btn" value="cancel" type="submit" aria-label="Cerrar">×</button>
+            </div>
+            <input name="seller" type="hidden">
+            <input name="dateFrom" type="hidden">
+            <input name="dateTo" type="hidden">
+            <div class="price-list-kpis" id="commissionPaymentSummary"></div>
+            <label>Importe a pagar<input name="amount" type="number" min="0.01" step="0.01" required></label>
+            <label>Medio de pago
+              <select name="method" required>
+                <option value="Transferencia">Transferencia</option>
+                <option value="Efectivo">Efectivo</option>
+                <option value="Cheque">Cheque</option>
+                <option value="Otro">Otro</option>
+              </select>
+            </label>
+            <label>Referencia<input name="reference" placeholder="Operacion, recibo o comprobante"></label>
+            <label>Motivo / observacion<textarea name="motive" rows="3" required placeholder="Pago semanal, anticipo, saldo final"></textarea></label>
+            <p class="form-error" id="commissionPaymentMessage"></p>
+            <div class="form-actions">
+              <button class="secondary-btn" value="cancel" type="submit">Cancelar</button>
+              <button class="primary-btn" id="commissionPaymentSubmitBtn" type="button">Registrar pago</button>
+            </div>
+          </form>
+        </dialog>
 
         <section class="view" id="control-stock">
           <div class="table-panel physical-stock-panel">
@@ -2735,7 +2780,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-131</span>
+          <span id="appFooterVersion">Version del sistema: 8790-132</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -4373,17 +4418,17 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-131-r20260905a"></script>
-    <script src="maps-config.js?v=8790-131-r20260905a"></script>
-    <script src="order-engine.js?v=8790-131-r20260905a"></script>
-    <script src="account-engine.js?v=8790-131-r20260905a"></script>
-    <script src="delivery-engine.js?v=8790-131-r20260905a"></script>
-    <script src="legal-engine.js?v=8790-131-r20260905a"></script>
-    <script src="client-portfolio-engine.js?v=8790-131-r20260905a"></script>
-    <script src="client-hours.js?v=8790-131-r20260905a"></script>
-    <script src="share-engine.js?v=8790-131-r20260905a"></script>
-    <script src="progressive-list.js?v=8790-131-r20260905a"></script>
-    <script src="app.js?v=8790-131-r20260905a"></script>
+    <script src="config.js?v=8790-132-r20260905b"></script>
+    <script src="maps-config.js?v=8790-132-r20260905b"></script>
+    <script src="order-engine.js?v=8790-132-r20260905b"></script>
+    <script src="account-engine.js?v=8790-132-r20260905b"></script>
+    <script src="delivery-engine.js?v=8790-132-r20260905b"></script>
+    <script src="legal-engine.js?v=8790-132-r20260905b"></script>
+    <script src="client-portfolio-engine.js?v=8790-132-r20260905b"></script>
+    <script src="client-hours.js?v=8790-132-r20260905b"></script>
+    <script src="share-engine.js?v=8790-132-r20260905b"></script>
+    <script src="progressive-list.js?v=8790-132-r20260905b"></script>
+    <script src="app.js?v=8790-132-r20260905b"></script>
   </body>
 </html>
 

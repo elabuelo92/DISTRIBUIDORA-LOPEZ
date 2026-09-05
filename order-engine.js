@@ -314,12 +314,22 @@
         percents: [rule.percent, other.percent]
       });
     }));
+    const sellersWithoutSpecificRule = (state.sellers || []).filter((seller) => {
+      if (seller.active === false || normalizeText(seller.status || seller.estado) === "inactivo") return false;
+      const identities = [seller.name, seller.username].map(normalizeText).filter(Boolean);
+      return !activeRules.some((rule) => {
+        if (rule.role !== "seller") return false;
+        const targets = [rule.userLabel, rule.username].map(normalizeText).filter(Boolean);
+        return targets.length > 0 && targets.some((target) => identities.includes(target));
+      });
+    }).map((seller) => ({ name: String(seller.name || ""), username: String(seller.username || "") }));
     return {
       total: rules.length,
       active: activeRules.length,
       inactive: rules.length - activeRules.length,
       general: rules.filter((rule) => !normalizeText(rule.username) && !normalizeText(rule.userLabel)).length,
-      conflicts
+      conflicts,
+      sellersWithoutSpecificRule
     };
   }
 
@@ -449,6 +459,8 @@
       return {
         productCode: productKey.code,
         productName: productKey.name,
+        quantity: positive(item.requestedQty ?? item.qty ?? item.cantidad),
+        unitPrice: positive(item.unitPrice ?? item.price),
         rubro,
         group: isCigarette ? "cigarrillos" : "mercaderia",
         baseAmount,
@@ -553,7 +565,13 @@
       const orders = (state.orders || []).filter((order) => order.seller === sellerName && !CANCELLED_COMMISSION_STATUSES.has(order.status));
       seller.orders = orders.length;
       seller.sales = orders.reduce((sum, order) => sum + positive(order.amount), 0);
-      seller.commission = orders.reduce((sum, order) => sum + (order.commissionLiquidated === true ? 0 : positive(order.commissions && order.commissions.seller && order.commissions.seller.total)), 0);
+      seller.commission = orders.reduce((sum, order) => {
+        const accrued = positive(order.commissions && order.commissions.seller && order.commissions.seller.total);
+        const paid = order.commissionPaidAmount === undefined
+          ? (order.commissionLiquidated === true ? accrued : 0)
+          : Math.min(accrued, positive(order.commissionPaidAmount));
+        return sum + Math.max(0, accrued - paid);
+      }, 0);
     });
     return sellers;
   }
@@ -655,6 +673,177 @@
       });
     });
     return Array.from(rows.values()).sort((a, b) => b.total - a.total || a.user.localeCompare(b.user));
+  }
+
+  function commissionBoundary(value, endOfDay) {
+    const text = String(value || "").trim();
+    if (!text) return endOfDay ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+    const iso = /^\d{4}-\d{2}-\d{2}$/.test(text)
+      ? `${text}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}-03:00`
+      : text;
+    const timestamp = new Date(iso).getTime();
+    if (!Number.isFinite(timestamp)) throw new Error("El rango de fechas de la cuenta de comisiones no es valido.");
+    return timestamp;
+  }
+
+  function sellerCommissionAmount(order, seller) {
+    const block = order && order.commissions && order.commissions.seller;
+    if (!block || normalizeText(block.user || order.seller) !== normalizeText(seller)) return 0;
+    return positive(block.total);
+  }
+
+  function paidCommissionAmount(order, accrued) {
+    if (order && order.commissionPaidAmount !== undefined) return Math.min(accrued, positive(order.commissionPaidAmount));
+    return order && order.commissionLiquidated === true ? accrued : 0;
+  }
+
+  function commissionAccountStatement(state, filters = {}) {
+    ensureCommissionSettings(state);
+    const seller = String(filters.seller || filters.user || "").trim();
+    if (!seller) throw new Error("Seleccionar vendedor para consultar su estado de cuenta.");
+    const from = commissionBoundary(filters.dateFrom || filters.from, false);
+    const to = commissionBoundary(filters.dateTo || filters.to, true);
+    if (from > to) throw new Error("El rango de fechas de la cuenta de comisiones no es valido.");
+    const orders = (state.orders || []).filter((order) => {
+      const at = new Date(validIso(order.createdAt || order.receivedAt || order.date)).getTime();
+      return at >= from && at <= to && sellerCommissionAmount(order, seller) > 0;
+    }).sort((a, b) => new Date(a.createdAt || a.receivedAt || 0) - new Date(b.createdAt || b.receivedAt || 0));
+    const orderRows = orders.map((order) => {
+      const accrued = sellerCommissionAmount(order, seller);
+      const paid = paidCommissionAmount(order, accrued);
+      return {
+        orderCode: order.code,
+        at: order.createdAt || order.receivedAt || "",
+        client: order.client || "",
+        saleAmount: positive(order.amount),
+        accrued,
+        paid,
+        balance: Math.max(0, accrued - paid)
+      };
+    });
+    const orderCodes = new Set(orderRows.map((row) => row.orderCode));
+    const payments = (state.commissionSettlements || []).filter((entry) => {
+      if (normalizeText(entry.seller) !== normalizeText(seller)) return false;
+      const allocations = Array.isArray(entry.allocations) ? entry.allocations : [];
+      if (allocations.length) return allocations.some((item) => orderCodes.has(item.orderCode));
+      return (entry.orders || []).some((code) => orderCodes.has(code));
+    }).map((entry) => {
+      const scopedAllocations = (Array.isArray(entry.allocations) ? entry.allocations : [])
+        .filter((item) => orderCodes.has(item.orderCode));
+      return {
+        id: entry.id,
+        at: entry.at || "",
+        amount: scopedAllocations.length
+          ? scopedAllocations.reduce((sum, item) => sum + positive(item.amount), 0)
+          : positive(entry.amount ?? entry.total),
+        method: String(entry.method || "No informado"),
+        reference: String(entry.reference || entry.motive || ""),
+        motive: String(entry.motive || ""),
+        user: String(entry.user || ""),
+        allocations: clone(scopedAllocations)
+      };
+    }).sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+    const accrued = orderRows.reduce((sum, row) => sum + row.accrued, 0);
+    const paid = orderRows.reduce((sum, row) => sum + row.paid, 0);
+    return {
+      seller,
+      dateFrom: filters.dateFrom || filters.from || "",
+      dateTo: filters.dateTo || filters.to || "",
+      accrued,
+      paid,
+      balance: Math.max(0, accrued - paid),
+      orders: orderRows,
+      payments
+    };
+  }
+
+  function registerCommissionPayment(state, input = {}, actor = {}) {
+    migrateState(state);
+    const seller = String(input.seller || input.user || "").trim();
+    const motive = String(input.motive || input.note || "").trim();
+    const method = String(input.method || input.paymentMethod || "").trim();
+    const reference = String(input.reference || "").trim();
+    if (!seller) throw new Error("Seleccionar vendedor para registrar el pago.");
+    if (!motive) throw new Error("Indicar motivo u observacion del pago.");
+    if (!method) throw new Error("Seleccionar medio de pago.");
+    const statement = commissionAccountStatement(state, {
+      seller,
+      dateFrom: input.dateFrom,
+      dateTo: input.dateTo
+    });
+    const amount = positive(input.amount ?? input.total);
+    if (amount <= 0) throw new Error("El importe del pago debe ser mayor a cero.");
+    if (amount > statement.balance + 0.009) throw new Error("El pago no puede superar el saldo pendiente de comisiones.");
+    let remaining = amount;
+    const allocations = [];
+    statement.orders.forEach((row) => {
+      if (remaining <= 0 || row.balance <= 0) return;
+      const applied = Math.min(row.balance, remaining);
+      const order = (state.orders || []).find((item) => item.code === row.orderCode);
+      const paidAfter = row.paid + applied;
+      order.commissionPaidAmount = paidAfter;
+      order.commissionBalance = Math.max(0, row.accrued - paidAfter);
+      order.commissionLiquidated = order.commissionBalance <= 0.009;
+      order.commissionLiquidatedAt = order.commissionLiquidated ? nowIso() : null;
+      order.commissionLiquidatedBy = order.commissionLiquidated ? String(actor.name || actor.username || "Administracion") : "";
+      allocations.push({
+        orderCode: row.orderCode,
+        accrued: row.accrued,
+        paidBefore: row.paid,
+        amount: applied,
+        paidAfter,
+        balanceAfter: order.commissionBalance
+      });
+      remaining -= applied;
+    });
+    if (remaining > 0.009) throw new Error("No se pudo aplicar completamente el pago a los pedidos del periodo.");
+    const at = nowIso();
+    const settlement = {
+      id: `COM-PAG-${Date.now()}-${Math.random().toString(16).slice(2, 6).toUpperCase()}`,
+      seller,
+      dateFrom: String(input.dateFrom || ""),
+      dateTo: String(input.dateTo || ""),
+      amount,
+      total: amount,
+      accruedAtPayment: statement.accrued,
+      paidBefore: statement.paid,
+      balanceAfter: Math.max(0, statement.balance - amount),
+      method,
+      reference,
+      motive,
+      allocations,
+      orders: allocations.map((item) => item.orderCode),
+      at,
+      user: String(actor.name || actor.user || "Administracion"),
+      username: String(actor.username || "")
+    };
+    state.commissionSettlements = Array.isArray(state.commissionSettlements) ? state.commissionSettlements : [];
+    state.commissionSettlements.unshift(settlement);
+    state.commissionAudit = Array.isArray(state.commissionAudit) ? state.commissionAudit : [];
+    const parts = localTraceParts(at);
+    state.commissionAudit.unshift({
+      id: `COMAUD-${Date.now()}-${Math.random().toString(16).slice(2, 6).toUpperCase()}`,
+      action: "COMISION_PAGO_REGISTRADO",
+      at,
+      date: parts.date,
+      time: parts.time,
+      user: settlement.user,
+      username: settlement.username,
+      seller,
+      settlementId: settlement.id,
+      amount,
+      allocations: clone(allocations),
+      motive
+    });
+    refreshSellerMetrics(state);
+    return {
+      settlement,
+      statement: commissionAccountStatement(state, {
+        seller,
+        dateFrom: input.dateFrom,
+        dateTo: input.dateTo
+      })
+    };
   }
 
   function saveCommissionRule(state, input, actor = {}) {
@@ -2183,6 +2372,8 @@
     refreshSellerMetrics,
     recalculateCommissions,
     summarizeCommissions,
+    commissionAccountStatement,
+    registerCommissionPayment,
     analyzeCommissionRules,
     saveCommissionRule,
     nextOrderCode,

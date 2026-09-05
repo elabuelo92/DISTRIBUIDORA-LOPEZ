@@ -110,8 +110,9 @@ function audit(payload) {
 
   const activeSellerNames = sellers.filter((seller) => seller.active !== false && normalized(seller.status || seller.estado) !== "inactivo");
   const sellersWithoutSpecificRule = activeSellerNames.filter((seller) => !active.some((rule) => {
-    const identity = normalized([rule.userLabel, rule.username].join(" "));
-    return identity && (identity.includes(normalized(seller.name)) || identity.includes(normalized(seller.username)));
+    const ruleIdentities = [rule.userLabel, rule.username].map(normalized).filter(Boolean);
+    const sellerIdentities = [seller.name, seller.username].map(normalized).filter(Boolean);
+    return ruleIdentities.some((identity) => sellerIdentities.includes(identity));
   })).map((seller) => ({ name: seller.name || "", username: seller.username || "" }));
 
   return {

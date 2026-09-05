@@ -20,7 +20,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-131";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-132";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -5950,6 +5950,27 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/commissions/account" && req.method === "GET") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "La cuenta de comisiones requiere Administracion." });
+        return;
+      }
+      const currentPayload = readStateFileCached();
+      try {
+        const statement = orderEngine.commissionAccountStatement(currentPayload.state || {}, {
+          seller: requestUrl.searchParams.get("seller") || "",
+          dateFrom: requestUrl.searchParams.get("dateFrom") || "",
+          dateTo: requestUrl.searchParams.get("dateTo") || ""
+        });
+        sendJson(res, 200, { ok: true, statement, version: currentPayload.version });
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo consultar la cuenta de comisiones." });
+      }
+      return;
+    }
+
     if (requestUrl.pathname === "/api/commissions/settlements" && req.method === "POST") {
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
@@ -5958,49 +5979,22 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const input = JSON.parse(await readBody(req) || "{}");
-      const seller = String(input.seller || "").trim();
-      const motive = String(input.motive || "").trim();
-      const from = new Date(`${input.dateFrom || ""}T00:00:00-03:00`);
-      const to = new Date(`${input.dateTo || ""}T23:59:59-03:00`);
-      if (!seller || !motive || Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
-        sendJson(res, 400, { ok: false, error: "Seleccionar vendedor, periodo e indicar referencia del pago." });
-        return;
-      }
       const currentPayload = readStateFileCached();
       const currentState = currentPayload.state || {};
-      const affected = (currentState.orders || []).filter((order) => {
-        const at = new Date(order.createdAt || order.receivedAt || order.date || 0);
-        return sameText(order.seller, seller) && at >= from && at <= to && order.commissionLiquidated !== true;
-      });
-      affected.forEach((order) => {
-        order.commissionLiquidated = true;
-        order.commissionLiquidatedAt = new Date().toISOString();
-        order.commissionLiquidatedBy = sessionUser.name;
-      });
-      orderEngine.refreshSellerMetrics(currentState);
-      const settlement = {
-        id: `COM-LIQ-${Date.now()}`,
-        seller,
-        dateFrom: from.toISOString(),
-        dateTo: to.toISOString(),
-        total: Math.max(0, numeric(input.total, 0)),
-        orders: affected.map((order) => order.code),
-        motive,
-        at: new Date().toISOString(),
-        user: sessionUser.name,
-        username: sessionUser.username
-      };
-      currentState.commissionSettlements = Array.isArray(currentState.commissionSettlements) ? currentState.commissionSettlements : [];
-      currentState.commissionSettlements.unshift(settlement);
-      writeStateResponse(res, currentState, { settlement }, auditEntry(req, sessionUser, input, {
-        action: "COMISION_LIQUIDADA",
-        entityType: "comision",
-        entityId: settlement.id,
-        entityLabel: seller,
-        previousValue: null,
-        newValue: settlement,
-        note: motive
-      }), [], sessionUser);
+      try {
+        const result = orderEngine.registerCommissionPayment(currentState, input, sessionUser);
+        writeStateResponse(res, currentState, result, auditEntry(req, sessionUser, input, {
+          action: "COMISION_PAGO_REGISTRADO",
+          entityType: "comision",
+          entityId: result.settlement.id,
+          entityLabel: result.settlement.seller,
+          previousValue: { paid: result.settlement.paidBefore, balance: result.settlement.amount + result.settlement.balanceAfter },
+          newValue: result.settlement,
+          note: result.settlement.motive
+        }), [], sessionUser);
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo registrar el pago de comisiones." });
+      }
       return;
     }
 
