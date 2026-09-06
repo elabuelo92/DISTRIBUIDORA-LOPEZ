@@ -5633,6 +5633,40 @@ td small {
   padding: 9px 10px;
 }
 
+.delivery-stop-compact-row {
+  border-radius: 6px;
+  padding: 7px 9px;
+  transition: border-color 120ms ease, opacity 120ms ease, transform 120ms ease;
+}
+
+.delivery-stop-compact-row.dragging {
+  opacity: 0.48;
+}
+
+.delivery-stop-compact-row.drag-over {
+  border-top: 3px solid var(--accent);
+  transform: translateY(1px);
+}
+
+.delivery-drag-handle {
+  flex: 0 0 auto;
+  min-width: 42px;
+  padding: 5px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: grab;
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-align: center;
+  user-select: none;
+}
+
+.delivery-drag-handle:active {
+  cursor: grabbing;
+}
+
 .delivery-stop-card.current {
   border-color: var(--accent);
   box-shadow: inset 4px 0 0 var(--accent);
@@ -5698,6 +5732,10 @@ td small {
   justify-content: flex-start;
   margin-top: 8px;
   gap: 6px;
+}
+
+.delivery-stop-compact-row .delivery-stop-actions {
+  margin-top: 5px;
 }
 
 .delivery-stop-actions button {

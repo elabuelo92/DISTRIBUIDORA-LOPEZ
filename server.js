@@ -226,6 +226,7 @@ function seedUsers() {
     { username: "vendedor4", name: "Vendedor 4", role: "seller", sellerName: "Vendedor 4", password: DEFAULT_PASSWORD },
     { username: "vendedor5", name: "Vendedor 5", role: "seller", sellerName: "Vendedor 5", password: DEFAULT_PASSWORD },
     { username: "reparto1", name: "Dispositivo Reparto 1", role: "driver", password: DEFAULT_PASSWORD },
+    { username: "dario", name: "Darío", role: "driver", password: DEFAULT_PASSWORD },
     { username: "deposito1", name: "Encargado de Deposito", role: "depot", password: DEFAULT_PASSWORD },
     { username: "recepcion1", name: "Recepcion Mercaderia", role: "receiver", password: DEFAULT_PASSWORD }
   ];
@@ -1795,6 +1796,13 @@ function requireDeliveryUser(req, res) {
     return null;
   }
   return user;
+}
+
+function canPlanDeliveryRoutes(user) {
+  return Boolean(user && (
+    user.role === "admin"
+    || (user.role === "driver" && String(user.username || "").trim().toLowerCase() === "dario")
+  ));
 }
 
 function deliveryContext(user, input) {
@@ -6977,7 +6985,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (!allowedActions.has(action)) {
-        sendJson(res, 400, { ok: false, error: "Accion masiva no permitida. Despacho requiere etiqueta, scanner y hoja de ruta." });
+        sendJson(res, 400, { ok: false, error: "Accion masiva no permitida. Despacho requiere etiqueta, bultos confirmados y hoja de ruta." });
         return;
       }
       const currentPayload = readStateFileCached();
@@ -7040,11 +7048,22 @@ const server = http.createServer(async (req, res) => {
             auditAction = "PEDIDO_ETIQUETA_GENERADA";
             note = `Etiqueta generada. Bultos ${packages}.`;
           } else if (action === "verify-ready") {
-            if (order.status !== orderEngine.STATUS.READY_DISPATCH) {
-              throw new Error(`Escanear fisicamente la etiqueta. El pedido permanece en ${order.status}.`);
+            if (order.status === orderEngine.STATUS.READY_DISPATCH) {
+              processed.push({ code, status: order.status, changed: false });
+              return;
             }
-            processed.push({ code, status: order.status, changed: false });
-            return;
+            resultOrder = orderEngine.markOrderReadyForDispatch(currentState, code, {
+              user: sessionUser.name,
+              username: sessionUser.username,
+              role: sessionUser.role,
+              ip: clientIp(req)
+            });
+            auditAction = resultOrder.assembly && resultOrder.assembly.label && resultOrder.assembly.label.scanned
+              ? "PEDIDO_LISTO_PARA_DESPACHO"
+              : "PEDIDO_LISTO_SIN_SCANNER";
+            note = resultOrder.assembly && resultOrder.assembly.label && resultOrder.assembly.label.scanned
+              ? "Pedido listo para despacho con scanner validado."
+              : "Pedido listo para despacho con scanner opcional omitido.";
           }
           changedOrders.push(resultOrder);
           processed.push({ code, status: resultOrder.status, changed: true });
@@ -7084,7 +7103,7 @@ const server = http.createServer(async (req, res) => {
         action: "PEDIDOS_FLUJO_MASIVO",
         category: "Deposito",
         title: `Operacion de deposito: ${changedOrders.length} pedidos`,
-        text: `${changedOrders.length}/${orderCodes.length} pedidos actualizados sin omitir controles de etiqueta y scanner.`,
+        text: `${changedOrders.length}/${orderCodes.length} pedidos actualizados con etiqueta y bultos confirmados; scanner opcional.`,
         tone: errors.length ? "warn" : "ok",
         entityType: "pedido",
         entityId: "bulk",
@@ -8340,8 +8359,8 @@ const server = http.createServer(async (req, res) => {
       const performanceStartedAt = performance.now();
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
-      if (sessionUser.role !== "admin") {
-        sendJson(res, 403, { ok: false, error: "Planificacion permitida solo para administradores." });
+      if (!canPlanDeliveryRoutes(sessionUser)) {
+        sendJson(res, 403, { ok: false, error: "Planificacion permitida solo para administracion o Darío." });
         return;
       }
       const input = JSON.parse(await readBody(req) || "{}");
@@ -8369,8 +8388,8 @@ const server = http.createServer(async (req, res) => {
       const performanceStartedAt = performance.now();
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
-      if (sessionUser.role !== "admin") {
-        sendJson(res, 403, { ok: false, error: "Solo administracion puede deshacer una planificacion." });
+      if (!canPlanDeliveryRoutes(sessionUser)) {
+        sendJson(res, 403, { ok: false, error: "Solo administracion o Darío pueden deshacer una planificacion." });
         return;
       }
       const input = JSON.parse(await readBody(req) || "{}");
@@ -8400,8 +8419,8 @@ const server = http.createServer(async (req, res) => {
       const performanceStartedAt = performance.now();
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
-      if (sessionUser.role !== "admin") {
-        sendJson(res, 403, { ok: false, error: "Reordenamiento permitido solo para administradores." });
+      if (!canPlanDeliveryRoutes(sessionUser)) {
+        sendJson(res, 403, { ok: false, error: "Reordenamiento permitido solo para administracion o Darío." });
         return;
       }
       const input = JSON.parse(await readBody(req) || "{}");
@@ -8436,8 +8455,8 @@ const server = http.createServer(async (req, res) => {
       const performanceStartedAt = performance.now();
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
-      if (sessionUser.role !== "admin") {
-        sendJson(res, 403, { ok: false, error: "Publicacion permitida solo para administradores." });
+      if (!canPlanDeliveryRoutes(sessionUser)) {
+        sendJson(res, 403, { ok: false, error: "Publicacion permitida solo para administracion o Darío." });
         return;
       }
       const input = JSON.parse(await readBody(req) || "{}");

@@ -103,7 +103,8 @@ const demoUsers = [
   { username: "nicolas", name: "Nicolas Vera", role: "seller", sellerName: "Nicolas Vera" },
   { username: "vendedor4", name: "Vendedor 4", role: "seller", sellerName: "Vendedor 4" },
   { username: "vendedor5", name: "Vendedor 5", role: "seller", sellerName: "Vendedor 5" },
-  { username: "reparto1", name: "Dispositivo Reparto 1", role: "driver" }
+  { username: "reparto1", name: "Dispositivo Reparto 1", role: "driver" },
+  { username: "dario", name: "Darío", role: "driver" }
 ];
 
 const money = new Intl.NumberFormat("es-AR", {
@@ -541,6 +542,7 @@ let activeDeliveryRouteId = "";
 let deliverySignatureDirty = false;
 let deliveryExceptionSignatureDirty = false;
 let deliveryPlannerSelection = new Set();
+let deliveryRouteDragState = null;
 let deliveryPlannerSortKey = "route";
 let deliveryPlannerFilter = "all";
 let deliveryPlannerSearchTerm = "";
@@ -3025,6 +3027,13 @@ function isAdminUser() {
   return Boolean(currentUser && currentUser.role === "admin");
 }
 
+function canPlanDeliveryRoutes() {
+  return Boolean(currentUser && (
+    currentUser.role === "admin"
+    || (currentUser.role === "driver" && String(currentUser.username || "").trim().toLowerCase() === "dario")
+  ));
+}
+
 function isSuperAdminUser() {
   return Boolean(currentUser && currentUser.role === "admin" && String(currentUser.username || "").trim().toLowerCase() === "superadmin");
 }
@@ -3048,6 +3057,9 @@ function canReceiveSupplierRemits() {
 function updateAdminOnlyVisibility() {
   document.querySelectorAll(".admin-only").forEach((item) => {
     item.hidden = !isAdminUser();
+  });
+  document.querySelectorAll(".delivery-planner-authorized").forEach((item) => {
+    item.hidden = !canPlanDeliveryRoutes();
   });
   document.querySelectorAll(".admin-receiver-only").forEach((item) => {
     item.hidden = !canReceiveSupplierRemits();
@@ -8391,7 +8403,7 @@ async function runBulkOrderAction(action) {
   if (!window.confirm(`Se van a procesar ${orders.length} pedidos para ${label}. Desea continuar?`)) return;
   const workflowAction = bulkWorkflowAction(action, targetStatus);
   if (!workflowAction) {
-    setOrdersBulkStatus("Ese cambio no puede aplicarse en forma directa. Completar armado, etiqueta, scanner y luego asignar la ruta.", "warn");
+    setOrdersBulkStatus("Ese cambio no puede aplicarse en forma directa. Completar armado, etiqueta, bultos y luego asignar la ruta. El scanner es opcional.", "warn");
     return;
   }
   const started = performance.now();
@@ -8870,7 +8882,7 @@ function renderAssemblyDepot() {
           <button class="secondary-btn" type="button" data-assembly-bulk-action="state-preparacion">Marcar en preparacion</button>
           <button class="secondary-btn" type="button" data-assembly-bulk-action="state-armado">Marcar armado</button>
           <button class="secondary-btn" type="button" data-assembly-bulk-action="state-etiquetado">Marcar etiquetado</button>
-          <button class="secondary-btn" type="button" data-assembly-bulk-action="state-listo" title="Comprueba que la etiqueta haya sido escaneada físicamente">Verificar scanner</button>
+          <button class="secondary-btn" type="button" data-assembly-bulk-action="state-listo" title="Deja el pedido listo con etiqueta y bultos confirmados; el scanner es opcional">Listo para despacho</button>
           <button class="secondary-btn" type="button" data-assembly-bulk-action="export-assembly">Exportar armado</button>
         </div>
       </div>
@@ -9005,6 +9017,12 @@ function renderDeliveryPlanner() {
   if (!form || !list || !summary) return;
   const day = byId("deliveryPlannerDay");
   if (day && !day.value) day.value = routeDayToday();
+  if (currentUser?.username === "dario") {
+    const driver = byId("deliveryPlannerDriver");
+    const driverLabel = byId("deliveryPlannerDriverLabel");
+    if (driver && (!driver.value || driver.value === "reparto1")) driver.value = "dario";
+    if (driverLabel && (!driverLabel.value || driverLabel.value === "Reparto 1")) driverLabel.value = "Darío";
+  }
   const zoneSelect = byId("deliveryPlannerZoneFilter");
   const sellerSelect = byId("deliveryPlannerSellerFilter");
   const zones = Array.from(new Set((state.orders || []).map(orderZoneText).filter(Boolean))).sort((a, b) => a.localeCompare(b, "es"));
@@ -9066,7 +9084,7 @@ function isDeliveryRoutePublished(route) {
 function visibleDeliveryRoutes() {
   const routes = state.deliveryRoutes || [];
   if (!currentUser) return [];
-  if (currentUser.role === "admin") {
+  if (canPlanDeliveryRoutes()) {
     return routes.filter((route) => isDeliveryRoutePublished(route) || route.id === activeDeliveryRouteId);
   }
   if (currentUser.role === "driver") {
@@ -9539,7 +9557,7 @@ function renderDelivery() {
   if (document.activeElement !== deviceLabel) deviceLabel.value = deliveryDevice.label;
 
   const routes = visibleDeliveryRoutes();
-  if (isAdminUser()) renderDeliveryPlanner();
+  if (canPlanDeliveryRoutes()) renderDeliveryPlanner();
   const activeRoute = activeRouteForDelivery(routes);
   const allStops = routes.flatMap((route) => route.stops || []);
   const delivered = allStops.filter((stop) => isDeliveryStopClosed(stop.status)).length;
@@ -9566,7 +9584,7 @@ function renderDelivery() {
     const allStopsManaged = totalStops > 0 && (route.stops || []).every((stop) => isDeliveryStopClosed(stop.status));
     const assignedHere = route.deviceId === deliveryDevice.id || route.driverUser === currentUser?.username || (!route.driverUser && !route.deviceId);
     const canClaim = currentUser?.role === "driver" && isDeliveryRoutePublished(route) && assignedHere && !route.deviceId;
-    const canPublish = isAdminUser() && route.status === "Planificada";
+    const canPublish = canPlanDeliveryRoutes() && route.status === "Planificada";
     const canCloseRoute = !route.closure && isDeliveryRoutePublished(route) && (isAdminUser() || assignedHere) && allStopsManaged;
     const closure = route.closure || null;
     return `
@@ -9632,7 +9650,7 @@ function renderDeliveryStops(route) {
     const assembly = orderAssemblyInfo(order || { code: stop.orderCode, assembly: stop.assembly || { orderNumber: stop.assemblyOrderNumber, bultosConfirmed: stop.packages } });
     const isCurrent = current && current.orderCode === stop.orderCode;
     const canOperate = ownsRoute && isCurrent && !isDeliveryRouteClosed(route) && route.status !== "Planificada";
-    const canReorder = isAdminUser() && !route.closure && !isDeliveryRouteClosed(route) && route.status !== "Completada";
+    const canReorder = canPlanDeliveryRoutes() && !route.closure && !isDeliveryRouteClosed(route) && route.status !== "Completada";
     const mapsUrl = DeliveryEngine.navigationUrl(state, stop.orderCode);
     const collection = stop.collection;
     const exception = stop.exception || order && order.deliveryException;
@@ -9641,8 +9659,9 @@ function renderDeliveryStops(route) {
       ? Object.values(collection.attachments).filter(Boolean).map((attachment) => `<a href="${escapeHtml(attachment.url)}" target="_blank" rel="noopener">${escapeHtml(attachment.kind)}</a>`).join(" | ")
       : "";
     return `
-      <article class="delivery-stop-card ${isCurrent ? "current" : ""} ${isDeliveryStopClosed(stop.status) ? "completed" : ""}">
+      <article class="delivery-stop-card delivery-stop-compact-row ${isCurrent ? "current" : ""} ${isDeliveryStopClosed(stop.status) ? "completed" : ""}" ${canReorder ? `data-route-drop="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}"` : ""}>
         <div class="delivery-stop-head">
+          ${canReorder ? `<span class="delivery-drag-handle" draggable="true" data-route-drag="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}" title="Arrastrar para cambiar el orden">Mover</span>` : ""}
           ${canReorder ? `
             <label class="delivery-sequence-control">
               <span>Sec.</span>
@@ -9721,6 +9740,23 @@ async function applyDeliverySequenceChange(input, focusNext = false) {
   } finally {
     input.disabled = false;
   }
+}
+
+async function persistDeliveryDragOrder(routeId, draggedCode, targetCode, placeAfter) {
+  const route = (state.deliveryRoutes || []).find((item) => item.id === routeId);
+  if (!route || draggedCode === targetCode) return;
+  const codes = (route.stops || []).map((stop) => stop.orderCode);
+  const sourceIndex = codes.indexOf(draggedCode);
+  if (sourceIndex < 0 || !codes.includes(targetCode)) return;
+  codes.splice(sourceIndex, 1);
+  let targetIndex = codes.indexOf(targetCode);
+  if (placeAfter) targetIndex += 1;
+  codes.splice(targetIndex, 0, draggedCode);
+  await postOperationalAction(`api/delivery/routes/${encodeURIComponent(route.id)}/reorder`, {
+    orderCodes: codes
+  });
+  activeDeliveryRouteId = route.id;
+  showCompactNotice("Orden de visita guardado.", "ok");
 }
 
 function renderDeliverySettings() {
@@ -20446,10 +20482,6 @@ async function submitDeliveryCollection(event) {
   const orderCode = byId("deliveryCollectionOrderCode").value;
   const order = state.orders.find((item) => item.code === orderCode);
   if (!order) return;
-  if (!deliverySignatureDirty) {
-    setDeliveryCollectionMessage("La firma del cliente es obligatoria.");
-    return;
-  }
   const method = byId("deliveryPaymentMethod").value;
   updateDeliveryPendingAmount();
   const cashAmount = Math.max(0, numeric(byId("deliveryCashAmount").value, 0));
@@ -20516,7 +20548,9 @@ async function submitDeliveryCollection(event) {
   setDeliveryCollectionMessage("Guardando GPS y evidencias...", "info");
   try {
     const gps = await requireDeliveryLocation();
-    const signatureData = byId("deliverySignatureCanvas").toDataURL("image/png");
+    const signatureData = deliverySignatureDirty
+      ? byId("deliverySignatureCanvas").toDataURL("image/png")
+      : "";
     const transferData = await fileToEvidenceDataUrl(deliveryTransferAttachmentFile());
     const proofData = await fileToCompressedDataUrl(byId("deliveryProofPhoto").files[0]);
     const uploads = await Promise.all([
@@ -20598,17 +20632,13 @@ async function submitDeliveryException(event) {
     setDeliveryExceptionMessage("Completar observacion para administracion.");
     return;
   }
-  if (status === ORDER_STATUS.REJECTED && !deliveryExceptionSignatureDirty) {
-    setDeliveryExceptionMessage("El rechazo requiere firma digital del cliente.");
-    return;
-  }
   const submit = byId("deliveryExceptionSubmitBtn");
   submit.disabled = true;
   submit.textContent = "Registrando...";
   setDeliveryExceptionMessage("Tomando GPS y guardando incidencia...", "info");
   try {
     const gps = await requireDeliveryLocation();
-    const signatureData = status === ORDER_STATUS.REJECTED
+    const signatureData = status === ORDER_STATUS.REJECTED && deliveryExceptionSignatureDirty
       ? byId("deliveryExceptionSignatureCanvas").toDataURL("image/png")
       : "";
     const photoData = await fileToCompressedDataUrl(byId("deliveryExceptionPhoto").files[0]);
@@ -20804,6 +20834,50 @@ document.addEventListener("keydown", (event) => {
   if (!sequence || !["Enter", "Tab"].includes(event.key)) return;
   event.preventDefault();
   applyDeliverySequenceChange(sequence, true);
+});
+
+document.addEventListener("dragstart", (event) => {
+  const handle = event.target.closest("[data-route-drag]");
+  if (!handle || !canPlanDeliveryRoutes()) return;
+  deliveryRouteDragState = {
+    routeId: handle.dataset.routeDrag,
+    orderCode: handle.dataset.orderCode
+  };
+  handle.closest("[data-route-drop]")?.classList.add("dragging");
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", handle.dataset.orderCode || "");
+  }
+});
+
+document.addEventListener("dragover", (event) => {
+  const row = event.target.closest("[data-route-drop]");
+  if (!row || !deliveryRouteDragState || row.dataset.routeDrop !== deliveryRouteDragState.routeId) return;
+  event.preventDefault();
+  document.querySelectorAll("[data-route-drop].drag-over").forEach((item) => item.classList.remove("drag-over"));
+  row.classList.add("drag-over");
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+});
+
+document.addEventListener("drop", async (event) => {
+  const row = event.target.closest("[data-route-drop]");
+  if (!row || !deliveryRouteDragState || row.dataset.routeDrop !== deliveryRouteDragState.routeId) return;
+  event.preventDefault();
+  const dragState = deliveryRouteDragState;
+  const bounds = row.getBoundingClientRect();
+  const placeAfter = event.clientY > bounds.top + bounds.height / 2;
+  document.querySelectorAll("[data-route-drop]").forEach((item) => item.classList.remove("drag-over", "dragging"));
+  deliveryRouteDragState = null;
+  try {
+    await persistDeliveryDragOrder(dragState.routeId, dragState.orderCode, row.dataset.orderCode, placeAfter);
+  } catch (error) {
+    window.alert(error.message || "No se pudo guardar el nuevo orden.");
+  }
+});
+
+document.addEventListener("dragend", () => {
+  deliveryRouteDragState = null;
+  document.querySelectorAll("[data-route-drop]").forEach((item) => item.classList.remove("drag-over", "dragging"));
 });
 
 document.addEventListener("click", async (event) => {

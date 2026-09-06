@@ -696,10 +696,6 @@
     const observations = String(input.observations || input.observacion || input.note || "").trim();
     if (!reason) throw new Error("Indicar motivo de la incidencia.");
     if (!observations) throw new Error("Registrar una observacion para la incidencia.");
-    if (targetStatus === STATUS.REJECTED && !validAttachment(input.attachments && input.attachments.signature)) {
-      throw new Error("El rechazo requiere firma digital del cliente.");
-    }
-
     const at = nowIso();
     const parts = localTraceParts(at);
     const exception = {

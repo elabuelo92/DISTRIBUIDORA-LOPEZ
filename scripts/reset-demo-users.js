@@ -16,7 +16,8 @@ const users = [
   { username: "nicolas", name: "Nicolas Vera", role: "seller", sellerName: "Nicolas Vera" },
   { username: "vendedor4", name: "Vendedor 4", role: "seller", sellerName: "Vendedor 4" },
   { username: "vendedor5", name: "Vendedor 5", role: "seller", sellerName: "Vendedor 5" },
-  { username: "reparto1", name: "Dispositivo Reparto 1", role: "driver" }
+  { username: "reparto1", name: "Dispositivo Reparto 1", role: "driver" },
+  { username: "dario", name: "Darío", role: "driver" }
 ];
 
 function hashPassword(password) {

@@ -104,15 +104,16 @@ async function post(cookie, endpoint, body, expectedStatus = 200) {
 
   const blockedBeforeLabel = await post(cookie, "api/orders/bulk-workflow", { orderCodes: [code], action: "verify-ready" });
   assert.equal(blockedBeforeLabel.payload.changed, 0);
-  assert.match(blockedBeforeLabel.payload.errors[0].error, /Escanear fisicamente/);
+  assert.match(blockedBeforeLabel.payload.errors[0].error, /Generar la etiqueta/);
 
   const labeled = await post(cookie, "api/orders/bulk-workflow", { orderCodes: [code], action: "labels" });
   assert.equal(labeled.payload.orders[0].status, orderEngine.STATUS.LABELED);
   assert.ok(labeled.bytes < 100_000, `Respuesta de etiqueta demasiado grande: ${labeled.bytes}`);
 
-  const blockedBeforeScan = await post(cookie, "api/orders/bulk-workflow", { orderCodes: [code], action: "verify-ready" });
-  assert.equal(blockedBeforeScan.payload.changed, 0);
-  assert.match(blockedBeforeScan.payload.errors[0].error, /Escanear fisicamente/);
+  const readyWithoutScan = await post(cookie, "api/orders/bulk-workflow", { orderCodes: [code], action: "verify-ready" });
+  assert.equal(readyWithoutScan.payload.changed, 1);
+  assert.equal(readyWithoutScan.payload.orders[0].status, orderEngine.STATUS.READY_DISPATCH);
+  assert.equal(readyWithoutScan.payload.orders[0].assembly.label.scanned, false);
 
   const scanned = await post(cookie, `api/orders/${encodeURIComponent(code)}/scan`, { scanValue: code });
   assert.equal(scanned.payload.compact, true);
@@ -124,7 +125,7 @@ async function post(cookie, endpoint, body, expectedStatus = 200) {
   assert.equal(verified.payload.processed[0].status, orderEngine.STATUS.READY_DISPATCH);
 
   const directDispatch = await post(cookie, "api/orders/bulk-workflow", { orderCodes: [code], action: "dispatch" }, 400);
-  assert.match(directDispatch.payload.error, /Despacho requiere etiqueta, scanner y hoja de ruta/);
+  assert.match(directDispatch.payload.error, /Despacho requiere etiqueta, bultos confirmados y hoja de ruta/);
 
   const persisted = JSON.parse(fs.readFileSync(stateFile, "utf8"));
   const savedOrder = persisted.state.orders.find((order) => order.code === code);
@@ -139,7 +140,8 @@ async function post(cookie, endpoint, body, expectedStatus = 200) {
     fullStateBytes,
     responseBytes: { assembly: assembly.bytes, labeled: labeled.bytes, scanned: scanned.bytes },
     elapsedMs: { assembly: assembly.elapsedMs, labeled: labeled.elapsedMs, scanned: scanned.elapsedMs },
-    physicalScannerRequired: true,
+    physicalScannerRequired: false,
+    physicalScannerAvailable: true,
     directDispatchBlocked: true,
     finalStatus: savedOrder.status
   }, null, 2));

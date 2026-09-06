@@ -1744,10 +1744,49 @@
     }
     const assembly = normalizeAssembly(order);
     if (!assembly.label.generated) throw new Error("Generar etiqueta antes de despachar.");
-    if (!assembly.label.scanned) throw new Error("Escanear la etiqueta antes de despachar.");
     if (positive(assembly.bultosConfirmed) <= 0) throw new Error("Confirmar cantidad de bultos antes de despachar.");
     order.assembly = assembly;
     return assembly;
+  }
+
+  function markOrderReadyForDispatch(state, code, context = {}) {
+    migrateState(state);
+    const order = getOrder(state, code);
+    if (!order) throw new Error("Pedido no encontrado.");
+    if (order.status === STATUS.READY_DISPATCH) return order;
+    if (order.status !== STATUS.LABELED) {
+      throw new Error(`Generar la etiqueta antes de dejar el pedido en ${STATUS.READY_DISPATCH}.`);
+    }
+    const assembly = normalizeAssembly(order);
+    if (!assembly.label.generated) throw new Error("Generar etiqueta antes de dejar listo para despacho.");
+    if (positive(assembly.bultosConfirmed) <= 0) throw new Error("Confirmar cantidad de bultos antes de dejar listo para despacho.");
+    const at = nowIso();
+    const actor = String(context.user || context.actor || "Deposito");
+    assembly.label.scannerOptional = true;
+    assembly.label.scannerOmitted = !assembly.label.scanned;
+    order.assembly = assembly;
+    order.status = STATUS.READY_DISPATCH;
+    order.updatedAt = at;
+    addTrace(
+      order,
+      STATUS.READY_DISPATCH,
+      actor,
+      assembly.label.scanned
+        ? `Pedido listo para despacho con scanner validado. Bultos: ${assembly.bultosConfirmed}.`
+        : `Pedido listo para despacho sin scanner. Bultos confirmados: ${assembly.bultosConfirmed}.`,
+      at,
+      context.gps || null,
+      assembly.label.scanned ? "PEDIDO_LISTO_PARA_DESPACHO" : "PEDIDO_LISTO_SIN_SCANNER"
+    );
+    state.activity = Array.isArray(state.activity) ? state.activity : [];
+    state.activity.unshift({
+      type: "Deposito",
+      title: `${order.code} listo para despacho`,
+      text: assembly.label.scanned
+        ? `${order.client}: scanner validado.`
+        : `${order.client}: scanner omitido; etiqueta y bultos confirmados.`
+    });
+    return order;
   }
 
   function settleReservedStock(state, order, actor) {
@@ -2379,6 +2418,7 @@
     applyStockEntry,
     nextStatus,
     assertDispatchChecklist,
+    markOrderReadyForDispatch,
     orderLabelData,
     generateOrderLabel,
     scanOrderLabel,
