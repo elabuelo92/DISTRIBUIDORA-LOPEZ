@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-134-r20260905d">
+    <link rel="manifest" href="manifest.json?v=8790-135-r20260906a">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-134-r20260905d">
+    <link rel="stylesheet" href="styles.css?v=8790-135-r20260906a">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -159,8 +159,8 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-134</strong>
-              <small data-version-build>Actualizada 05/09/2026 21:35</small>
+              <strong data-version-value>8790-135</strong>
+              <small data-version-build>Actualizada 06/09/2026 02:10</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
             <button class="ghost-btn app-back-btn" id="appBackBtn" type="button">Volver</button>
@@ -1024,6 +1024,7 @@
                 <p>Padron normalizado: fiscal, comercial, ruta y cuenta corriente</p>
               </div>
               <div class="table-actions">
+                <button class="secondary-btn" id="exportClientPortfolioPdfBtn" type="button">PDF cartera completa</button>
                 <button class="secondary-btn" id="newClientBtn" type="button">Nuevo cliente</button>
               </div>
             </div>
@@ -1236,7 +1237,7 @@
                   <h2>Cuentas corrientes</h2>
                   <p>Cobros, pagos, transferencias y saldos centralizados</p>
                 </div>
-                <button class="secondary-btn" id="registerPaymentBtn" type="button">Registrar cobro demo</button>
+                <button class="secondary-btn" id="registerPaymentBtn" type="button">Registrar pago parcial</button>
               </div>
               <div class="data-filter-bar accounts-filter-bar">
                 <label class="data-search-box">
@@ -1266,6 +1267,7 @@
                       <th>Deuda total</th>
                       <th>Ultimo pago</th>
                       <th>Estado</th>
+                      <th>Accion</th>
                     </tr>
                   </thead>
                   <tbody id="clientAccountsTable"></tbody>
@@ -1517,6 +1519,9 @@
                 <div>
                   <h2>Productos y precios vigentes</h2>
                   <p>Los pedidos confirmados conservan el precio historico del momento de venta</p>
+                </div>
+                <div class="table-actions">
+                  <button class="secondary-btn" id="exportProductPortfolioPdfBtn" type="button">PDF productos y precios</button>
                 </div>
               </div>
               <div class="data-filter-bar price-list-filters">
@@ -2768,7 +2773,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-134</span>
+          <span id="appFooterVersion">Version del sistema: 8790-135</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -2953,6 +2958,56 @@
           <button class="primary-btn" type="submit">Validar scanner</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="accountStatementDialog">
+      <div class="modal-card account-statement-dialog">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow" id="accountStatementEyebrow">Estado de cuenta</p>
+            <h2 id="accountStatementTitle">Cuenta consolidada</h2>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <p class="account-statement-identity" id="accountStatementIdentity">Consultando saldo e historial...</p>
+        <div class="account-kpi-grid account-statement-summary" id="accountStatementSummary"></div>
+        <div class="account-statement-actions">
+          <button class="primary-btn" id="accountStatementPaymentBtn" type="button">Registrar pago parcial</button>
+          <button class="secondary-btn" id="accountStatementEditBtn" type="button">Editar datos</button>
+          <button class="secondary-btn" id="accountStatementPrintBtn" type="button">Imprimir estado</button>
+        </div>
+        <section class="account-payment-panel" id="accountStatementPaymentPanel" hidden>
+          <div class="section-head compact">
+            <div><h3>Aplicar pago parcial</h3><p>El movimiento conserva saldo anterior, saldo nuevo, medio, referencia y usuario.</p></div>
+          </div>
+          <div class="form-grid">
+            <label>Importe<input id="accountStatementPaymentAmount" type="number" min="0.01" step="0.01"></label>
+            <label>Medio<select id="accountStatementPaymentMethod">
+              <option value="Efectivo">Efectivo</option>
+              <option value="Transferencia">Transferencia</option>
+              <option value="Mercado Pago">Mercado Pago</option>
+              <option value="Cheque">Cheque</option>
+              <option value="Mercaderia">Mercaderia</option>
+            </select></label>
+            <label>Referencia<input id="accountStatementPaymentReference" autocomplete="off" placeholder="Operacion, cheque o comprobante"></label>
+          </div>
+          <label>Observaciones<textarea id="accountStatementPaymentNote" rows="2" placeholder="Detalle del pago parcial"></textarea></label>
+          <div class="form-actions">
+            <button class="ghost-btn" id="accountStatementPaymentCancelBtn" type="button">Cancelar</button>
+            <button class="primary-btn" id="accountStatementPaymentSubmitBtn" type="button">Aplicar pago</button>
+          </div>
+        </section>
+        <h3 class="subsection-title">Movimientos</h3>
+        <div class="responsive-table account-statement-movements">
+          <table><thead><tr><th>Fecha</th><th>Tipo</th><th>Medio</th><th>Referencia</th><th>Debe</th><th>Haber</th><th>Saldo</th><th>Estado / usuario</th></tr></thead><tbody id="accountStatementMovements"></tbody></table>
+        </div>
+        <details class="account-statement-history" id="accountStatementHistoryWrap">
+          <summary>Historial de operaciones</summary>
+          <div id="accountStatementHistory"></div>
+        </details>
+        <p class="login-message" id="accountStatementMessage"></p>
+        <menu><button class="primary-btn" type="button" data-close-dialog>Cerrar</button></menu>
+      </div>
     </dialog>
 
     <dialog id="clientDialog">
@@ -4406,17 +4461,18 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-134-r20260905d"></script>
-    <script src="maps-config.js?v=8790-134-r20260905d"></script>
-    <script src="order-engine.js?v=8790-134-r20260905d"></script>
-    <script src="account-engine.js?v=8790-134-r20260905d"></script>
-    <script src="delivery-engine.js?v=8790-134-r20260905d"></script>
-    <script src="legal-engine.js?v=8790-134-r20260905d"></script>
-    <script src="client-portfolio-engine.js?v=8790-134-r20260905d"></script>
-    <script src="client-hours.js?v=8790-134-r20260905d"></script>
-    <script src="share-engine.js?v=8790-134-r20260905d"></script>
-    <script src="progressive-list.js?v=8790-134-r20260905d"></script>
-    <script src="app.js?v=8790-134-r20260905d"></script>
+    <script src="config.js?v=8790-135-r20260906a"></script>
+    <script src="maps-config.js?v=8790-135-r20260906a"></script>
+    <script src="order-engine.js?v=8790-135-r20260906a"></script>
+    <script src="account-engine.js?v=8790-135-r20260906a"></script>
+    <script src="delivery-engine.js?v=8790-135-r20260906a"></script>
+    <script src="legal-engine.js?v=8790-135-r20260906a"></script>
+    <script src="client-portfolio-engine.js?v=8790-135-r20260906a"></script>
+    <script src="client-hours.js?v=8790-135-r20260906a"></script>
+    <script src="share-engine.js?v=8790-135-r20260906a"></script>
+    <script src="portfolio-export-engine.js?v=8790-135-r20260906a"></script>
+    <script src="progressive-list.js?v=8790-135-r20260906a"></script>
+    <script src="app.js?v=8790-135-r20260906a"></script>
   </body>
 </html>
 

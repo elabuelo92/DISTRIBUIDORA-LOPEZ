@@ -20,7 +20,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-133";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-135";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -5878,6 +5878,77 @@ const server = http.createServer(async (req, res) => {
         entityLabel: target,
         audience: ["admin"]
       }), sessionUser);
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/account-statements" && req.method === "GET") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Consultar estados de cuenta requiere Administracion." });
+        return;
+      }
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      try {
+        const statement = accountEngine.accountStatement(
+          currentState,
+          requestUrl.searchParams.get("type") || "client",
+          requestUrl.searchParams.get("id") || ""
+        );
+        sendJson(res, 200, { ok: true, statement, version: currentPayload.version });
+      } catch (error) {
+        sendJson(res, 404, { ok: false, error: error.message || "No se pudo consultar el estado de cuenta." });
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/account-statements/payments" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Registrar pagos parciales requiere Administracion." });
+        return;
+      }
+      const input = JSON.parse(await readBody(req) || "{}");
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      try {
+        const type = String(input.type || "client").trim().toLowerCase();
+        if (type !== "client") throw new Error("Los pagos de proveedores deben utilizar el circuito documentado de conciliacion.");
+        const result = accountEngine.registerClientPayment(currentState, input, {
+          user: sessionUser.name,
+          username: sessionUser.username,
+          role: sessionUser.role
+        });
+        writeStateResponse(res, currentState, result, auditEntry(req, sessionUser, input, {
+          action: "CLIENTE_PAGO_PARCIAL_REGISTRADO",
+          entityType: "cliente",
+          entityId: result.statement.entity.id,
+          entityLabel: result.statement.entity.name,
+          previousValue: { balance: result.payment.previousBalance },
+          newValue: {
+            paymentId: result.payment.id,
+            method: result.payment.method,
+            amount: result.payment.credit,
+            balance: result.payment.balance,
+            reference: result.payment.reference
+          },
+          note: result.payment.observations || "Pago parcial desde estado de cuenta"
+        }), notificationEntry(req, sessionUser, input, {
+          action: "CLIENTE_PAGO_PARCIAL_REGISTRADO",
+          category: "Cuentas",
+          title: `Pago aplicado ${result.statement.entity.name}`,
+          text: `${result.payment.method} ${result.payment.credit}. Saldo ${result.payment.balance}.`,
+          tone: "ok",
+          entityType: "cliente",
+          entityId: result.statement.entity.id,
+          entityLabel: result.statement.entity.name,
+          audience: ["admin"]
+        }), sessionUser);
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo registrar el pago parcial." });
+      }
       return;
     }
 

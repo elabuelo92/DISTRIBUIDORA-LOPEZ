@@ -146,6 +146,7 @@ const DeliveryEngine = window.DLDeliveryEngine;
 const AccountEngine = window.DLAccountEngine;
 const LegalEngine = window.DLLegalEngine;
 const ClientHours = window.DLClientHours;
+const PortfolioExportEngine = window.DLPortfolioExportEngine;
 const ORDER_STATUS = OrderEngine.STATUS;
 const TRANSFER_STATUS = AccountEngine.TRANSFER_STATUS || {
   PENDING: "Pendiente de Transferencia",
@@ -429,6 +430,7 @@ let accountSearchTerm = "";
 let accountTypeFilter = "all";
 let accountMethodFilter = "all";
 let accountStatusFilter = "all";
+let activeAccountStatement = null;
 let bankStatusFilter = "all";
 let bankClientFilter = "";
 let bankDateFilter = "";
@@ -10320,7 +10322,7 @@ function renderClientPage(payload, fromCache = false) {
     const account = client.account || { currentBalance: 0, creditLimit: 0, totalDebt: 0, status: "Al dia" };
     const mixedEntityKeyValue = client.mixedEntityKey || "";
     return `
-    <tr>
+    <tr data-account-entity-type="client" data-account-entity-id="${escapeHtml(client.codigo_cliente || client.name)}" title="Doble clic para abrir el estado de cuenta">
       <td><input type="checkbox" data-client-select="${escapeHtml(clientIdentity(client))}" aria-label="Seleccionar ${escapeHtml(client.name)}" ${selectedClientIds.has(clientIdentity(client)) ? "checked" : ""}></td>
       <td>
         <strong>${escapeHtml(client.name)}</strong>
@@ -10357,6 +10359,7 @@ function renderClientPage(payload, fromCache = false) {
       </td>
       <td>
         <button class="mini-btn" type="button" data-client-edit="${escapeHtml(client.codigo_cliente || client.name)}">Editar</button>
+        <button class="mini-btn primary-mini" type="button" data-account-open="client" data-account-id="${escapeHtml(client.codigo_cliente || client.name)}">Cuenta</button>
         ${mixedEntityKeyValue ? `<button class="mini-btn primary-mini" type="button" data-mixed-entity="${escapeHtml(mixedEntityKeyValue)}">Ficha mixta</button>` : ""}
       </td>
     </tr>
@@ -10688,6 +10691,35 @@ async function exportCommercialPortfolio(format) {
   downloadBlob(`cartera-comercial-${stamp}.pdf`, makeSimplePdf("Distribuidora Lopez - Cartera Comercial", lines));
 }
 
+function exportFullClientPortfolioPdf() {
+  if (!isAdminUser()) return;
+  const clients = Array.isArray(state.clients) ? state.clients : [];
+  const lines = [
+    `Emision: ${new Date().toLocaleString("es-AR")} | Version ${APP_VERSION}`,
+    `Clientes: ${clients.length} | Activos: ${clients.filter((client) => !normalizeSearchText(client.estado || client.status).includes("inactiv")).length}`,
+    "Datos incluidos: identificacion, contacto, cartera, visita, pago, saldo y GPS.",
+    "",
+    ...PortfolioExportEngine.clientPdfLines(clients)
+  ];
+  downloadBlob(`cartera-completa-clientes-${reportDateStamp()}.pdf`, makeSimplePdf("Distribuidora Lopez - Cartera completa de clientes", lines));
+  showCompactNotice(`${clients.length} clientes incluidos en el PDF.`, "ok");
+}
+
+function exportFullProductPortfolioPdf() {
+  if (!isAdminUser()) return;
+  const products = Array.isArray(state.products) ? state.products : [];
+  const active = products.filter((product) => PortfolioExportEngine.isProductActive(product)).length;
+  const lines = [
+    `Emision: ${new Date().toLocaleString("es-AR")} | Version ${APP_VERSION}`,
+    `Productos: ${products.length} | Activos: ${active} | Inactivos: ${products.length - active}`,
+    "Precios vigentes: costo y listas 1, 2, 3, 4 y 5 al momento de emitir.",
+    "",
+    ...PortfolioExportEngine.productPdfLines(products)
+  ];
+  downloadBlob(`cartera-completa-productos-precios-${reportDateStamp()}.pdf`, makeSimplePdf("Distribuidora Lopez - Productos y precios vigentes", lines));
+  showCompactNotice(`${products.length} productos incluidos con precios vigentes.`, "ok");
+}
+
 function commercialRouteDay(dateValue) {
   if (!dateValue) return "";
   const names = ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"];
@@ -10854,6 +10886,152 @@ async function applyClientPortfolioPreview(event) {
   }
 }
 
+function setAccountStatementMessage(text, tone = "") {
+  const node = byId("accountStatementMessage");
+  if (!node) return;
+  node.textContent = text || "";
+  node.dataset.tone = tone;
+}
+
+function accountStatementSummaryCards(statement) {
+  const summary = statement.summary || {};
+  if (statement.type === "supplier") {
+    return [
+      ["Saldo pendiente", money.format(summary.balance || 0), "Cuenta proveedor"],
+      ["Total comprado", money.format(summary.purchased || 0), "Remitos validados"],
+      ["Total pagado", money.format(summary.paid || 0), "Pagos conciliados"],
+      ["Movimientos", String(summary.movementCount || 0), "Historial consolidado"]
+    ];
+  }
+  return [
+    ["Saldo actual", money.format(summary.balance || 0), "Deuda registrada"],
+    ["Deuda total", money.format(summary.totalDebt || 0), `Pedidos pendientes ${money.format(summary.pendingOrders || 0)}`],
+    ["Limite", money.format(summary.creditLimit || 0), "Credito configurado"],
+    ["Deuda vencida", money.format(summary.overdue || 0), `${summary.movementCount || 0} movimientos`]
+  ];
+}
+
+function renderAccountStatement(statement) {
+  activeAccountStatement = statement;
+  const entity = statement.entity || {};
+  byId("accountStatementEyebrow").textContent = statement.type === "supplier" ? "Cuenta proveedor" : "Cuenta cliente";
+  byId("accountStatementTitle").textContent = entity.name || "Estado de cuenta";
+  byId("accountStatementIdentity").textContent = [
+    entity.id && `ID ${entity.id}`,
+    entity.taxId && `CUIT ${entity.taxId}`,
+    entity.phone,
+    entity.address,
+    entity.status
+  ].filter(Boolean).join(" | ") || "Sin datos complementarios";
+  byId("accountStatementSummary").innerHTML = accountStatementSummaryCards(statement).map(([label, value, hint]) => `
+    <article class="account-kpi-card"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></article>
+  `).join("");
+  const movements = Array.isArray(statement.movements) ? statement.movements : [];
+  byId("accountStatementMovements").innerHTML = movements.length ? movements.map((movement) => `
+    <tr>
+      <td>${escapeHtml(movement.date || formatOrderTime(movement.at || ""))}</td>
+      <td><strong>${escapeHtml(movement.type || "Movimiento")}</strong><small>${escapeHtml(movement.note || "")}</small></td>
+      <td>${escapeHtml(movement.method || "Sin informar")}</td>
+      <td>${escapeHtml(movement.reference || "-")}</td>
+      <td>${movement.debit ? money.format(movement.debit) : "-"}</td>
+      <td>${movement.credit ? money.format(movement.credit) : "-"}</td>
+      <td><strong>${money.format(movement.balance || 0)}</strong></td>
+      <td><span class="tag ${normalizeSearchText(movement.status).includes("pendiente") ? "warn" : "ok"}">${escapeHtml(movement.status || "Aplicado")}</span><small>${escapeHtml(movement.user || "Sistema")}</small></td>
+    </tr>
+  `).join("") : '<tr><td class="stock-empty" colspan="8">Sin movimientos registrados.</td></tr>';
+  const orders = Array.isArray(statement.orders) ? statement.orders : [];
+  byId("accountStatementHistoryWrap").hidden = statement.type === "supplier" && !movements.length;
+  byId("accountStatementHistory").innerHTML = statement.type === "client"
+    ? (orders.length ? orders.map((order) => `<article class="activity"><span class="tag">${escapeHtml(order.status)}</span><strong>${escapeHtml(order.code)}</strong><p>${escapeHtml(formatOrderTime(order.at))} - ${escapeHtml(order.method)} - ${money.format(order.amount)}</p></article>`).join("") : '<p class="empty-note">Sin pedidos asociados.</p>')
+    : (movements.length ? movements.slice(0, 30).map((movement) => `<article class="activity"><span class="tag ${normalizeSearchText(movement.status).includes("pendiente") ? "warn" : "ok"}">${escapeHtml(movement.status)}</span><strong>${escapeHtml(movement.type)}</strong><p>${escapeHtml(movement.reference || movement.note || "Sin referencia")}</p></article>`).join("") : '<p class="empty-note">Sin operaciones asociadas.</p>');
+  const paymentButton = byId("accountStatementPaymentBtn");
+  paymentButton.textContent = statement.type === "supplier" ? "Registrar pago proveedor" : "Registrar pago parcial";
+  paymentButton.disabled = numeric(statement.summary && statement.summary.balance, 0) <= 0;
+  byId("accountStatementPaymentPanel").hidden = true;
+  byId("accountStatementPaymentAmount").value = "";
+  byId("accountStatementPaymentReference").value = "";
+  byId("accountStatementPaymentNote").value = "";
+  setAccountStatementMessage("");
+}
+
+async function loadAccountStatement(type, id) {
+  const dialog = byId("accountStatementDialog");
+  byId("accountStatementEyebrow").textContent = "Estado de cuenta";
+  byId("accountStatementTitle").textContent = "Consultando...";
+  byId("accountStatementIdentity").textContent = "Cargando saldo, historial y movimientos.";
+  byId("accountStatementSummary").innerHTML = '<article class="account-kpi-card"><span>Estado</span><strong>Cargando...</strong><small>Consulta al servidor</small></article>';
+  byId("accountStatementMovements").innerHTML = '<tr><td colspan="8"><div class="clients-local-loader"><span class="clients-spinner"></span><strong>Cargando movimientos...</strong></div></td></tr>';
+  byId("accountStatementHistory").innerHTML = "";
+  setAccountStatementMessage("");
+  if (!dialog.open) dialog.showModal();
+  try {
+    const response = await fetchWithTimeout(apiUrl(`api/account-statements?type=${encodeURIComponent(type)}&id=${encodeURIComponent(id)}`), { cache: "no-store" }, 12000);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) throw new Error(payload.error || "No se pudo consultar el estado de cuenta.");
+    renderAccountStatement(payload.statement);
+  } catch (error) {
+    activeAccountStatement = null;
+    setAccountStatementMessage(error.message || "No se pudo consultar el estado de cuenta.", "danger");
+    byId("accountStatementTitle").textContent = "Cuenta no disponible";
+    byId("accountStatementMovements").innerHTML = '<tr><td class="stock-empty" colspan="8">Reintentar cuando el servidor responda.</td></tr>';
+  }
+}
+
+function openAccountStatement(type, id) {
+  if (!isAdminUser()) return;
+  loadAccountStatement(type, id);
+}
+
+async function submitAccountStatementPayment() {
+  if (!activeAccountStatement || activeAccountStatement.type !== "client") return;
+  const amount = numeric(byId("accountStatementPaymentAmount").value, 0);
+  const method = byId("accountStatementPaymentMethod").value;
+  const reference = byId("accountStatementPaymentReference").value.trim();
+  const note = byId("accountStatementPaymentNote").value.trim();
+  const button = byId("accountStatementPaymentSubmitBtn");
+  button.disabled = true;
+  setAccountStatementMessage("Aplicando pago parcial...", "info");
+  try {
+    const payload = await postOperationalAction("api/account-statements/payments", {
+      type: "client",
+      entityId: activeAccountStatement.entity.id,
+      amount,
+      method,
+      reference,
+      note
+    });
+    renderAccountStatement(payload.statement);
+    renderAccounts();
+    clientPageCache.clear();
+    showCompactNotice(`Pago parcial aplicado. Saldo ${money.format(payload.payment.balance)}.`, "ok");
+  } catch (error) {
+    setAccountStatementMessage(error.message || "No se pudo aplicar el pago parcial.", "danger");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function printActiveAccountStatement() {
+  if (!activeAccountStatement) return;
+  const statement = activeAccountStatement;
+  const headers = ["Fecha", "Tipo", "Medio", "Referencia", "Debe", "Haber", "Saldo", "Estado / usuario"];
+  const rows = (statement.movements || []).map((movement) => [
+    movement.date || formatOrderTime(movement.at || ""), movement.type, movement.method, movement.reference,
+    movement.debit || "", movement.credit || "", movement.balance || 0, `${movement.status || ""} ${movement.user || ""}`.trim()
+  ]);
+  const context = `${statement.type === "supplier" ? "Proveedor" : "Cliente"}: ${statement.entity.name}. Saldo: ${money.format(statement.summary.balance || 0)}. Emision: ${new Date().toLocaleString("es-AR")}.`;
+  openPrintableReport("ESTADO DE CUENTA", headers, rows, context);
+}
+
+function openAccountPaymentChooser() {
+  const candidates = (state.clients || []).filter((client) => numeric(client.balance, 0) > 0);
+  if (!candidates.length) return showCompactNotice("No hay clientes con saldo pendiente.", "ok");
+  const requested = String(window.prompt(`Cliente con saldo pendiente:\n${candidates.slice(0, 20).map((client) => `- ${client.name}`).join("\n")}`, candidates[0].name) || "").trim();
+  const client = candidates.find((item) => sameText(item.name, requested) || sameText(item.codigo_cliente, requested));
+  if (!client) return showCompactNotice("Cliente no encontrado entre las cuentas pendientes.", "warn");
+  openAccountStatement("client", client.codigo_cliente || client.name);
+}
+
 function renderAccounts() {
   const globalTerms = [];
   const localTerms = searchTerms(accountSearchTerm);
@@ -10904,7 +11082,7 @@ function renderAccounts() {
   const clientTable = byId("clientAccountsTable");
   if (clientTable) {
     clientTable.innerHTML = filteredSummaries.length ? filteredSummaries.map((summary) => `
-      <tr>
+      <tr data-account-entity-type="client" data-account-entity-id="${escapeHtml(summary.clientName)}" title="Doble clic para abrir el estado de cuenta">
         <td><strong>${escapeHtml(summary.clientName)}</strong><small>Pedidos pendientes ${money.format(summary.pendingOrderExposure)}</small></td>
         <td>${money.format(summary.currentBalance)}</td>
         <td>${money.format(summary.creditLimit)}</td>
@@ -10912,8 +11090,9 @@ function renderAccounts() {
         <td><strong>${money.format(summary.totalDebt)}</strong></td>
         <td><small>${escapeHtml(formatLastPayment(summary.lastPayment))}</small></td>
         <td><span class="tag ${accountStatusTone(summary.status)}">${escapeHtml(summary.status)}</span></td>
+        <td><button class="mini-btn primary-mini" type="button" data-account-open="client" data-account-id="${escapeHtml(summary.clientName)}">Abrir cuenta</button></td>
       </tr>
-    `).join("") : '<tr><td class="stock-empty" colspan="7">No hay cuentas para los filtros seleccionados.</td></tr>';
+    `).join("") : '<tr><td class="stock-empty" colspan="8">No hay cuentas para los filtros seleccionados.</td></tr>';
   }
 
   accountTypeFilter = updateDynamicFilter("accountsTypeFilter", state.accounts.map((entry) => entry.type), accountTypeFilter, "Todos los tipos");
@@ -13802,7 +13981,7 @@ function renderSuppliers() {
   byId("suppliersTable").innerHTML = suppliers.length ? suppliers.map((supplier) => {
     const mixedEntity = mixedEntityForSupplier(supplier);
     return `
-    <tr>
+    <tr data-account-entity-type="supplier" data-account-entity-id="${escapeHtml(supplier.name)}" title="Doble clic para abrir el estado de cuenta">
       <td><strong>${escapeHtml(supplier.name)}</strong><small>${escapeHtml(supplier.nombre_comercial || "")}</small><small><span class="tag ${normalizeSearchText(supplier.estado_operativo).includes("inactiv") ? "danger" : "ok"}">${escapeHtml(supplier.estado_operativo || "Activo")}</span></small>${mixedEntity ? '<small><span class="tag info">Tambien cliente</span></small>' : ""}</td>
       <td><strong>${escapeHtml(supplier.cuit || "Sin CUIT")}</strong><small>${escapeHtml(supplier.condicion_pago || "Sin condicion")}</small></td>
       <td>${escapeHtml(supplier.contact)}</td>
@@ -13814,7 +13993,7 @@ function renderSuppliers() {
       <td>
         <button class="mini-btn" type="button" data-supplier-edit="${escapeHtml(supplier.name)}">Editar</button>
         <button class="mini-btn danger-mini" type="button" data-supplier-manage="${escapeHtml(supplier.name)}">Eliminar / inactivar</button>
-        <button class="mini-btn" type="button" data-supplier-account="${escapeHtml(supplier.name)}">Cuenta</button>
+        <button class="mini-btn" type="button" data-account-open="supplier" data-account-id="${escapeHtml(supplier.name)}">Cuenta</button>
         <button class="mini-btn primary-mini" type="button" data-supplier-payment="${escapeHtml(supplier.name)}">Pago</button>
         ${mixedEntity ? `<button class="mini-btn" type="button" data-mixed-entity="${escapeHtml(mixedEntity.key)}">Ficha mixta</button>` : ""}
       </td>
@@ -19355,15 +19534,50 @@ byId("loadPurchaseBtn").addEventListener("click", async () => {
   }
 });
 
-byId("registerPaymentBtn").addEventListener("click", () => {
-  const client = state.clients.find((item) => item.name === "Autoservicio La Esquina");
-  if (!client) return;
-  client.balance = Math.max(0, client.balance - 85000);
-  state.accounts.unshift({ date: "03/06", type: "Cobro", account: client.name, method: "Transferencia", debit: 0, credit: 85000, balance: client.balance });
-  state.bankTransfers = state.bankTransfers.filter((item) => item.title !== "Transferencia sin aplicar");
-  state.activity.unshift({ type: "Cobranza", title: "Cobro aplicado", text: "Transferencia asociada a Autoservicio La Esquina." });
-  saveState();
-  renderForCurrentUser();
+byId("registerPaymentBtn").addEventListener("click", openAccountPaymentChooser);
+byId("exportClientPortfolioPdfBtn").addEventListener("click", exportFullClientPortfolioPdf);
+byId("exportProductPortfolioPdfBtn").addEventListener("click", exportFullProductPortfolioPdf);
+byId("accountStatementPaymentBtn").addEventListener("click", () => {
+  if (!activeAccountStatement) return;
+  if (activeAccountStatement.type === "supplier") {
+    const supplierName = activeAccountStatement.entity.name;
+    byId("accountStatementDialog").close("payment");
+    openSupplierPaymentDialog(supplierName);
+    return;
+  }
+  const panel = byId("accountStatementPaymentPanel");
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) byId("accountStatementPaymentAmount").focus();
+});
+byId("accountStatementPaymentCancelBtn").addEventListener("click", () => {
+  byId("accountStatementPaymentPanel").hidden = true;
+  setAccountStatementMessage("");
+});
+byId("accountStatementPaymentSubmitBtn").addEventListener("click", submitAccountStatementPayment);
+byId("accountStatementPrintBtn").addEventListener("click", printActiveAccountStatement);
+byId("accountStatementEditBtn").addEventListener("click", () => {
+  if (!activeAccountStatement) return;
+  const current = activeAccountStatement;
+  byId("accountStatementDialog").close("edit");
+  if (current.type === "supplier") {
+    const supplier = (state.suppliers || []).find((item) => sameText(item.name, current.entity.name));
+    if (supplier) openSupplierDialog(supplier);
+    return;
+  }
+  openClientEditDialog(current.entity.id);
+});
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-account-open]");
+  if (!button) return;
+  openAccountStatement(button.dataset.accountOpen, button.dataset.accountId);
+});
+
+document.addEventListener("dblclick", (event) => {
+  if (event.target.closest("button, input, select, textarea, a")) return;
+  const row = event.target.closest("[data-account-entity-type][data-account-entity-id]");
+  if (!row) return;
+  openAccountStatement(row.dataset.accountEntityType, row.dataset.accountEntityId);
 });
 
 document.addEventListener("click", (event) => {
@@ -20323,9 +20537,10 @@ function reconcileDeliveryPaymentInput(source) {
 
   const pending = Math.max(0, Math.round((total - cash - transfer) * 100) / 100);
   const activeParts = [cash > 0, transfer > 0, pending > 0].filter(Boolean).length;
+  const selectedMethod = AccountEngine.normalizePaymentMethod(method.value, method.value);
   if (activeParts > 1) method.value = "Mixto";
   else if (transfer > 0) method.value = "Transferencia";
-  else if (pending > 0) method.value = "Cuenta corriente";
+  else if (pending > 0) method.value = selectedMethod === "Transferencia Pendiente" ? "Transferencia Pendiente" : "Cuenta corriente";
   else method.value = "Efectivo";
   updateDeliveryPendingAmount();
 }
@@ -20498,6 +20713,7 @@ async function submitDeliveryCollection(event) {
       : pendingAmount > 0
         ? (method === "Transferencia Pendiente" ? "Transferencia Pendiente" : "Cuenta corriente")
         : "Efectivo";
+  byId("deliveryPaymentMethod").value = submittedMethod;
   const deliveredItems = selectedDeliveryItems();
   const quantityErrors = validateDeliveryItemQuantities();
   if (quantityErrors.length) {

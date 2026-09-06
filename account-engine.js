@@ -717,6 +717,227 @@
     return record;
   }
 
+  const ACCOUNT_PAYMENT_METHODS = new Set([
+    "Efectivo",
+    "Transferencia",
+    "Mercado Pago",
+    "Cheque",
+    "Mercaderia"
+  ]);
+
+  function normalizePaymentMethod(value, fallback = "") {
+    const raw = String(value || "").trim();
+    const normalized = normalizeText(raw).replace(/\s+/g, " ");
+    const aliases = new Map([
+      ["efectivo", "Efectivo"],
+      ["cash", "Efectivo"],
+      ["transferencia", "Transferencia"],
+      ["transferencia bancaria", "Transferencia"],
+      ["mercado pago", "Mercado Pago"],
+      ["mercadopago", "Mercado Pago"],
+      ["cheque", "Cheque"],
+      ["mercaderia", "Mercaderia"],
+      ["mercaderia como pago", "Mercaderia"],
+      ["cuenta corriente", "Cuenta corriente"],
+      ["transferencia pendiente", "Transferencia Pendiente"],
+      ["mixto", "Mixto"]
+    ]);
+    return aliases.get(normalized) || raw || fallback;
+  }
+
+  function accountEntryRecord(entry, index) {
+    return {
+      id: String(entry.id || `ACC-${index + 1}`),
+      at: String(entry.createdAt || entry.at || ""),
+      date: String(entry.date || ""),
+      type: String(entry.type || "Movimiento"),
+      method: normalizePaymentMethod(entry.method, "Sin informar"),
+      debit: positive(entry.debit),
+      credit: positive(entry.credit),
+      balance: positive(entry.balance),
+      reference: String(entry.reference || entry.operationNumber || entry.orderCode || entry.paymentId || entry.remitNumber || ""),
+      status: String(entry.status || entry.paymentStatus || "Aplicado"),
+      user: String(entry.user || entry.createdBy || "Sistema"),
+      note: String(entry.note || entry.observations || "")
+    };
+  }
+
+  function sortAccountRecords(records) {
+    return records.sort((left, right) => {
+      const leftDate = parseDate(left.at || left.date);
+      const rightDate = parseDate(right.at || right.date);
+      return (rightDate ? rightDate.getTime() : 0) - (leftDate ? leftDate.getTime() : 0);
+    });
+  }
+
+  function findSupplier(state, value) {
+    const key = normalizeText(value);
+    return (state.suppliers || []).find((supplier) => [
+      supplier.id,
+      supplier.name,
+      supplier.razon_social,
+      supplier.nombre_comercial,
+      supplier.cuit
+    ].some((candidate) => normalizeText(candidate) === key)) || null;
+  }
+
+  function supplierStatementMovements(state, supplier) {
+    const name = supplier.name || supplier.razon_social;
+    const records = accountEntries(state, name).map(accountEntryRecord);
+    const source = [
+      ...(state.supplierMovements || []).filter((movement) => sameClient(movement.supplier || movement.proveedor, name)),
+      ...(Array.isArray(supplier.movements) ? supplier.movements : [])
+    ];
+    const seen = new Set(records.map((record) => record.id));
+    source.forEach((movement, index) => {
+      const id = String(movement.id || `${movement.type || "SUP"}-${movement.remitNumber || movement.date || index}`);
+      if (seen.has(id)) return;
+      seen.add(id);
+      records.push({
+        id,
+        at: String(movement.at || movement.createdAt || ""),
+        date: String(movement.date || ""),
+        type: String(movement.type || "Movimiento proveedor"),
+        method: normalizePaymentMethod(movement.method, movement.type === "Remito" ? "Cuenta proveedor" : "Sin informar"),
+        debit: movement.type === "Remito" ? positive(movement.amount || movement.declaredAmount) : 0,
+        credit: movement.type === "Pago proveedor" ? positive(movement.amount) : 0,
+        balance: positive(movement.balance),
+        reference: String(movement.remitNumber || movement.invoiceNumber || movement.operationNumber || movement.id || ""),
+        status: String(movement.paymentStatus || movement.adminValidationStatus || movement.status || (movement.economicValidated ? "Validado" : "Pendiente")),
+        user: String(movement.user || movement.validatedBy || movement.reconciledBy || "Sistema"),
+        note: String(movement.observations || movement.text || movement.note || "")
+      });
+    });
+    return sortAccountRecords(records).slice(0, 500);
+  }
+
+  function accountStatement(state, type, entityId) {
+    migrateState(state);
+    const entityType = normalizeText(type) === "supplier" || normalizeText(type) === "proveedor" ? "supplier" : "client";
+    if (entityType === "supplier") {
+      const supplier = findSupplier(state, entityId);
+      if (!supplier) throw new Error("Proveedor no encontrado.");
+      const movements = supplierStatementMovements(state, supplier);
+      return {
+        type: "supplier",
+        entity: {
+          id: String(supplier.id || supplier.cuit || supplier.name || supplier.razon_social),
+          name: String(supplier.name || supplier.razon_social || "Proveedor"),
+          legalName: String(supplier.razon_social || supplier.name || ""),
+          taxId: String(supplier.cuit || ""),
+          phone: String(supplier.telefono || supplier.phone || ""),
+          address: String(supplier.direccion || supplier.address || ""),
+          status: String(supplier.estado_operativo || supplier.status || "Activo")
+        },
+        summary: {
+          balance: positive(supplier.balance ?? supplier.saldo_pendiente),
+          purchased: positive(supplier.totalPurchased ?? supplier.total_comprado),
+          paid: positive(supplier.totalPaid ?? supplier.total_pagado),
+          overdue: positive(supplier.overdueDebt ?? supplier.deuda_vencida),
+          movementCount: movements.length
+        },
+        movements,
+        actions: { canRegisterPayment: true, requiresReconciliation: true }
+      };
+    }
+
+    const client = findClient(state, entityId)
+      || (state.clients || []).find((item) => [item.id, item.codigo_cliente, item.cuit].some((candidate) => normalizeText(candidate) === normalizeText(entityId)));
+    if (!client) throw new Error("Cliente no encontrado.");
+    const clientName = client.name || client.nombre_comercial;
+    const summary = accountSummary(state, client, 0);
+    const movements = sortAccountRecords(accountEntries(state, clientName).map(accountEntryRecord)).slice(0, 500);
+    const orders = (state.orders || [])
+      .filter((order) => sameClient(order.client, clientName))
+      .map((order) => ({
+        code: String(order.code || ""),
+        at: String(order.createdAt || order.receivedAt || order.updatedAt || ""),
+        status: String(order.status || ""),
+        amount: positive(order.amount),
+        method: normalizePaymentMethod(order.paymentMethod || order.forma_pago, "Sin informar")
+      }))
+      .sort((left, right) => new Date(right.at || 0) - new Date(left.at || 0))
+      .slice(0, 100);
+    return {
+      type: "client",
+      entity: {
+        id: String(client.id || client.codigo_cliente || clientName),
+        name: String(clientName || "Cliente"),
+        legalName: String(client.razon_social || clientName || ""),
+        taxId: String(client.cuit || ""),
+        phone: String(client.telefono || client.phone || ""),
+        address: String(client.domicilio || client.address || ""),
+        status: String(client.estado || client.status || "Activo")
+      },
+      summary: {
+        balance: positive(summary.currentBalance),
+        totalDebt: positive(summary.totalDebt),
+        creditLimit: positive(summary.creditLimit),
+        overdue: positive(summary.overdueDebt),
+        pendingOrders: positive(summary.pendingOrderExposure),
+        movementCount: movements.length,
+        orderCount: orders.length
+      },
+      movements,
+      orders,
+      actions: { canRegisterPayment: true, requiresReconciliation: false }
+    };
+  }
+
+  function registerClientPayment(state, input, context) {
+    migrateState(state);
+    const statement = accountStatement(state, "client", input && (input.entityId || input.client || input.account));
+    const client = findClient(state, statement.entity.name);
+    const method = normalizePaymentMethod(input && (input.method || input.paymentMethod));
+    const amount = positive(input && input.amount);
+    const reference = String(input && (input.reference || input.operationNumber) || "").trim();
+    const note = String(input && (input.note || input.observations) || "").trim();
+    if (!ACCOUNT_PAYMENT_METHODS.has(method)) throw new Error("Seleccionar un medio de pago valido.");
+    if (amount <= 0) throw new Error("Indicar un importe de pago mayor a cero.");
+    if (amount - statement.summary.balance > 0.01) throw new Error("El pago no puede superar el saldo actual del cliente.");
+    if (["Transferencia", "Mercado Pago", "Cheque"].includes(method) && !reference) {
+      throw new Error("Indicar numero de operacion o referencia para este medio de pago.");
+    }
+    if (method === "Mercaderia" && !note) throw new Error("Detallar la mercaderia recibida como pago.");
+    const at = nowIso();
+    const parts = localTraceParts(at);
+    const previousBalance = positive(client.balance ?? client.saldo_actual ?? client.saldo_inicial);
+    const nextBalance = Math.max(0, Math.round((previousBalance - amount) * 100) / 100);
+    const id = `ACC-PAG-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+    const entry = {
+      id,
+      createdAt: at,
+      date: parts.date,
+      time: parts.time,
+      type: "Pago parcial cliente",
+      account: statement.entity.name,
+      method,
+      debit: 0,
+      credit: amount,
+      balance: nextBalance,
+      previousBalance,
+      reference,
+      observations: note,
+      user: String(context && (context.user || context.username) || "Administracion"),
+      username: String(context && context.username || "")
+    };
+    client.balance = nextBalance;
+    client.saldo_actual = nextBalance;
+    client.saldo_inicial = nextBalance;
+    client.paymentHistory = Array.isArray(client.paymentHistory) ? client.paymentHistory : [];
+    client.paymentHistory.unshift({ ...entry });
+    client.paymentHistory = client.paymentHistory.slice(0, 500);
+    state.accounts.unshift(entry);
+    state.activity = Array.isArray(state.activity) ? state.activity : [];
+    state.activity.unshift({
+      type: "Cuentas",
+      title: `Pago parcial ${statement.entity.name}`,
+      text: `${method} ${amount}. Saldo ${previousBalance} -> ${nextBalance}.`
+    });
+    migrateState(state);
+    return { payment: entry, client, statement: accountStatement(state, "client", statement.entity.id) };
+  }
+
   function canAuthorize(user) {
     if (!user) return false;
     return user.role === "admin"
@@ -739,6 +960,10 @@
     TRANSFER_STATUS,
     setTransferStatus,
     TRANSFER_STATUSES,
+    ACCOUNT_PAYMENT_METHODS,
+    normalizePaymentMethod,
+    accountStatement,
+    registerClientPayment,
     canAuthorize
   };
 });

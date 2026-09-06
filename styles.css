@@ -1052,6 +1052,62 @@
   color: #b00020;
 }
 
+[data-account-entity-type][data-account-entity-id] {
+  cursor: pointer;
+}
+
+#accountStatementDialog {
+  width: min(1120px, calc(100vw - 24px));
+}
+
+.account-statement-dialog {
+  width: 100%;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  box-sizing: border-box;
+}
+
+.account-statement-identity {
+  margin: 0;
+  color: var(--muted);
+}
+
+.account-statement-summary {
+  margin: 12px 0;
+}
+
+.account-statement-actions,
+.account-payment-panel .form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.account-payment-panel {
+  margin-top: 12px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.account-statement-movements {
+  max-height: 340px;
+  overflow: auto;
+}
+
+.account-statement-history {
+  margin-top: 12px;
+}
+
+.account-statement-history > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.account-statement-history .activity {
+  margin-top: 8px;
+}
+
 .delivery-items-box {
   border: 1px solid var(--line);
   border-radius: 8px;
