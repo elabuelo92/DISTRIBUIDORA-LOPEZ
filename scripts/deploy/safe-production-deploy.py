@@ -63,8 +63,9 @@ echo __MEMORY__; free -h
     print(out)
 
 
-def deploy(client, version):
+def deploy(client, version, allow_operational_archive=False):
     version_q = shlex.quote(version)
+    archive_review = "1" if allow_operational_archive else "0"
     command = rf"""
 set -euo pipefail
 cd {APP_DIR}
@@ -87,9 +88,15 @@ git show origin/main:scripts/order-dispatch-snapshot.js > /tmp/dl-order-dispatch
 node --check /tmp/dl-order-dispatch-snapshot.js
 DESTRUCTIVE_DIFF="$(git diff "$OLD_COMMIT" origin/main -- server.js order-engine.js delivery-engine.js scripts ':!scripts/smoke-*' ':!scripts/support-maintenance.js' ':!scripts/deploy/safe-production-deploy.py' | grep -E '^\+.*(DELETE[[:space:]]+FROM|TRUNCATE|DROP[[:space:]]+TABLE|state\.orders[[:space:]]*=[[:space:]]*\[\])' || true)"
 if [ -n "$DESTRUCTIVE_DIFF" ]; then
+  UNREVIEWED_DIFF="$(printf '%s\n' "$DESTRUCTIVE_DIFF" | grep -Ev '^\+.*state\.orders[[:space:]]*=[[:space:]]*\[\]' || true)"
+  if [ "{archive_review}" = "1" ] && [ -z "$UNREVIEWED_DIFF" ] && echo "$DESTRUCTIVE_DIFF" | grep -q 'state\.orders[[:space:]]*=[[:space:]]*\[\]'; then
+    echo 'REVIEWED: OPERATIONAL_ARCHIVE_EXPLICITLY_AUTHORIZED'
+    echo "$DESTRUCTIVE_DIFF"
+  else
   echo 'ERROR: DESTRUCTIVE_MIGRATION_REQUIRES_EXPLICIT_REVIEW'
   echo "$DESTRUCTIVE_DIFF"
   exit 34
+  fi
 fi
 
 sudo tar -C /opt/distribuidora-lopez -czf "$BACKUP_DIR/app.tar.gz" app
@@ -172,13 +179,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=["inspect", "deploy"])
     parser.add_argument("--version", default="8790-127")
+    parser.add_argument("--allow-operational-archive", action="store_true")
     args = parser.parse_args()
     client = connect()
     try:
         if args.action == "inspect":
             inspect(client)
         else:
-            deploy(client, args.version)
+            deploy(client, args.version, args.allow_operational_archive)
     finally:
         client.close()
 
