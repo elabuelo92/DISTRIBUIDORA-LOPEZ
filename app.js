@@ -8985,6 +8985,106 @@ function deliveryPlannerGroupKey(order) {
   return orderRouteText(order) || orderZoneText(order) || "Sin ruta";
 }
 
+const DELIVERY_PLANNER_CSV_HEADERS = [
+  "Secuencia", "Orden armado", "Pedido", "Cliente", "Telefono", "Domicilio", "Referencia",
+  "Localidad", "Zona", "Ruta comercial", "Bultos", "Importe", "Horario", "Vendedor", "Estado",
+  "Ruta reparto", "Repartidor", "GPS", "Latitud", "Longitud", "Maps"
+];
+
+const DELIVERY_PLANNER_PDF_HEADERS = [
+  "#", "Pedido", "Cliente", "Domicilio / referencia", "Telefono", "Zona / ruta", "Bultos",
+  "Importe", "Horario", "Vendedor", "Estado", "GPS"
+];
+
+function deliveryPlannerExportOrders() {
+  const selected = (state.orders || [])
+    .filter((order) => deliveryPlannerSelection.has(order.code))
+    .sort((left, right) => compareOrdersBySort(left, right, deliveryPlannerSortKey));
+  return selected.length ? selected : deliveryPlannerCandidates();
+}
+
+function deliveryPlannerManifestRecord(order, index) {
+  const client = orderClient(order) || {};
+  const point = clientGpsPoint(client);
+  const route = deliveryPlannerRoute(order);
+  const assembly = orderAssemblyInfo(order);
+  const address = firstText(orderAddressText(order), client.domicilio, client.direccion);
+  const reference = firstText(client.referencia, client.reference, order.reference);
+  const zone = firstText(orderZoneText(order), client.zona, client.zone);
+  const commercialRoute = firstText(orderRouteText(order), client.ruta, client.route);
+  const driver = route ? firstText(route.deviceLabel, route.driverLabel, route.driverUser) : "";
+  return {
+    sequence: index + 1,
+    assemblyOrder: formatAssemblyOrderNumber(assembly),
+    orderCode: order.code || "",
+    client: order.client || client.name || client.nombre_comercial || "",
+    phone: firstText(order.phone, client.telefono, client.phone),
+    address,
+    reference,
+    locality: firstText(client.localidad, client.city, client.provincia),
+    zone,
+    commercialRoute,
+    packages: assembly.bultos || 0,
+    amount: numeric(order.amount, 0),
+    hours: firstText(orderHoursText(order), client.horario_atencion),
+    seller: order.seller || "",
+    status: order.status || "",
+    deliveryRoute: route ? route.id : "Sin asignar",
+    driver: driver || "Sin asignar",
+    gps: point ? "Si" : "No",
+    latitude: point ? point.lat : "",
+    longitude: point ? point.lng : "",
+    maps: point ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${point.lat},${point.lng}`)}` : ""
+  };
+}
+
+function exportDeliveryPlannerManifest(format) {
+  if (!canPlanDeliveryRoutes()) {
+    window.alert("No posee permisos para exportar la planificacion.");
+    return;
+  }
+  const orders = deliveryPlannerExportOrders();
+  if (!orders.length) {
+    window.alert("No hay pedidos seleccionados ni resultados filtrados para exportar.");
+    return;
+  }
+  const records = orders.map(deliveryPlannerManifestRecord);
+  const day = byId("deliveryPlannerDay")?.value || routeDayToday();
+  const source = deliveryPlannerSelection.size ? "seleccion" : "filtros";
+  const filePart = safeFilePart(`${day}-${source}-${records.length}-pedidos`);
+  if (format === "csv") {
+    const rows = records.map((record) => [
+      record.sequence, record.assemblyOrder, record.orderCode, record.client, record.phone, record.address,
+      record.reference, record.locality, record.zone, record.commercialRoute, record.packages, record.amount,
+      record.hours, record.seller, record.status, record.deliveryRoute, record.driver, record.gps,
+      record.latitude, record.longitude, record.maps
+    ]);
+    downloadCsvReport(`manifiesto-planificacion-${filePart}.csv`, DELIVERY_PLANNER_CSV_HEADERS, rows);
+  } else {
+    const rows = records.map((record) => [
+      record.sequence,
+      record.orderCode,
+      record.client,
+      [record.address, record.reference].filter(Boolean).join(" - "),
+      record.phone,
+      [record.zone, record.commercialRoute].filter(Boolean).join(" / "),
+      record.packages,
+      money.format(record.amount),
+      record.hours || "-",
+      record.seller,
+      record.status,
+      record.gps
+    ]);
+    downloadBlob(`manifiesto-planificacion-${filePart}.pdf`, makeTablePdf(`Manifiesto para planificar - ${day}`, DELIVERY_PLANNER_PDF_HEADERS, rows, {
+      weights: [0.35, 0.75, 1.2, 2.35, 0.85, 1.15, 0.48, 0.8, 1.15, 0.85, 1.05, 0.4],
+      fontSize: 5.7,
+      rowHeight: 18,
+      subtitle: `${records.length} pedidos - ${deliveryPlannerSelection.size ? "seleccion actual" : "resultados filtrados"}`
+    }));
+  }
+  showCompactNotice(`${records.length} pedidos exportados en ${String(format).toUpperCase()}.`, "ok");
+}
+
 function renderDeliveryPlannerOrder(order) {
   const destination = deliveryOrderDestinationInfo(order);
   const route = deliveryPlannerRoute(order);
@@ -21154,6 +21254,9 @@ byId("selectFilteredDeliveryPlannerBtn").addEventListener("click", () => {
   document.querySelectorAll("[data-planner-order]:not(:disabled)").forEach((checkbox) => { checkbox.checked = true; });
   refreshDeliveryPlannerSelectionUi();
 });
+
+byId("exportDeliveryPlannerCsvBtn").addEventListener("click", () => exportDeliveryPlannerManifest("csv"));
+byId("exportDeliveryPlannerPdfBtn").addEventListener("click", () => exportDeliveryPlannerManifest("pdf"));
 
 byId("deliveryPlannerSelectAll").addEventListener("change", (event) => {
   document.querySelectorAll("[data-planner-order]:not(:disabled)").forEach((checkbox) => {
