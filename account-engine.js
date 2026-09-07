@@ -43,6 +43,20 @@
     return normalizeText(a) === normalizeText(b);
   }
 
+  function historicalOrders(state) {
+    const orders = [];
+    const seen = new Set();
+    [state && state.orders, state && state.archivedOrders].forEach((source) => {
+      (Array.isArray(source) ? source : []).forEach((order) => {
+        const key = String(order && (order.code || order.id) || "").trim();
+        if (key && seen.has(key)) return;
+        if (key) seen.add(key);
+        orders.push(order);
+      });
+    });
+    return orders;
+  }
+
   function parseDate(value) {
     if (!value) return null;
     if (value instanceof Date && Number.isFinite(value.getTime())) return value;
@@ -219,7 +233,7 @@
     if (!state || typeof state !== "object") return [];
     state.bankReconciliation = Array.isArray(state.bankReconciliation) ? state.bankReconciliation.map(normalizeTransferRecord) : [];
     const byId = new Map(state.bankReconciliation.map((record) => [record.id, record]));
-    (state.orders || []).forEach((order) => {
+    historicalOrders(state).forEach((order) => {
       (Array.isArray(order.transferReceipts) ? order.transferReceipts : []).forEach((receipt, index) => {
         const record = receiptRecordFromOrder(order, receipt, index);
         const existing = byId.get(record.id);
@@ -280,7 +294,7 @@
   }
 
   function pendingOrderExposure(state, clientName, excludeCode) {
-    return (state.orders || []).reduce((total, order) => {
+    return historicalOrders(state).reduce((total, order) => {
       if (!sameClient(order.client, clientName)) return total;
       if (excludeCode && String(order.code) === String(excludeCode)) return total;
       if (CLOSED_ORDER_STATUSES.has(order.status)) return total;
@@ -411,7 +425,7 @@
   }
 
   function syncTransferWithOrders(state, record) {
-    (state.orders || []).forEach((order) => {
+    historicalOrders(state).forEach((order) => {
       (Array.isArray(order.transferReceipts) ? order.transferReceipts : []).forEach((receipt) => {
         if (receipt.reconciliationId === record.id || receipt.id === record.id) {
           receipt.status = record.status;
@@ -847,7 +861,7 @@
     const clientName = client.name || client.nombre_comercial;
     const summary = accountSummary(state, client, 0);
     const movements = sortAccountRecords(accountEntries(state, clientName).map(accountEntryRecord)).slice(0, 500);
-    const orders = (state.orders || [])
+    const orders = historicalOrders(state)
       .filter((order) => sameClient(order.client, clientName))
       .map((order) => ({
         code: String(order.code || ""),

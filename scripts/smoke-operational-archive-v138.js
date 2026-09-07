@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const OrderEngine = require("../order-engine");
+const AccountEngine = require("../account-engine");
 const MaintenanceEngine = require("../maintenance-engine");
 
 const root = path.join(__dirname, "..");
@@ -21,7 +22,7 @@ const state = {
   suppliers: [{ id: "S-138", name: "Proveedor conservado" }],
   sellers: [{ name: "Axel" }],
   commissionSettings: { rules: [{ id: "R-138", role: "seller", userName: "Axel", percent: 5, active: true }] },
-  bankReconciliation: [{ id: "TR-138", orderCode: "PED-3000", amount: 500 }],
+  bankReconciliation: [{ id: "TR-138", orderCode: "PED-3000", amount: 500, previousBalance: 0, newBalance: 0 }],
   products: [{ codigo_producto: "P-138", name: "Producto", stock_fisico: 10, stock_actual: 10, stock: 10, stock_reservado: 2, stock_disponible: 8 }],
   orders: [{
     code: "PED-3000", client: "Cliente conservado", seller: "Axel", amount: 200,
@@ -43,15 +44,19 @@ const state = {
 };
 
 OrderEngine.migrateState(state);
+AccountEngine.migrateState(state);
 const preserved = {
   clients: JSON.stringify(state.clients),
   suppliers: JSON.stringify(state.suppliers),
   rules: JSON.stringify(state.commissionSettings.rules),
   bank: JSON.stringify(state.bankReconciliation),
-  physical: state.products[0].stock_fisico
+  physical: state.products[0].stock_fisico,
+  totalDebt: state.clients[0].deuda_total,
+  pendingOrderExposure: state.clients[0].pedidos_pendientes_cuenta
 };
 const result = MaintenanceEngine.archiveOperationalOrders(state, { motive: "Inicio de nueva etapa operativa", user: "Superadmin" });
 OrderEngine.migrateState(state);
+AccountEngine.migrateState(state);
 
 assert.equal(result.before.orders, 1);
 assert.equal(result.before.routes, 1);
@@ -67,6 +72,8 @@ assert.equal(JSON.stringify(state.clients), preserved.clients);
 assert.equal(JSON.stringify(state.suppliers), preserved.suppliers);
 assert.equal(JSON.stringify(state.commissionSettings.rules), preserved.rules);
 assert.equal(JSON.stringify(state.bankReconciliation), preserved.bank);
+assert.equal(state.clients[0].deuda_total, preserved.totalDebt);
+assert.equal(state.clients[0].pedidos_pendientes_cuenta, preserved.pendingOrderExposure);
 assert.equal(OrderEngine.nextOrderCode(state), "PED-3001");
 
 const summary = OrderEngine.summarizeCommissions(state, { role: "seller", user: "Axel" });
