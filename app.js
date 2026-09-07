@@ -375,6 +375,7 @@ let orderSortKey = "created_desc";
 let orderDatePreset = "today";
 let orderDateFrom = "";
 let orderDateTo = "";
+let orderRecordScope = "active";
 let orderPage = 1;
 let routeSalesDateFrom = "";
 let routeSalesDateTo = "";
@@ -7605,7 +7606,8 @@ function showCompactNotice(message, tone = "info", timeout = 2600) {
 }
 
 function openOrderTimeline(code) {
-  const order = state.orders.find((item) => item.code === code);
+  const order = state.orders.find((item) => item.code === code)
+    || (Array.isArray(state.archivedOrders) ? state.archivedOrders : []).find((item) => item.code === code);
   const dialog = byId("orderTimelineDialog");
   if (!order || !dialog) return;
   const events = orderTimelineEvents(order);
@@ -8010,7 +8012,8 @@ function renderOrdersDateSummary(total) {
   } else if (orderDateFrom || orderDateTo) {
     period = `desde ${displayDateKey(orderDateFrom) || "el inicio"} hasta ${displayDateKey(orderDateTo) || "hoy"}`;
   }
-  node.innerHTML = `<strong>${total}</strong> pedidos de ${escapeHtml(period)}. Los registros historicos permanecen disponibles y no se eliminan al cambiar el dia.`;
+  const scope = orderRecordScope === "historical" ? "historicos de solo lectura" : "operativos";
+  node.innerHTML = `<strong>${total}</strong> pedidos ${scope} de ${escapeHtml(period)}. Los registros historicos no modifican stock ni vuelven al circuito operativo.`;
 }
 
 function renderOrdersPager(total, visibleCount) {
@@ -8039,7 +8042,10 @@ function filteredOrdersForCurrentFilters() {
   ensureOrdersDateFilter();
   const globalTerms = [];
   const localTerms = searchTerms(orderSearchTerm);
-  return state.orders.filter((order) => {
+  const source = orderRecordScope === "historical"
+    ? (Array.isArray(state.archivedOrders) ? state.archivedOrders : []).map((order) => ({ ...order, __archivedReadOnly: true }))
+    : state.orders;
+  return source.filter((order) => {
     const text = orderSearchText(order);
     const matchesGlobal = !globalTerms.length || matchesSearch(text, globalTerms);
     const matchesLocal = !localTerms.length || matchesSearch(text, localTerms);
@@ -8069,11 +8075,15 @@ function setOrdersBulkStatus(text, tone = "info") {
 }
 
 function renderOrdersBulkPanel() {
+  const historical = orderRecordScope === "historical";
+  const panel = byId("ordersBulkPanel");
+  if (panel) panel.hidden = historical;
   const count = selectedOrderCodes.size;
   const countNode = byId("ordersSelectedCount");
   if (countNode) countNode.textContent = `Pedidos seleccionados: ${count}`;
   const pageCheckbox = byId("ordersSelectPageCheckbox");
   if (pageCheckbox) {
+    pageCheckbox.disabled = historical;
     pageCheckbox.checked = currentPageOrders.length > 0 && currentPageOrders.every((order) => selectedOrderCodes.has(order.code));
     pageCheckbox.indeterminate = currentPageOrders.some((order) => selectedOrderCodes.has(order.code)) && !pageCheckbox.checked;
   }
@@ -8434,9 +8444,12 @@ async function runBulkOrderAction(action) {
 }
 
 function renderOrders() {
+  const scopedOrders = orderRecordScope === "historical"
+    ? (Array.isArray(state.archivedOrders) ? state.archivedOrders : [])
+    : state.orders;
   orderSellerFilter = updateDynamicFilter("ordersSellerFilter", [
     ...state.sellers.map((seller) => seller.name),
-    ...state.orders.map((order) => order.seller)
+    ...scopedOrders.map((order) => order.seller)
   ], orderSellerFilter, "Todos los vendedores");
   const orders = filteredOrdersForCurrentFilters();
   currentFilteredOrders = orders;
@@ -8450,9 +8463,11 @@ function renderOrders() {
   renderOrdersPager(orders.length, pageOrders.length);
 
   byId("ordersTable").innerHTML = pageOrders.length ? pageOrders.map((order) => `
-    <tr class="${order.code === highlightedOrderCode ? "row-highlight" : ""} ${canEditOrder(order) ? "order-editable-row" : ""}" data-order-row="${escapeHtml(order.code)}" ${canEditOrder(order) ? 'title="Doble click para editar pedido"' : ""}>
+    <tr class="${order.code === highlightedOrderCode ? "row-highlight" : ""} ${!order.__archivedReadOnly && canEditOrder(order) ? "order-editable-row" : ""}" data-order-row="${escapeHtml(order.code)}" ${!order.__archivedReadOnly && canEditOrder(order) ? 'title="Doble click para editar pedido"' : ""}>
       <td class="select-col">
-        <input class="order-select-checkbox" data-order-select="${escapeHtml(order.code)}" type="checkbox" aria-label="Seleccionar ${escapeHtml(order.code)}" ${selectedOrderCodes.has(order.code) ? "checked" : ""}>
+        ${order.__archivedReadOnly
+          ? '<span class="tag">Historico</span>'
+          : `<input class="order-select-checkbox" data-order-select="${escapeHtml(order.code)}" type="checkbox" aria-label="Seleccionar ${escapeHtml(order.code)}" ${selectedOrderCodes.has(order.code) ? "checked" : ""}>`}
       </td>
       <td>
         <strong>${escapeHtml(order.code)}</strong>
@@ -8493,14 +8508,15 @@ function renderOrders() {
       <td>
         <div class="order-actions">
           <button class="mini-btn" type="button" data-order-trace="${escapeHtml(order.code)}">Trazabilidad</button>
-          ${isAdminUser() && pendingCommercialApproval(order) ? `<button class="mini-btn" type="button" data-commercial-approval="${escapeHtml(order.code)}" data-commercial-decision="approve">Aprobar</button><button class="mini-btn danger-btn" type="button" data-commercial-approval="${escapeHtml(order.code)}" data-commercial-decision="reject">Rechazar</button>` : ""}
-          ${canEditOrder(order) ? `<button class="mini-btn order-edit-btn" type="button" data-order-edit="${escapeHtml(order.code)}">Editar pedido</button>` : ""}
-          ${canOpenLabelDialog(order) ? `<button class="mini-btn" type="button" data-order-label="${escapeHtml(order.code)}">Etiqueta</button>` : ""}
-          ${canOpenScanDialog(order) ? `<button class="mini-btn" type="button" data-order-scan="${escapeHtml(order.code)}">Escanear</button>` : ""}
-          ${orderCanPrintInvoice(order) ? `<button class="mini-btn" type="button" data-print="${escapeHtml(order.code)}">Factura</button>` : ""}
-          ${nextOrderStatus(order.status) && ![ORDER_STATUS.ASSEMBLY, ORDER_STATUS.LABELED, ORDER_STATUS.READY_DISPATCH].includes(order.status) ? `<button class="mini-btn" type="button" data-order-next="${escapeHtml(order.code)}">Avanzar</button>` : ""}
-          ${![ORDER_STATUS.DELIVERED, ORDER_STATUS.COLLECTED, ORDER_STATUS.CLOSED, ORDER_STATUS.CANCELLED].includes(order.status) ? `<button class="mini-btn" type="button" data-order-urgent="${escapeHtml(order.code)}">${order.priority === "Urgente" ? "Normal" : "Urgente"}</button>` : ""}
-          ${order.inventoryMode === "reservation" && ![ORDER_STATUS.DISPATCHED, ORDER_STATUS.IN_ROUTE, ORDER_STATUS.CHECKED, ORDER_STATUS.PARTIAL_DELIVERED, ORDER_STATUS.DELIVERED, ORDER_STATUS.COLLECTED, ORDER_STATUS.CLOSED, ORDER_STATUS.CANCELLED].includes(order.status) ? `<button class="mini-btn danger-btn" type="button" data-order-cancel="${escapeHtml(order.code)}">Cancelar</button>` : ""}
+          ${order.__archivedReadOnly ? '<span class="tag">Solo lectura</span>' : ""}
+          ${!order.__archivedReadOnly && isAdminUser() && pendingCommercialApproval(order) ? `<button class="mini-btn" type="button" data-commercial-approval="${escapeHtml(order.code)}" data-commercial-decision="approve">Aprobar</button><button class="mini-btn danger-btn" type="button" data-commercial-approval="${escapeHtml(order.code)}" data-commercial-decision="reject">Rechazar</button>` : ""}
+          ${!order.__archivedReadOnly && canEditOrder(order) ? `<button class="mini-btn order-edit-btn" type="button" data-order-edit="${escapeHtml(order.code)}">Editar pedido</button>` : ""}
+          ${!order.__archivedReadOnly && canOpenLabelDialog(order) ? `<button class="mini-btn" type="button" data-order-label="${escapeHtml(order.code)}">Etiqueta</button>` : ""}
+          ${!order.__archivedReadOnly && canOpenScanDialog(order) ? `<button class="mini-btn" type="button" data-order-scan="${escapeHtml(order.code)}">Escanear</button>` : ""}
+          ${!order.__archivedReadOnly && orderCanPrintInvoice(order) ? `<button class="mini-btn" type="button" data-print="${escapeHtml(order.code)}">Factura</button>` : ""}
+          ${!order.__archivedReadOnly && nextOrderStatus(order.status) && ![ORDER_STATUS.ASSEMBLY, ORDER_STATUS.LABELED, ORDER_STATUS.READY_DISPATCH].includes(order.status) ? `<button class="mini-btn" type="button" data-order-next="${escapeHtml(order.code)}">Avanzar</button>` : ""}
+          ${!order.__archivedReadOnly && ![ORDER_STATUS.DELIVERED, ORDER_STATUS.COLLECTED, ORDER_STATUS.CLOSED, ORDER_STATUS.CANCELLED].includes(order.status) ? `<button class="mini-btn" type="button" data-order-urgent="${escapeHtml(order.code)}">${order.priority === "Urgente" ? "Normal" : "Urgente"}</button>` : ""}
+          ${!order.__archivedReadOnly && order.inventoryMode === "reservation" && ![ORDER_STATUS.DISPATCHED, ORDER_STATUS.IN_ROUTE, ORDER_STATUS.CHECKED, ORDER_STATUS.PARTIAL_DELIVERED, ORDER_STATUS.DELIVERED, ORDER_STATUS.COLLECTED, ORDER_STATUS.CLOSED, ORDER_STATUS.CANCELLED].includes(order.status) ? `<button class="mini-btn danger-btn" type="button" data-order-cancel="${escapeHtml(order.code)}">Cancelar</button>` : ""}
         </div>
       </td>
     </tr>
@@ -18790,6 +18806,13 @@ byId("ordersDatePreset").addEventListener("change", (event) => {
   orderPage = 1;
   renderOrders();
 });
+byId("ordersRecordScope").addEventListener("change", (event) => {
+  orderRecordScope = event.target.value === "historical" ? "historical" : "active";
+  selectedOrderCodes.clear();
+  orderPage = 1;
+  if (orderRecordScope === "historical") setOrdersDatePreset("all");
+  renderOrders();
+});
 ["ordersDateFrom", "ordersDateTo"].forEach((id) => byId(id).addEventListener("change", () => {
   orderDateFrom = byId("ordersDateFrom").value;
   orderDateTo = byId("ordersDateTo").value;
@@ -18834,7 +18857,7 @@ byId("clearOrdersFilters").addEventListener("click", () => {
   orderUrgencyFilter = "all";
   orderQuickFilter = "all";
   orderSortKey = "created_desc";
-  setOrdersDatePreset("today");
+  setOrdersDatePreset(orderRecordScope === "historical" ? "all" : "today");
   orderPage = 1;
   byId("ordersSearch").value = "";
   byId("ordersQuickFilter").value = "all";
@@ -19967,6 +19990,11 @@ document.addEventListener("dblclick", (event) => {
   const row = event.target.closest("[data-order-row]");
   if (!row) return;
   const order = state.orders.find((item) => item.code === row.dataset.orderRow);
+  if (!order) {
+    const archived = (Array.isArray(state.archivedOrders) ? state.archivedOrders : []).find((item) => item.code === row.dataset.orderRow);
+    if (archived) openOrderTimeline(archived.code);
+    return;
+  }
   if (canEditOrder(order)) openOrderEditDialog(row.dataset.orderRow);
   else if (isAdminUser()) window.alert(orderEditBlockedReason(order));
 });

@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-138-r20260906c">
+    <link rel="manifest" href="manifest.json?v=8790-139-r20260907a">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-138-r20260906c">
+    <link rel="stylesheet" href="styles.css?v=8790-139-r20260907a">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -159,8 +159,8 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-138</strong>
-              <small data-version-build>Actualizada 06/09/2026 02:10</small>
+              <strong data-version-value>8790-139</strong>
+              <small data-version-build>Actualizada 07/09/2026 10:50</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
             <button class="ghost-btn app-back-btn" id="appBackBtn" type="button">Volver</button>
@@ -699,6 +699,10 @@
                   <span>Hasta</span>
                   <input id="ordersDateTo" type="date" aria-label="Fecha final de pedidos">
                 </label>
+                <select id="ordersRecordScope" aria-label="Elegir pedidos operativos o historicos">
+                  <option value="active">Operativos</option>
+                  <option value="historical">Historicos (solo lectura)</option>
+                </select>
                 <select id="ordersQuickFilter" aria-label="Filtrar pedidos por proceso operativo">
                   <option value="all">Todos los procesos</option>
                   <option value="pending">Pendientes</option>
@@ -2782,7 +2786,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-138</span>
+          <span id="appFooterVersion">Version del sistema: 8790-139</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -4474,18 +4478,18 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-138-r20260906c"></script>
-    <script src="maps-config.js?v=8790-138-r20260906c"></script>
-    <script src="order-engine.js?v=8790-138-r20260906c"></script>
-    <script src="account-engine.js?v=8790-138-r20260906c"></script>
-    <script src="delivery-engine.js?v=8790-138-r20260906c"></script>
-    <script src="legal-engine.js?v=8790-138-r20260906c"></script>
-    <script src="client-portfolio-engine.js?v=8790-138-r20260906c"></script>
-    <script src="client-hours.js?v=8790-138-r20260906c"></script>
-    <script src="share-engine.js?v=8790-138-r20260906c"></script>
-    <script src="portfolio-export-engine.js?v=8790-138-r20260906c"></script>
-    <script src="progressive-list.js?v=8790-138-r20260906c"></script>
-    <script src="app.js?v=8790-138-r20260906c"></script>
+    <script src="config.js?v=8790-139-r20260907a"></script>
+    <script src="maps-config.js?v=8790-139-r20260907a"></script>
+    <script src="order-engine.js?v=8790-139-r20260907a"></script>
+    <script src="account-engine.js?v=8790-139-r20260907a"></script>
+    <script src="delivery-engine.js?v=8790-139-r20260907a"></script>
+    <script src="legal-engine.js?v=8790-139-r20260907a"></script>
+    <script src="client-portfolio-engine.js?v=8790-139-r20260907a"></script>
+    <script src="client-hours.js?v=8790-139-r20260907a"></script>
+    <script src="share-engine.js?v=8790-139-r20260907a"></script>
+    <script src="portfolio-export-engine.js?v=8790-139-r20260907a"></script>
+    <script src="progressive-list.js?v=8790-139-r20260907a"></script>
+    <script src="app.js?v=8790-139-r20260907a"></script>
   </body>
 </html>
 

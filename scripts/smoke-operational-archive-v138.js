@@ -98,7 +98,7 @@ assert.match(server, /maintenanceEngine\.archiveOperationalOrders/);
 
 console.log(JSON.stringify({
   ok: true,
-  version: "8790-138",
+  version: "8790-139",
   activeOrders: state.orders.length,
   archivedOrders: state.archivedOrders.length,
   activeRoutes: state.deliveryRoutes.length,

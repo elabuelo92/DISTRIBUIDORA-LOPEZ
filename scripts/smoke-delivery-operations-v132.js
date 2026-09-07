@@ -135,7 +135,7 @@ assert.doesNotMatch(server, /Planificacion permitida solo para administradores/)
 
 console.log(JSON.stringify({
   ok: true,
-  version: "8790-138",
+  version: "8790-139",
   plannedOrders: route.stops.length,
   reorderedOrders: reordered.stops.length,
   dispatchedWithoutScanner: state.orders.filter((order) => !order.assembly.label.scanned).length,
