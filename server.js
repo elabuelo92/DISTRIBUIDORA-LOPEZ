@@ -15,12 +15,13 @@ const licenseEngine = require("./license-engine");
 const legalEngine = require("./legal-engine");
 const clientPortfolioEngine = require("./client-portfolio-engine");
 const clientHoursEngine = require("./client-hours");
+const maintenanceEngine = require("./maintenance-engine");
 
 const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-135";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-138";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -2406,6 +2407,15 @@ function stateForUser(state, user) {
     clean.integrationOutbox = [];
     clean.productPortfolioAudit = [];
     clean.rejectedGps = [];
+    const sellerAliases = new Set([
+      user.sellerName,
+      user.name,
+      user.username
+    ].map(normalizeSearchText).filter(Boolean));
+    clean.archivedOrders = (Array.isArray(clean.archivedOrders) ? clean.archivedOrders : [])
+      .filter((order) => sellerAliases.has(normalizeSearchText(order.seller))
+        || sellerAliases.has(normalizeSearchText(order.sellerUsername)))
+      .slice(0, 2000);
     clean.notifications = (clean.notifications || []).filter((entry) =>
       (entry.audience || []).includes("seller") || String(entry.username || "") === String(user.username || "")
     ).slice(0, 200);
@@ -2491,6 +2501,7 @@ function stateForUser(state, user) {
         razon_social: client.razon_social || client.name || "",
         domicilio: client.domicilio || client.address || "",
         address: client.domicilio || client.address || "",
+        referencia: client.referencia || client.reference || "",
         telefono: client.telefono || client.phone || "",
         phone: client.telefono || client.phone || "",
         zona: client.zona || client.zone || "",
@@ -2520,6 +2531,8 @@ function stateForUser(state, user) {
       observaciones: product.observaciones || ""
     })) : [];
     source.accounts = [];
+    source.archivedOrders = [];
+    source.archivedDeliveryRoutes = [];
     source.bankReconciliation = [];
     source.suppliers = [];
     source.supplierMovements = [];
@@ -2552,6 +2565,8 @@ function stateForUser(state, user) {
     clean.integrationOutbox = [];
     clean.productPortfolioAudit = [];
     clean.rejectedGps = [];
+    clean.archivedOrders = [];
+    clean.archivedDeliveryRoutes = [];
     clean.notifications = (clean.notifications || []).filter((entry) =>
       (entry.audience || []).includes("driver") || String(entry.username || "") === String(user.username || "")
     ).slice(0, 200);
@@ -2615,6 +2630,8 @@ function stateForUser(state, user) {
     adminValidationStatus: movement.adminValidationStatus
   })) : [];
   clean.accounts = [];
+  clean.archivedOrders = [];
+  clean.archivedDeliveryRoutes = [];
   clean.bankReconciliation = [];
   clean.orders = [];
   clean.clients = [];
@@ -2652,6 +2669,7 @@ function clientListSearchText(client) {
     client.telefono,
     client.email,
     client.domicilio,
+    client.referencia,
     client.localidad,
     client.zone,
     client.zona,
@@ -2675,6 +2693,7 @@ function clientListRecord(state, client, supplierKeys) {
     telefono: client.telefono || client.phone || "",
     email: client.email || "",
     domicilio: client.domicilio || client.address || "",
+    referencia: client.referencia || client.reference || "",
     localidad: client.localidad || "",
     zone: client.zone || client.zona || "",
     ruta: client.ruta || client.route || "",
@@ -2851,7 +2870,16 @@ function clientHistoryOrders(state, client) {
     client && client.nombre_comercial,
     client && client.razon_social
   ].map(normalizeSearchText).filter(Boolean));
-  return (Array.isArray(state && state.orders) ? state.orders : [])
+  const active = Array.isArray(state && state.orders) ? state.orders : [];
+  const archived = Array.isArray(state && state.archivedOrders) ? state.archivedOrders : [];
+  const seen = new Set();
+  return [...active, ...archived]
+    .filter((order) => {
+      const code = String(order && order.code || "").trim();
+      if (!code || seen.has(code)) return false;
+      seen.add(code);
+      return true;
+    })
     .filter((order) => aliases.has(normalizeSearchText(order && order.client)))
     .sort((left, right) => new Date(clientHistoryOrderAt(right) || 0) - new Date(clientHistoryOrderAt(left) || 0));
 }
@@ -3025,6 +3053,7 @@ function editedClientFromInput(previous, input, user) {
     cuit: String(input.cuit || "").trim(),
     condicion_fiscal: String(input.condicion_fiscal || "Cons.Final").trim(),
     domicilio: String(input.domicilio || "").trim(),
+    referencia: String(input.referencia ?? input.reference ?? previous.referencia ?? previous.reference ?? "").trim(),
     localidad: String(input.localidad || "").trim(),
     telefono: String(input.telefono || "").trim(),
     email: String(input.email || "").trim(),
@@ -3070,6 +3099,8 @@ function mobileClientFromInput(input, user) {
   if (!phone) throw new Error("El telefono es obligatorio.");
   const address = String(input.domicilio || input.address || "").trim();
   if (!address) throw new Error("La direccion es obligatoria.");
+  const reference = String(input.referencia || input.reference || input.referencia_domicilio || "").trim();
+  if (!reference) throw new Error("La referencia para ubicar al cliente es obligatoria.");
   const city = String(input.localidad || input.city || "").trim();
   if (!city) throw new Error("La localidad es obligatoria.");
   const payment = String(input.forma_pago || input.condicion_pago || input.payment || "").trim();
@@ -3098,6 +3129,7 @@ function mobileClientFromInput(input, user) {
     consumidor_final: consumerFinal,
     condicion_fiscal: String(input.condicion_fiscal || (consumerFinal ? "Cons.Final" : "Responsable Inscripto")).trim(),
     domicilio: address,
+    referencia: reference,
     localidad: city,
     telefono: phone,
     email: String(input.email || "").trim(),
@@ -3154,7 +3186,10 @@ function mobileOrderOperationId(input) {
 
 function mobileOrderByOperation(state, operationId, username) {
   const normalizedUsername = String(username || "").trim().toLowerCase();
-  return (Array.isArray(state && state.orders) ? state.orders : []).find((order) => (
+  const orders = orderEngine && typeof orderEngine.historicalOrders === "function"
+    ? orderEngine.historicalOrders(state)
+    : (Array.isArray(state && state.orders) ? state.orders : []);
+  return orders.find((order) => (
     String(order.createOperationId || "") === operationId
     && String(order.createdByUsername || order.sellerUsername || "").trim().toLowerCase() === normalizedUsername
   )) || null;
@@ -5811,7 +5846,9 @@ const server = http.createServer(async (req, res) => {
       const previousValue = {
         clients: Array.isArray(currentState.clients) ? currentState.clients.length : 0,
         orders: Array.isArray(currentState.orders) ? currentState.orders.length : 0,
-        accounts: Array.isArray(currentState.accounts) ? currentState.accounts.length : 0
+        accounts: Array.isArray(currentState.accounts) ? currentState.accounts.length : 0,
+        routes: Array.isArray(currentState.deliveryRoutes) ? currentState.deliveryRoutes.length : 0,
+        bankReconciliation: Array.isArray(currentState.bankReconciliation) ? currentState.bankReconciliation.length : 0
       };
       if (target === "clients") {
         currentState.clients = [];
@@ -5819,45 +5856,16 @@ const server = http.createServer(async (req, res) => {
         currentState.bankReconciliation = [];
       }
       if (target === "orders") {
-        currentState.archivedOrders = Array.isArray(currentState.archivedOrders) ? currentState.archivedOrders : [];
-        currentState.archivedDeliveryRoutes = Array.isArray(currentState.archivedDeliveryRoutes) ? currentState.archivedDeliveryRoutes : [];
-        currentState.archivedBankReconciliation = Array.isArray(currentState.archivedBankReconciliation) ? currentState.archivedBankReconciliation : [];
-        const archivedAt = new Date().toISOString();
-        const archivedBy = sessionUser.name || sessionUser.username || "Administracion";
-        currentState.archivedOrders.unshift(...(currentState.orders || []).map((order) => ({
-          ...order,
-          archivedAt,
-          archivedBy,
-          archiveReason: motive
-        })));
-        currentState.archivedDeliveryRoutes.unshift(...(currentState.deliveryRoutes || []).map((route) => ({
-          ...route,
-          archivedAt,
-          archivedBy,
-          archiveReason: motive
-        })));
-        currentState.archivedBankReconciliation.unshift(...(currentState.bankReconciliation || []).map((record) => ({
-          ...record,
-          archivedAt,
-          archivedBy,
-          archiveReason: motive
-        })));
-        currentState.archivedOrders = currentState.archivedOrders.slice(0, 10000);
-        currentState.archivedDeliveryRoutes = currentState.archivedDeliveryRoutes.slice(0, 2000);
-        currentState.archivedBankReconciliation = currentState.archivedBankReconciliation.slice(0, 10000);
-        currentState.orders = [];
-        currentState.deliveryRoutes = [];
-        currentState.bankReconciliation = [];
-        (currentState.products || []).forEach((product) => {
-          product.stock_reservado = 0;
-          product.stock_disponible = Math.max(0, numeric(product.stock_fisico ?? product.stock_actual ?? product.stock, 0));
+        previousValue.archive = maintenanceEngine.archiveOperationalOrders(currentState, {
+          motive,
+          user: sessionUser.name || sessionUser.username || "Administracion"
         });
       }
       currentState.activity = Array.isArray(currentState.activity) ? currentState.activity : [];
       currentState.activity.unshift({
         type: "Mantenimiento",
         title: target === "clients" ? "Base de clientes limpiada" : "Base de pedidos limpiada",
-        text: `${sessionUser.name}: ${motive}. Backup ${backup.id}.`
+        text: `${sessionUser.name}: ${motive}. Backup ${backup.id}. Historial preservado.`
       });
       writeStateResponse(res, currentState, { target, backup, previousValue }, auditEntry(req, sessionUser, input, {
         action: target === "clients" ? "MANTENIMIENTO_LIMPIAR_CLIENTES" : "MANTENIMIENTO_LIMPIAR_PEDIDOS",
@@ -5865,7 +5873,7 @@ const server = http.createServer(async (req, res) => {
         entityId: target,
         entityLabel: target === "clients" ? "Clientes" : "Pedidos",
         previousValue,
-        newValue: { target, backup },
+        newValue: { target, backup, archive: previousValue.archive || null },
         note: motive
       }), notificationEntry(req, sessionUser, input, {
         action: "MANTENIMIENTO_EJECUTADO",

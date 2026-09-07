@@ -99,5 +99,10 @@
     return `https://wa.me/${summary.phone}?text=${encodeURIComponent(summary.text)}`;
   }
 
-  return { argentinaWhatsAppPhone, buildOrderSummary, formatMoney, whatsappUrl };
+  function whatsappAppUrl(summary) {
+    if (!summary || !summary.phone || !summary.text) return "";
+    return `whatsapp://send?phone=${summary.phone}&text=${encodeURIComponent(summary.text)}`;
+  }
+
+  return { argentinaWhatsAppPhone, buildOrderSummary, formatMoney, whatsappAppUrl, whatsappUrl };
 });

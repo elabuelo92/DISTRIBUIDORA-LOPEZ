@@ -30,7 +30,8 @@
     "test:delivery-planner": "node scripts/smoke-delivery-planner-v130.js",
     "test:delivery-operations": "node scripts/smoke-delivery-operations-v132.js",
     "test:consolidated-accounts": "node scripts/smoke-consolidated-accounts-v133.js",
-    "test:portfolio-pdf": "node scripts/smoke-portfolio-pdf-v137.js"
+    "test:portfolio-pdf": "node scripts/smoke-portfolio-pdf-v137.js",
+    "test:operational-archive": "node scripts/smoke-operational-archive-v138.js"
   },
   "engines": {
     "node": ">=18"

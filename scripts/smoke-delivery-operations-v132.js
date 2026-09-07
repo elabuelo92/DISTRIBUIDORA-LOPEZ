@@ -124,13 +124,18 @@ assert.match(app, /persistDeliveryDragOrder/);
 assert.match(server, /function canPlanDeliveryRoutes\(user\)/);
 assert.equal((server.match(/!canPlanDeliveryRoutes\(sessionUser\)/g) || []).length, 4);
 assert.match(html, /delivery-planner-authorized/);
-assert.match(html, /Firma del cliente \(opcional\)/);
+assert.match(html, /id="deliverySignatureBox" hidden/);
+assert.match(html, /id="deliveryExceptionSignatureBox" hidden/);
 assert.doesNotMatch(app, /La firma del cliente es obligatoria/);
+assert.doesNotMatch(app, /uploadDeliveryImage\(orderCode, "signature"/);
+assert.match(app, /Scanner opcional/);
+assert.match(app, /class="delivery-stop-table"/);
+assert.match(app, /data-route-manifest="csv"/);
 assert.doesNotMatch(server, /Planificacion permitida solo para administradores/);
 
 console.log(JSON.stringify({
   ok: true,
-  version: "8790-135",
+  version: "8790-138",
   plannedOrders: route.stops.length,
   reorderedOrders: reordered.stops.length,
   dispatchedWithoutScanner: state.orders.filter((order) => !order.assembly.label.scanned).length,

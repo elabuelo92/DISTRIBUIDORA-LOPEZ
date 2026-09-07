@@ -28,8 +28,17 @@ const app = fs.readFileSync(path.join(root, "app.js"), "utf8");
 const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
 assert.match(app, /function exportFullClientPortfolioPdf/);
 assert.match(app, /function exportFullProductPortfolioPdf/);
+assert.match(app, /function exportFullClientPortfolioCsv/);
+assert.match(app, /function exportFullProductPortfolioCsv/);
+assert.match(app, /function exportSelectedPriceListCsv/);
+assert.match(app, /function exportSuppliersCsv/);
+assert.match(app, /function makeTablePdf/);
 assert.match(html, /id="exportClientPortfolioPdfBtn"/);
 assert.match(html, /id="exportProductPortfolioPdfBtn"/);
+assert.match(html, /id="exportClientPortfolioCsvBtn"/);
+assert.match(html, /id="exportProductPortfolioCsvBtn"/);
+assert.match(html, /id="exportPriceListCsvBtn"/);
+assert.match(html, /id="exportSuppliersCsvBtn"/);
 assert.match(html, /portfolio-export-engine\.js/);
 
 console.log(JSON.stringify({ ok: true, prompt: 137, clients: clients.length, products: products.length, priceLists: [1, 2, 3, 4, 5], activeAndInactive: true, fullPortfolio: true }, null, 2));

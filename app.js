@@ -1191,7 +1191,10 @@ async function shareConfirmedMobileOrderWhatsApp() {
     window.alert("El cliente no tiene un telefono registrado. Usar Compartir para elegir otra aplicacion.");
     return;
   }
-  const url = window.DLShareEngine.whatsappUrl(summary);
+  const hasAndroidBridge = window.AndroidConnection && typeof window.AndroidConnection.openExternalUrl === "function";
+  const url = hasAndroidBridge && typeof window.DLShareEngine.whatsappAppUrl === "function"
+    ? window.DLShareEngine.whatsappAppUrl(summary)
+    : window.DLShareEngine.whatsappUrl(summary);
   if (!url || !openExternalUrl(url, "WhatsApp del cliente")) {
     await shareMobileOrderWithDevice(summary);
     return;
@@ -1499,6 +1502,7 @@ function normalizeClientRecord(client) {
     cuit: String(client.cuit || "").trim(),
     condicion_fiscal: String(client.condicion_fiscal || "Cons.Final").trim(),
     domicilio: String(client.domicilio || client.address || "").trim(),
+    referencia: String(client.referencia || client.reference || client.referencia_domicilio || "").trim(),
     localidad: String(client.localidad || "").trim(),
     telefono: String(client.telefono || client.phone || "").trim(),
     email: String(client.email || client.mail || "").trim(),
@@ -4537,6 +4541,11 @@ function ensureLocalCommissionSettings() {
   return state.commissionSettings;
 }
 
+function commissionHistoryOrders() {
+  if (OrderEngine && typeof OrderEngine.historicalOrders === "function") return OrderEngine.historicalOrders(state);
+  return Array.isArray(state.orders) ? state.orders : [];
+}
+
 function orderCommission(order, options = {}) {
   ensureLocalCommissionSettings();
   if (order && order.commissions && !options.force) return order.commissions;
@@ -4576,7 +4585,7 @@ function cartCommission(summary) {
 }
 
 function sellerCommissionValue(sellerName) {
-  return (state.orders || []).filter((order) => order.commissionLiquidated !== true && normalizeSearchText(order.seller) === normalizeSearchText(sellerName))
+  return commissionHistoryOrders().filter((order) => order.commissionLiquidated !== true && normalizeSearchText(order.seller) === normalizeSearchText(sellerName))
     .reduce((sum, order) => sum + numeric(order.commissions && order.commissions.seller && order.commissions.seller.total, 0), 0);
 }
 
@@ -4678,9 +4687,9 @@ function renderMobileSeller() {
   if (daySelect) {
     daySelect.value = outsideRoute ? "Fuera de Ruta" : "Ruta asignada";
   }
-  byId("mobileClientSelect").innerHTML = clientsForSeller.map((client) => `
+  byId("mobileClientSelect").innerHTML = `<option value="">Seleccionar cliente</option>${clientsForSeller.map((client) => `
     <option value="${escapeHtml(client.name)}" ${client.name === mobileClient ? "selected" : ""}>${escapeHtml(client.name)}</option>
-  `).join("");
+  `).join("")}`;
   renderMobileClientPicker(clientsForSeller);
 
   if (selectedClient) {
@@ -4695,8 +4704,8 @@ function renderMobileSeller() {
       <span class="account-inline-status ${accountStatusTone(credit.status)}">${escapeHtml(credit.warning)}</span>
     `;
   } else {
-    byId("mobileClientName").textContent = "Sin clientes en esta vista";
-    byId("mobileClientInfo").innerHTML = `<span>${escapeHtml(mobileClientScopeLabel())}: no hay clientes disponibles.</span>`;
+    byId("mobileClientName").textContent = "Seleccionar cliente";
+    byId("mobileClientInfo").innerHTML = `<span>${escapeHtml(mobileClientScopeLabel())}: ${clientsForSeller.length} clientes disponibles.</span>`;
   }
 
   renderMobileProductSelect();
@@ -4848,7 +4857,7 @@ function getMobileClientOptions(seller, scope = mobileClientScope) {
 function renderMobileProductSelect() {
   const select = byId("mobileProductSelect");
   if (!select) return;
-  select.innerHTML = rankedProductSearch(state.products, "").map((product) => {
+  select.innerHTML = `<option value="">Seleccionar articulo</option>${rankedProductSearch(state.products, "").map((product) => {
     const code = product.codigo_producto ? `${product.codigo_producto} - ` : "";
     const price = productPriceForUser(product);
     const available = OrderEngine.inventory(product).available;
@@ -4858,7 +4867,7 @@ function renderMobileProductSelect() {
         ${escapeHtml(`${code}${product.name} - ${money.format(price)} - ${stockLabel}`)}
       </option>
     `;
-  }).join("");
+  }).join("")}`;
   renderMobileProductPicker();
   renderMobileProductInfo();
   renderMobileCommercialProductOptions();
@@ -4961,7 +4970,7 @@ function setMobilePickerOpen(kind, open) {
 function renderMobileClientPicker(clientsForSeller = null) {
   const seller = state.sellers.find((item) => item.name === mobileSeller) || state.sellers[0];
   const clients = clientsForSeller || getMobileClientOptions(seller || {});
-  const selected = state.clients.find((client) => client.name === mobileClient) || clients[0];
+  const selected = state.clients.find((client) => client.name === mobileClient) || null;
   const label = byId("mobileClientPickerLabel");
   const meta = byId("mobileClientPickerMeta");
   if (label) label.textContent = selected ? selected.name : "Seleccionar cliente";
@@ -5268,7 +5277,7 @@ function renderMobileProgressDashboard() {
       || Boolean(order.returnSummary && numeric(order.returnSummary.returnedAmount, 0) > 0)
       || [ORDER_STATUS.CANCELLED, ORDER_STATUS.REJECTED, ORDER_STATUS.NOT_DELIVERED].includes(order.status);
   }).length;
-  const monthOrders = (state.orders || []).filter((order) => (
+  const monthOrders = commissionHistoryOrders().filter((order) => (
     seller
     && normalizeSearchText(order.seller) === normalizeSearchText(seller.name)
     && commissionReportDateKey(order.createdAt || order.receivedAt || order.date).slice(0, 7) === mobileCommissionMonth
@@ -6743,7 +6752,7 @@ function renderOrderAssemblyChecklist(order) {
     { label: "Orden", ok: info.orderNumber > 0, text: formatAssemblyOrderNumber(info) },
     { label: "Bultos", ok: info.bultos > 0, text: info.bultos > 0 ? `${info.bultos}` : "pendiente" },
     { label: "Etiqueta", ok: info.generated, text: info.generated ? "generada" : "pendiente" },
-    { label: "Scanner", ok: info.scanned, text: info.scanned ? "validado" : "pendiente" }
+    { label: "Scanner opcional", ok: true, text: info.scanned ? "validado" : "disponible para control posterior" }
   ];
   return `
     <div class="assembly-checklist">
@@ -9247,6 +9256,49 @@ function deliveryRouteMapStops(route) {
   }).sort((a, b) => numeric(a.sequence, a.index + 1) - numeric(b.sequence, b.index + 1));
 }
 
+const DELIVERY_MANIFEST_HEADERS = ["Orden", "Pedido", "Cliente", "Direccion", "Referencia", "Horario", "Telefono", "Zona", "Bultos", "Importe", "Estado"];
+
+function deliveryRouteManifestRows(route) {
+  return [...(route && route.stops || [])]
+    .sort((left, right) => numeric(left.sequence, 0) - numeric(right.sequence, 0))
+    .map((stop, index) => {
+      const order = (state.orders || []).find((item) => item.code === stop.orderCode) || {};
+      const client = orderClient(order) || routeClientByName(stop.client) || {};
+      const assembly = orderAssemblyInfo(order.code ? order : { assembly: stop.assembly || { bultosConfirmed: stop.packages } });
+      return [
+        stop.sequence || index + 1,
+        stop.orderCode || "",
+        stop.client || order.client || "",
+        stop.address || client.domicilio || "",
+        client.referencia || "",
+        stop.hours || orderHoursText(order) || client.horario_atencion || "",
+        client.telefono || "",
+        orderZoneText(order) || client.zona || client.zone || route.zone || "",
+        assembly.bultos || stop.packages || 0,
+        numeric(stop.amount || order.amount, 0),
+        stop.status || order.status || ""
+      ];
+    });
+}
+
+function exportDeliveryRouteManifest(routeId, format) {
+  const route = (state.deliveryRoutes || []).find((item) => item.id === routeId);
+  if (!route) {
+    window.alert("Seleccionar una hoja de ruta para exportar.");
+    return;
+  }
+  const rows = deliveryRouteManifestRows(route);
+  const filePart = safeFilePart(`${route.id}-${route.day || reportDateStamp()}`);
+  if (format === "csv") {
+    downloadCsvReport(`manifiesto-ruta-${filePart}.csv`, DELIVERY_MANIFEST_HEADERS, rows);
+    return;
+  }
+  downloadBlob(`manifiesto-ruta-${filePart}.pdf`, makeTablePdf(`Manifiesto de ruta - ${route.id}`, DELIVERY_MANIFEST_HEADERS, rows, {
+    weights: [0.55, 0.9, 1.6, 2.1, 1.4, 1.25, 1.05, 1, 0.6, 0.9, 0.9],
+    subtitle: `${route.day || "Sin fecha"} - ${route.deviceLabel || route.driverUser || "Sin repartidor"} - ${rows.length} pedidos`
+  }));
+}
+
 function renderDeliveryActivePanel(route, routes) {
   const title = byId("deliveryLiveRouteTitle");
   const meta = byId("deliveryLiveRouteMeta");
@@ -9281,6 +9333,8 @@ function renderDeliveryActivePanel(route, routes) {
   meta.textContent = `${route.day || "Sin dia"} - ${route.deviceLabel || route.driverUser || "Sin dispositivo"} - ${stats.closed}/${stats.stops.length} gestionadas`;
   actions.innerHTML = `
     ${isAdminUser() ? `<button class="secondary-btn" type="button" data-delivery-map-mode="${showMap ? "table" : "map"}">${showMap ? "Ver tabla" : "Ver mapa"}</button>` : ""}
+    ${canPlanDeliveryRoutes() ? `<button class="secondary-btn" type="button" data-route-manifest="csv" data-route-id="${escapeHtml(route.id)}">Manifiesto CSV</button>` : ""}
+    ${canPlanDeliveryRoutes() ? `<button class="secondary-btn" type="button" data-route-manifest="pdf" data-route-id="${escapeHtml(route.id)}">Manifiesto PDF</button>` : ""}
     ${directionsUrl ? `<button class="secondary-btn" type="button" data-delivery-route-map-open="${escapeHtml(route.id)}">Abrir recorrido</button>` : ""}
     ${canClaim ? `<button class="primary-btn" type="button" data-claim-route="${escapeHtml(route.id)}">Tomar Ruta</button>` : ""}
     ${canCloseRoute ? `<button class="primary-btn" type="button" data-close-route="${escapeHtml(route.id)}">Rendir caja</button>` : ""}
@@ -9634,68 +9688,46 @@ function renderDeliveryStops(route) {
   const current = DeliveryEngine.nextStop(route);
   const ownsRoute = isAdminUser() || route.deviceId === deliveryDevice.id || route.driverUser === currentUser?.username;
   const visibleStops = (route.stops || []).filter((stop) => !isDeliveryStopDelivered(stop.status));
-  const closureNote = route.closure ? `
-    <article class="delivery-closure-card">
-      <strong>Cierre diario registrado</strong>
-      <small>${escapeHtml(route.closure.user || "Reparto")} - ${escapeHtml(route.closure.date || "")} ${escapeHtml(route.closure.time || "")}</small>
-      ${deliveryClosureMetricsHtml(route.closure)}
-      ${route.closure.observations ? `<p>${escapeHtml(route.closure.observations)}</p>` : ""}
-    </article>
-  ` : "";
+  const closureNote = route.closure ? `<article class="delivery-closure-card"><strong>Cierre diario registrado</strong><small>${escapeHtml(route.closure.user || "Reparto")} - ${escapeHtml(route.closure.date || "")} ${escapeHtml(route.closure.time || "")}</small>${deliveryClosureMetricsHtml(route.closure)}${route.closure.observations ? `<p>${escapeHtml(route.closure.observations)}</p>` : ""}</article>` : "";
   if (!visibleStops.length) {
     list.innerHTML = closureNote + '<div class="empty-note">No quedan pedidos visibles en esta ruta. Los entregados se ocultan automaticamente.</div>';
     return;
   }
-  list.innerHTML = closureNote + visibleStops.map((stop) => {
+  const rows = visibleStops.map((stop) => {
     const index = route.stops.findIndex((item) => item.orderCode === stop.orderCode);
     const order = state.orders.find((item) => item.code === stop.orderCode);
     const assembly = orderAssemblyInfo(order || { code: stop.orderCode, assembly: stop.assembly || { orderNumber: stop.assemblyOrderNumber, bultosConfirmed: stop.packages } });
+    const client = orderClient(order || {}) || routeClientByName(stop.client) || {};
     const isCurrent = current && current.orderCode === stop.orderCode;
     const canOperate = ownsRoute && isCurrent && !isDeliveryRouteClosed(route) && route.status !== "Planificada";
     const canReorder = canPlanDeliveryRoutes() && !route.closure && !isDeliveryRouteClosed(route) && route.status !== "Completada";
     const mapsUrl = DeliveryEngine.navigationUrl(state, stop.orderCode);
     const collection = stop.collection;
     const exception = stop.exception || order && order.deliveryException;
-    const receipt = collection && collection.transferReceipt;
-    const attachmentLinks = collection && collection.attachments
-      ? Object.values(collection.attachments).filter(Boolean).map((attachment) => `<a href="${escapeHtml(attachment.url)}" target="_blank" rel="noopener">${escapeHtml(attachment.kind)}</a>`).join(" | ")
-      : "";
-    return `
-      <article class="delivery-stop-card delivery-stop-compact-row ${isCurrent ? "current" : ""} ${isDeliveryStopClosed(stop.status) ? "completed" : ""}" ${canReorder ? `data-route-drop="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}"` : ""}>
-        <div class="delivery-stop-head">
-          ${canReorder ? `<span class="delivery-drag-handle" draggable="true" data-route-drag="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}" title="Arrastrar para cambiar el orden">Mover</span>` : ""}
-          ${canReorder ? `
-            <label class="delivery-sequence-control">
-              <span>Sec.</span>
-              <input data-route-sequence="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}" type="number" min="1" max="${route.stops.length}" step="1" value="${escapeHtml(String(stop.sequence || index + 1))}" inputmode="numeric" aria-label="Secuencia de ${escapeHtml(stop.client)}">
-            </label>
-          ` : `<span class="delivery-stop-number">${escapeHtml(String(stop.sequence || index + 1))}</span>`}
-          <div class="delivery-stop-main">
-            <strong>${escapeHtml(stop.client)}</strong>
-            <span>${escapeHtml(stop.address || "Domicilio pendiente")}</span>
-            <small>${escapeHtml(stop.hours || "Sin horario informado")} - ${money.format(stop.amount)}</small>
-            <small class="delivery-assembly-meta">Pedido ${escapeHtml(formatAssemblyPedidoNumber(stop.orderCode))} - Orden de Armado: ${escapeHtml(formatAssemblyOrderNumber(assembly))} - Bultos: ${escapeHtml(String(assembly.bultos || stop.packages || 0))}</small>
-          </div>
-          <span class="tag ${deliveryTone(stop.status)}">${escapeHtml(stop.status)}</span>
-        </div>
-        ${collection ? `<p>${escapeHtml(collection.method)} - Cobrado ${money.format(collection.amountPaid)} - Pendiente ${money.format(collection.pendingAmount)}${deliverySummaryText(collection) ? ` - ${escapeHtml(deliverySummaryText(collection))}` : ""}</p>` : ""}
-        ${collection && collection.returnSummary && collection.returnSummary.returnedQty > 0 ? `<p>Devolucion: ${collection.returnSummary.returnedQty} unidades - ${money.format(collection.returnSummary.returnedAmount)}${collection.returnReason ? ` - ${escapeHtml(collection.returnReason)}` : ""}</p>` : ""}
-        ${collection && collection.observations ? `<p>Obs: ${escapeHtml(collection.observations)}</p>` : ""}
-        ${exception ? `<p class="stock-error">Incidencia: ${escapeHtml(exception.status || stop.status)} - ${escapeHtml(exception.reason || "")}. ${escapeHtml(exception.observations || "")}</p>` : ""}
-        ${receipt ? `<p>Comprobante transferencia: ${escapeHtml(receipt.bank)}${receipt.alias ? ` - ${escapeHtml(receipt.alias)}` : ""} - ${money.format(receipt.amount)}</p>` : ""}
-        ${attachmentLinks ? `<p class="delivery-evidence-links">Evidencias: ${attachmentLinks}</p>` : ""}
-        <div class="delivery-stop-actions">
-          ${mapsUrl ? `<button class="secondary-btn" type="button" data-delivery-map="${escapeHtml(stop.orderCode)}">IR AL CLIENTE</button>` : ""}
-          ${canReorder && index > 0 ? `<button class="secondary-btn" type="button" data-route-move="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}" data-direction="-1">Subir</button>` : ""}
-          ${canReorder && index < route.stops.length - 1 ? `<button class="secondary-btn" type="button" data-route-move="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}" data-direction="1">Bajar</button>` : ""}
-          ${canOperate && order && order.status === ORDER_STATUS.DISPATCHED ? `<button class="primary-btn" type="button" data-delivery-status="${escapeHtml(stop.orderCode)}" data-status="${ORDER_STATUS.IN_ROUTE}">INICIAR REPARTO</button>` : ""}
-          ${canOperate && order && order.status === ORDER_STATUS.IN_ROUTE ? `<button class="primary-btn" type="button" data-delivery-collect="${escapeHtml(stop.orderCode)}">COBRAR Y ENTREGAR</button>` : ""}
-          ${canOperate && order && order.status === ORDER_STATUS.IN_ROUTE ? `<button class="secondary-btn" type="button" data-delivery-exception="${escapeHtml(stop.orderCode)}" data-exception-status="${ORDER_STATUS.NOT_DELIVERED}">No entregado</button>` : ""}
-          ${canOperate && order && order.status === ORDER_STATUS.IN_ROUTE ? `<button class="secondary-btn" type="button" data-delivery-exception="${escapeHtml(stop.orderCode)}" data-exception-status="${ORDER_STATUS.POSTPONED}">Postergar</button>` : ""}
-        </div>
-      </article>
-    `;
+    const detail = [
+      collection ? `${collection.method || "Cobranza"}: ${money.format(collection.amountPaid || 0)}` : "",
+      exception ? `Incidencia: ${exception.reason || exception.status || stop.status}` : ""
+    ].filter(Boolean).join(" - ");
+    return `<tr class="delivery-stop-table-row ${isCurrent ? "current" : ""} ${isDeliveryStopClosed(stop.status) ? "completed" : ""}" ${canReorder ? `data-route-drop="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}"` : ""}>
+      <td>${canReorder ? `<span class="delivery-drag-handle" draggable="true" data-route-drag="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}" title="Arrastrar para cambiar el orden">Mover</span>` : ""}</td>
+      <td>${canReorder ? `<input class="delivery-sequence-input" data-route-sequence="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}" type="number" min="1" max="${route.stops.length}" step="1" value="${escapeHtml(String(stop.sequence || index + 1))}" inputmode="numeric" aria-label="Secuencia de ${escapeHtml(stop.client)}">` : escapeHtml(String(stop.sequence || index + 1))}</td>
+      <td><strong>${escapeHtml(formatAssemblyPedidoNumber(stop.orderCode))}</strong><small>Armado ${escapeHtml(formatAssemblyOrderNumber(assembly))}</small></td>
+      <td><strong>${escapeHtml(stop.client)}</strong>${detail ? `<small>${escapeHtml(detail)}</small>` : ""}</td>
+      <td>${escapeHtml(stop.address || "Domicilio pendiente")}${client.referencia ? `<small>Ref: ${escapeHtml(client.referencia)}</small>` : ""}</td>
+      <td>${escapeHtml(stop.hours || "Sin horario")}</td>
+      <td>${escapeHtml(String(assembly.bultos || stop.packages || 0))}</td>
+      <td>${money.format(stop.amount)}</td>
+      <td><span class="tag ${deliveryTone(stop.status)}">${escapeHtml(stop.status)}</span></td>
+      <td><div class="delivery-stop-actions compact">
+        ${mapsUrl ? `<button class="secondary-btn" type="button" data-delivery-map="${escapeHtml(stop.orderCode)}">Ir</button>` : ""}
+        ${canReorder && index > 0 ? `<button class="secondary-btn" type="button" data-route-move="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}" data-direction="-1" title="Subir">↑</button>` : ""}
+        ${canReorder && index < route.stops.length - 1 ? `<button class="secondary-btn" type="button" data-route-move="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}" data-direction="1" title="Bajar">↓</button>` : ""}
+        ${canOperate && order && order.status === ORDER_STATUS.DISPATCHED ? `<button class="primary-btn" type="button" data-delivery-status="${escapeHtml(stop.orderCode)}" data-status="${ORDER_STATUS.IN_ROUTE}">Iniciar</button>` : ""}
+        ${canOperate && order && order.status === ORDER_STATUS.IN_ROUTE ? `<button class="primary-btn" type="button" data-delivery-collect="${escapeHtml(stop.orderCode)}">Cobrar</button><button class="secondary-btn" type="button" data-delivery-exception="${escapeHtml(stop.orderCode)}" data-exception-status="${ORDER_STATUS.NOT_DELIVERED}">No entregado</button><button class="secondary-btn" type="button" data-delivery-exception="${escapeHtml(stop.orderCode)}" data-exception-status="${ORDER_STATUS.POSTPONED}">Postergar</button>` : ""}
+      </div></td>
+    </tr>`;
   }).join("");
+  list.innerHTML = closureNote + `<div class="responsive-table delivery-stop-table-wrap"><table class="delivery-stop-table"><thead><tr><th>Mover</th><th>Orden</th><th>Pedido</th><th>Cliente</th><th>Direccion / referencia</th><th>Horario</th><th>Bultos</th><th>Importe</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 async function applyDeliverySequenceChange(input, focusNext = false) {
@@ -10687,37 +10719,85 @@ async function exportCommercialPortfolio(format) {
     openPrintableReport("CARTERA COMERCIAL", COMMERCIAL_PORTFOLIO_HEADERS, rows, context);
     return;
   }
-  const lines = [context, "", COMMERCIAL_PORTFOLIO_HEADERS.join(" | "), ...rows.map((row) => row.join(" | "))];
-  downloadBlob(`cartera-comercial-${stamp}.pdf`, makeSimplePdf("Distribuidora Lopez - Cartera Comercial", lines));
+  downloadBlob(`cartera-comercial-${stamp}.pdf`, makeTablePdf("Distribuidora Lopez - Cartera Comercial", COMMERCIAL_PORTFOLIO_HEADERS, rows, {
+    subtitle: context
+  }));
+}
+
+const FULL_CLIENT_EXPORT_HEADERS = ["Codigo", "Cliente", "CUIT", "Telefono", "Direccion", "Referencia", "Localidad", "Zona", "Ruta", "Vendedor", "Dias", "Horario", "Saldo", "Estado"];
+
+function fullClientPortfolioRows() {
+  return [...(state.clients || [])]
+    .sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""), "es", { sensitivity: "base" }))
+    .map((client) => [
+      client.codigo_cliente || "",
+      client.name || client.nombre_comercial || "",
+      client.cuit || "",
+      client.telefono || "",
+      client.domicilio || "",
+      client.referencia || "",
+      client.localidad || "",
+      client.zona || client.zone || "",
+      client.ruta || "",
+      client.seller || client.vendedor_asignado || "",
+      (client.dias_visita || []).join(" / ") || client.dia_visita || "",
+      client.horario_atencion || "",
+      numeric(client.balance ?? client.saldo_actual, 0),
+      client.estado || client.status || "Activo"
+    ]);
+}
+
+function exportFullClientPortfolioCsv() {
+  if (!isAdminUser()) return;
+  downloadCsvReport(`cartera-completa-clientes-${reportDateStamp()}.csv`, FULL_CLIENT_EXPORT_HEADERS, fullClientPortfolioRows());
 }
 
 function exportFullClientPortfolioPdf() {
   if (!isAdminUser()) return;
-  const clients = Array.isArray(state.clients) ? state.clients : [];
-  const lines = [
-    `Emision: ${new Date().toLocaleString("es-AR")} | Version ${APP_VERSION}`,
-    `Clientes: ${clients.length} | Activos: ${clients.filter((client) => !normalizeSearchText(client.estado || client.status).includes("inactiv")).length}`,
-    "Datos incluidos: identificacion, contacto, cartera, visita, pago, saldo y GPS.",
-    "",
-    ...PortfolioExportEngine.clientPdfLines(clients)
-  ];
-  downloadBlob(`cartera-completa-clientes-${reportDateStamp()}.pdf`, makeSimplePdf("Distribuidora Lopez - Cartera completa de clientes", lines));
-  showCompactNotice(`${clients.length} clientes incluidos en el PDF.`, "ok");
+  const rows = fullClientPortfolioRows();
+  downloadBlob(`cartera-completa-clientes-${reportDateStamp()}.pdf`, makeTablePdf("Distribuidora Lopez - Cartera completa de clientes", FULL_CLIENT_EXPORT_HEADERS, rows, {
+    weights: [0.8, 1.8, 1.1, 1.1, 2.1, 1.6, 1.1, 1, 1.2, 1.2, 1, 1.7, 0.9, 0.8],
+    subtitle: `${rows.length} clientes - filas y columnas`
+  }));
+  showCompactNotice(`${rows.length} clientes incluidos en el PDF tabular.`, "ok");
+}
+
+const FULL_PRODUCT_EXPORT_HEADERS = ["Codigo", "Barras", "Producto", "Rubro", "Marca", "Proveedor", "Costo", "Lista 1", "Lista 2", "Lista 3", "Lista 4", "Lista 5", "Stock", "Estado"];
+
+function fullProductPortfolioRows() {
+  return [...(state.products || [])]
+    .sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""), "es", { sensitivity: "base" }))
+    .map((product) => [
+      product.codigo_producto || "",
+      product.codigo_barras || "",
+      product.name || product.descripcion || "",
+      product.rubro || "",
+      product.marca || "",
+      product.proveedor || product.supplier || "",
+      numeric(product.costo ?? product.cost, 0),
+      PortfolioExportEngine.productPrice(product, 1),
+      PortfolioExportEngine.productPrice(product, 2),
+      PortfolioExportEngine.productPrice(product, 3),
+      PortfolioExportEngine.productPrice(product, 4),
+      PortfolioExportEngine.productPrice(product, 5),
+      numeric(product.stock_disponible ?? product.stock_actual ?? product.stock, 0),
+      PortfolioExportEngine.isProductActive(product) ? "Activo" : "Inactivo"
+    ]);
+}
+
+function exportFullProductPortfolioCsv() {
+  if (!isAdminUser()) return;
+  downloadCsvReport(`cartera-completa-productos-precios-${reportDateStamp()}.csv`, FULL_PRODUCT_EXPORT_HEADERS, fullProductPortfolioRows());
 }
 
 function exportFullProductPortfolioPdf() {
   if (!isAdminUser()) return;
-  const products = Array.isArray(state.products) ? state.products : [];
-  const active = products.filter((product) => PortfolioExportEngine.isProductActive(product)).length;
-  const lines = [
-    `Emision: ${new Date().toLocaleString("es-AR")} | Version ${APP_VERSION}`,
-    `Productos: ${products.length} | Activos: ${active} | Inactivos: ${products.length - active}`,
-    "Precios vigentes: costo y listas 1, 2, 3, 4 y 5 al momento de emitir.",
-    "",
-    ...PortfolioExportEngine.productPdfLines(products)
-  ];
-  downloadBlob(`cartera-completa-productos-precios-${reportDateStamp()}.pdf`, makeSimplePdf("Distribuidora Lopez - Productos y precios vigentes", lines));
-  showCompactNotice(`${products.length} productos incluidos con precios vigentes.`, "ok");
+  const rows = fullProductPortfolioRows();
+  downloadBlob(`cartera-completa-productos-precios-${reportDateStamp()}.pdf`, makeTablePdf("Distribuidora Lopez - Productos y precios vigentes", FULL_PRODUCT_EXPORT_HEADERS, rows, {
+    weights: [0.8, 1.1, 2.4, 1.2, 1.1, 1.4, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.7, 0.7],
+    subtitle: `${rows.length} productos - costos y listas vigentes`
+  }));
+  showCompactNotice(`${rows.length} productos incluidos con precios vigentes.`, "ok");
 }
 
 function commercialRouteDay(dateValue) {
@@ -12059,7 +12139,7 @@ async function derivePriceListOneFromTwo() {
   }
 }
 
-function exportSelectedPriceListPdf() {
+function selectedPriceListExportData() {
   const listNumber = Math.min(5, Math.max(1, Math.round(numeric(byId("priceListExportNumber")?.value, 2))));
   const rows = (state.products || [])
     .filter((product) => String(product.activo || "SI").toUpperCase() !== "NO")
@@ -12072,17 +12152,26 @@ function exportSelectedPriceListPdf() {
     .sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
   if (!rows.length) {
     window.alert("La lista seleccionada no tiene productos activos con precio.");
-    return;
+    return null;
   }
-  const lines = [
-    `LISTA Nº ${listNumber}`,
-    `Vigencia: ${new Date().toLocaleDateString("es-AR")}`,
-    `Productos: ${rows.length}`,
-    "",
-    "CODIGO | PRODUCTO | PRECIO",
-    ...rows.map((item) => `${item.code || "S/C"} | ${item.name} | ${money.format(item.price)}`)
-  ];
-  downloadBlob(`lista-precios-${listNumber}-${reportDateStamp()}.pdf`, makeSimplePdf(`Distribuidora Lopez - Lista Nº ${listNumber}`, lines));
+  return { listNumber, rows: rows.map((item) => [item.code || "S/C", item.name, item.price]) };
+}
+
+function exportSelectedPriceListCsv() {
+  const report = selectedPriceListExportData();
+  if (!report) return;
+  downloadCsvReport(`lista-precios-${report.listNumber}-${reportDateStamp()}.csv`, ["Codigo", "Producto", "Precio"], report.rows);
+}
+
+function exportSelectedPriceListPdf() {
+  const report = selectedPriceListExportData();
+  if (!report) return;
+  downloadBlob(`lista-precios-${report.listNumber}-${reportDateStamp()}.pdf`, makeTablePdf(`Distribuidora Lopez - Lista Nº ${report.listNumber}`, ["Codigo", "Producto", "Precio"], report.rows, {
+    weights: [1, 4.5, 1.2],
+    subtitle: `Vigencia ${new Date().toLocaleDateString("es-AR")} - ${report.rows.length} productos`,
+    landscape: false,
+    fontSize: 8
+  }));
 }
 
 function clearPriceListFilters() {
@@ -12135,10 +12224,11 @@ async function runMaintenanceCleanup(target) {
     window.alert("Solo Administracion puede ejecutar mantenimiento.");
     return;
   }
-  const label = target === "orders" ? "pedidos" : "clientes";
-  const motive = window.prompt(`Motivo para limpiar base de ${label}:`);
+  const label = target === "orders" ? "operacion de pedidos" : "clientes";
+  const verb = target === "orders" ? "archivar" : "limpiar";
+  const motive = window.prompt(`Motivo para ${verb} ${label}:`);
   if (!motive) return;
-  const confirmText = window.prompt(`Operacion critica. Escribir CONFIRMAR para limpiar ${label}. Se generara backup previo.`);
+  const confirmText = window.prompt(`Operacion critica. Escribir CONFIRMAR para ${verb} ${label}. Se generara backup previo y el historial no se borrara.`);
   if (confirmText !== "CONFIRMAR") {
     window.alert("Limpieza cancelada.");
     return;
@@ -12150,7 +12240,7 @@ async function runMaintenanceCleanup(target) {
       confirmText,
       confirmed: true
     });
-    showCompactNotice(`Limpieza de ${label} ejecutada. Backup ${payload.backup.id}.`, "warn");
+    showCompactNotice(`${target === "orders" ? "Archivado operativo" : "Limpieza"} ejecutado. Backup ${payload.backup.id}.`, "warn");
     renderForCurrentUser();
   } catch (error) {
     window.alert(error.message || "No se pudo ejecutar mantenimiento.");
@@ -12260,7 +12350,7 @@ function commissionReportData() {
   const seller = byId("commissionReportSeller") ? byId("commissionReportSeller").value : "all";
   const from = byId("commissionReportFrom") ? byId("commissionReportFrom").value : "";
   const to = byId("commissionReportTo") ? byId("commissionReportTo").value : "";
-  const orders = (state.orders || []).filter((order) => {
+  const orders = commissionHistoryOrders().filter((order) => {
     const key = commissionReportDateKey(order.createdAt || order.receivedAt || order.date);
     return (!from || key >= from) && (!to || key <= to) && (seller === "all" || normalizeSearchText(order.seller) === normalizeSearchText(seller));
   });
@@ -13564,6 +13654,95 @@ function makeSimplePdf(title, lines) {
   return new Blob([pdf], { type: "application/pdf" });
 }
 
+function pdfCellText(value, width, fontSize) {
+  const plain = String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7E]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const maxChars = Math.max(3, Math.floor((width - 7) / Math.max(3.2, fontSize * 0.53)));
+  return plain.length > maxChars ? `${plain.slice(0, Math.max(1, maxChars - 3))}...` : plain;
+}
+
+function makeTablePdf(title, headers, rows, options = {}) {
+  const landscape = options.landscape !== false;
+  const pageWidth = landscape ? 842 : 595;
+  const pageHeight = landscape ? 595 : 842;
+  const margin = 28;
+  const tableTop = pageHeight - 76;
+  const rowHeight = Math.max(15, numeric(options.rowHeight, 18));
+  const fontSize = Math.max(5, numeric(options.fontSize, headers.length > 8 ? 6.4 : 8));
+  const pageRows = Math.max(1, Math.floor((tableTop - margin - 18) / rowHeight));
+  const weights = Array.isArray(options.weights) && options.weights.length === headers.length
+    ? options.weights.map((value) => Math.max(0.2, numeric(value, 1)))
+    : headers.map((header, index) => {
+      const longest = Math.max(String(header || "").length, ...(rows || []).slice(0, 200).map((row) => String(row[index] ?? "").length));
+      return Math.min(4, Math.max(0.7, Math.sqrt(longest || 1) / 2));
+    });
+  const availableWidth = pageWidth - margin * 2;
+  const weightTotal = weights.reduce((sum, value) => sum + value, 0) || 1;
+  const widths = weights.map((weight) => availableWidth * weight / weightTotal);
+  const chunks = [];
+  const sourceRows = Array.isArray(rows) ? rows : [];
+  for (let index = 0; index < sourceRows.length; index += pageRows) chunks.push(sourceRows.slice(index, index + pageRows));
+  if (!chunks.length) chunks.push([]);
+
+  const objects = ["", "", ""];
+  const addObject = (content) => {
+    objects.push(content);
+    return objects.length;
+  };
+  const pageRefs = [];
+  chunks.forEach((pageData, pageIndex) => {
+    const commands = ["0 G", "0.45 w"];
+    commands.push("BT", "/F1 14 Tf", `${margin} ${pageHeight - 32} Td`, `(${pdfEscape(title)}) Tj`, "ET");
+    const meta = `${options.subtitle || "Distribuidora Lopez"} - ${new Date().toLocaleString("es-AR")} - Pagina ${pageIndex + 1}/${chunks.length}`;
+    commands.push("BT", "/F1 7 Tf", `${margin} ${pageHeight - 49} Td`, `(${pdfEscape(pdfCellText(meta, availableWidth, 7))}) Tj`, "ET");
+
+    const drawRow = (values, y, header = false) => {
+      if (header) commands.push("0.92 g", `${margin} ${y} ${availableWidth} ${rowHeight} re f`, "0 G");
+      commands.push(`${margin} ${y} ${availableWidth} ${rowHeight} re S`);
+      let x = margin;
+      values.forEach((value, index) => {
+        const width = widths[index];
+        if (index > 0) commands.push(`${x} ${y} m ${x} ${y + rowHeight} l S`);
+        commands.push("BT", `/F1 ${header ? Math.max(5.5, fontSize) : fontSize} Tf`, `${x + 3} ${y + 5} Td`, `(${pdfEscape(pdfCellText(value, width, fontSize))}) Tj`, "ET");
+        x += width;
+      });
+    };
+
+    drawRow(headers, tableTop, true);
+    pageData.forEach((row, index) => drawRow(headers.map((_, column) => row[column] ?? ""), tableTop - rowHeight * (index + 1), false));
+    if (!pageData.length) {
+      commands.push("BT", "/F1 9 Tf", `${margin + 4} ${tableTop - rowHeight + 5} Td`, "(Sin registros para exportar.) Tj", "ET");
+    }
+    const content = commands.join("\n");
+    const contentRef = addObject(`<< /Length ${utf8Length(content)} >>\nstream\n${content}\nendstream`);
+    const pageRef = addObject(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentRef} 0 R >>`);
+    pageRefs.push(pageRef);
+  });
+  objects[0] = "<< /Type /Catalog /Pages 2 0 R >>";
+  objects[1] = `<< /Type /Pages /Kids [${pageRefs.map((ref) => `${ref} 0 R`).join(" ")}] /Count ${pageRefs.length} >>`;
+  objects[2] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(utf8Length(pdf));
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = utf8Length(pdf);
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => { pdf += `${String(offset).padStart(10, "0")} 00000 n \n`; });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return new Blob([pdf], { type: "application/pdf" });
+}
+
+function downloadCsvReport(fileName, headers, rows) {
+  const csv = [headers, ...(rows || [])].map((row) => row.map(csvCell).join(",")).join("\r\n");
+  downloadBlob(fileName, new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }));
+}
+
 function exportStockPdf() {
   if (!isAdminUser()) {
     window.alert("Solo administracion puede exportar stock.");
@@ -14030,6 +14209,42 @@ function renderSuppliers() {
       </article>
     `).join("") : '<article class="activity"><span class="tag ok">Sin movimientos</span><strong>Cuenta proveedores limpia</strong><p>No hay remitos o pagos cargados todavia.</p></article>';
   }
+}
+
+const SUPPLIER_EXPORT_HEADERS = ["Proveedor", "Razon social", "CUIT", "Estado", "Rubro", "Contacto", "Telefono", "WhatsApp", "Email", "Direccion", "Localidad", "Condicion de pago", "Saldo"];
+
+function supplierExportRows() {
+  return [...(state.suppliers || [])]
+    .sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""), "es", { sensitivity: "base" }))
+    .map((supplier) => [
+      supplier.name || "",
+      supplier.razon_social || supplier.nombre_comercial || "",
+      supplier.cuit || "",
+      supplier.estado_operativo || supplier.status || "Activo",
+      supplier.sector || "",
+      supplier.contacto_principal || supplier.contact || "",
+      supplier.telefono || "",
+      supplier.whatsapp || "",
+      supplier.email || "",
+      supplier.direccion || "",
+      supplier.localidad || "",
+      supplier.condicion_pago || "",
+      numeric(supplier.balance, 0)
+    ]);
+}
+
+function exportSuppliersCsv() {
+  if (!isAdminUser()) return;
+  downloadCsvReport(`proveedores-${reportDateStamp()}.csv`, SUPPLIER_EXPORT_HEADERS, supplierExportRows());
+}
+
+function exportSuppliersPdf() {
+  if (!isAdminUser()) return;
+  const rows = supplierExportRows();
+  downloadBlob(`proveedores-${reportDateStamp()}.pdf`, makeTablePdf("Distribuidora Lopez - Proveedores", SUPPLIER_EXPORT_HEADERS, rows, {
+    weights: [1.6, 1.5, 1, 0.8, 1, 1.1, 0.9, 0.9, 1.4, 1.6, 1, 1.2, 0.8],
+    subtitle: `${rows.length} proveedores - filas y columnas`
+  }));
 }
 
 function setSupplierRemitMessage(text, tone = "danger") {
@@ -16880,6 +17095,11 @@ function setClientDialogMode(mode, client) {
     limit.disabled = isEdit && !isAdminUser();
     limit.title = limit.disabled ? "Solo Administracion puede editar el limite de credito." : "";
   }
+  const reference = byId("clientReferenceInput");
+  if (reference) {
+    reference.required = !isEdit;
+    reference.title = isEdit ? "Completar la referencia cuando se actualicen los datos del cliente." : "Obligatorio para nuevas altas.";
+  }
 }
 
 function setFormValue(form, name, value) {
@@ -16971,6 +17191,7 @@ function openClientEditDialog(id) {
   setFormValue(form, "cuit", client.cuit);
   setFormValue(form, "condicion_fiscal", client.condicion_fiscal);
   setFormValue(form, "domicilio", client.domicilio);
+  setFormValue(form, "referencia", client.referencia);
   setFormValue(form, "localidad", client.localidad);
   setFormValue(form, "telefono", client.telefono);
   setFormValue(form, "email", client.email);
@@ -17006,6 +17227,7 @@ function clientFormPayload(form) {
     cuit: String(form.get("cuit") || "").trim(),
     condicion_fiscal: String(form.get("condicion_fiscal") || "Cons.Final").trim(),
     domicilio: String(form.get("domicilio") || "").trim(),
+    referencia: String(form.get("referencia") || "").trim(),
     localidad: String(form.get("localidad") || "").trim(),
     telefono: String(form.get("telefono") || "").trim(),
     email: String(form.get("email") || "").trim(),
@@ -17068,6 +17290,12 @@ async function submitClientEdit(formElement, formData) {
 function addClientFromForm(form) {
   const name = String(form.get("nombre_comercial") || "").trim();
   if (!name) return false;
+  const reference = String(form.get("referencia") || "").trim();
+  if (!reference) {
+    window.alert("Completar la referencia obligatoria para ubicar al cliente.");
+    byId("clientReferenceInput")?.focus();
+    return false;
+  }
   const code = String(form.get("codigo_cliente") || "").trim();
   if (code && state.clients.some((client) => client.codigo_cliente === code)) {
     window.alert("Ese codigo de cliente ya existe.");
@@ -17086,6 +17314,7 @@ function addClientFromForm(form) {
     cuit: String(form.get("cuit") || "").trim(),
     condicion_fiscal: String(form.get("condicion_fiscal") || "Cons.Final"),
     domicilio: String(form.get("domicilio") || "").trim(),
+    referencia: reference,
     localidad: String(form.get("localidad") || "").trim(),
     telefono: String(form.get("telefono") || "").trim(),
     email: String(form.get("email") || "").trim(),
@@ -17221,7 +17450,7 @@ function setMobileClientFormOpen(open) {
 }
 
 function clearMobileClientForm() {
-  ["mobileNewClientName", "mobileNewClientBusinessName", "mobileNewClientTaxId", "mobileNewClientAddress", "mobileNewClientCity", "mobileNewClientPhone", "mobileNewClientRoute", "mobileNewClientSellerPassword"].forEach((id) => {
+  ["mobileNewClientName", "mobileNewClientBusinessName", "mobileNewClientTaxId", "mobileNewClientAddress", "mobileNewClientReference", "mobileNewClientCity", "mobileNewClientPhone", "mobileNewClientRoute", "mobileNewClientSellerPassword"].forEach((id) => {
     const field = byId(id);
     if (field) field.value = "";
   });
@@ -17411,6 +17640,7 @@ async function addMobileClientFromQuickForm() {
     return;
   }
   const address = byId("mobileNewClientAddress").value.trim();
+  const reference = byId("mobileNewClientReference").value.trim();
   const city = byId("mobileNewClientCity").value.trim();
   const phone = byId("mobileNewClientPhone").value.trim();
   if (!phone) {
@@ -17421,6 +17651,11 @@ async function addMobileClientFromQuickForm() {
   if (!address) {
     window.alert("La direccion es obligatoria para dar de alta un cliente desde preventa.");
     byId("mobileNewClientAddress").focus();
+    return;
+  }
+  if (!reference) {
+    window.alert("La referencia para ubicar al cliente es obligatoria.");
+    byId("mobileNewClientReference").focus();
     return;
   }
   if (!city) {
@@ -17493,6 +17728,7 @@ async function addMobileClientFromQuickForm() {
       consumidor_final: consumerFinal,
       condicion_fiscal: consumerFinal ? "Cons.Final" : "Responsable Inscripto",
       domicilio: address,
+      referencia: reference,
       localidad: city,
       telefono: phone,
       forma_pago: payment,
@@ -17562,15 +17798,10 @@ function addSelectedMobileProduct() {
   renderMobileProductInfo();
 }
 
-function resetMobileOrderForm(previousClientName = "") {
+function resetMobileOrderForm() {
   mobileCart = {};
-  const seller = state.sellers.find((item) => item.name === mobileSeller) || state.sellers[0];
-  const nextClient = getMobileClientOptions(seller || {}).find((client) => client.name !== previousClientName)
-    || getMobileClientOptions(seller || {})[0]
-    || state.clients[0]
-    || null;
-  mobileClient = nextClient ? nextClient.name : "";
-  mobileProduct = state.products[0] ? state.products[0].name : "";
+  mobileClient = "";
+  mobileProduct = "";
   ["mobileProductSearch", "mobileClientSearch"].forEach((id) => {
     const field = byId(id);
     if (field) field.value = "";
@@ -17680,7 +17911,7 @@ async function addMobileOrder() {
       }
     };
     mobileOrderPendingOperation = null;
-    resetMobileOrderForm(client.name);
+    resetMobileOrderForm();
     window.alert(order.status === ORDER_STATUS.COMMERCIAL_APPROVAL
       ? `${order.code} registrado. Quedo pendiente de aprobacion comercial.`
       : order.status === ORDER_STATUS.PENDING && orderSupplySummary(order).missing > 0
@@ -19535,8 +19766,13 @@ byId("loadPurchaseBtn").addEventListener("click", async () => {
 });
 
 byId("registerPaymentBtn").addEventListener("click", openAccountPaymentChooser);
+byId("exportClientPortfolioCsvBtn").addEventListener("click", exportFullClientPortfolioCsv);
 byId("exportClientPortfolioPdfBtn").addEventListener("click", exportFullClientPortfolioPdf);
+byId("exportProductPortfolioCsvBtn").addEventListener("click", exportFullProductPortfolioCsv);
 byId("exportProductPortfolioPdfBtn").addEventListener("click", exportFullProductPortfolioPdf);
+byId("exportPriceListCsvBtn").addEventListener("click", exportSelectedPriceListCsv);
+byId("exportSuppliersCsvBtn").addEventListener("click", exportSuppliersCsv);
+byId("exportSuppliersPdfBtn").addEventListener("click", exportSuppliersPdf);
 byId("accountStatementPaymentBtn").addEventListener("click", () => {
   if (!activeAccountStatement) return;
   if (activeAccountStatement.type === "supplier") {
@@ -20764,13 +21000,9 @@ async function submitDeliveryCollection(event) {
   setDeliveryCollectionMessage("Guardando GPS y evidencias...", "info");
   try {
     const gps = await requireDeliveryLocation();
-    const signatureData = deliverySignatureDirty
-      ? byId("deliverySignatureCanvas").toDataURL("image/png")
-      : "";
     const transferData = await fileToEvidenceDataUrl(deliveryTransferAttachmentFile());
     const proofData = await fileToCompressedDataUrl(byId("deliveryProofPhoto").files[0]);
     const uploads = await Promise.all([
-      uploadDeliveryImage(orderCode, "signature", signatureData),
       uploadDeliveryImage(orderCode, "transfer", transferData),
       uploadDeliveryImage(orderCode, "delivery", proofData)
     ]);
@@ -20813,7 +21045,7 @@ async function submitDeliveryCollection(event) {
 function updateDeliveryExceptionMode() {
   const status = byId("deliveryExceptionStatus").value;
   const signatureBox = byId("deliveryExceptionSignatureBox");
-  if (signatureBox) signatureBox.hidden = status !== ORDER_STATUS.REJECTED;
+  if (signatureBox) signatureBox.hidden = true;
   if (status === ORDER_STATUS.REJECTED && !byId("deliveryExceptionReason").value) {
     byId("deliveryExceptionReason").value = "Pedido rechazado";
   }
@@ -20854,12 +21086,8 @@ async function submitDeliveryException(event) {
   setDeliveryExceptionMessage("Tomando GPS y guardando incidencia...", "info");
   try {
     const gps = await requireDeliveryLocation();
-    const signatureData = status === ORDER_STATUS.REJECTED && deliveryExceptionSignatureDirty
-      ? byId("deliveryExceptionSignatureCanvas").toDataURL("image/png")
-      : "";
     const photoData = await fileToCompressedDataUrl(byId("deliveryExceptionPhoto").files[0]);
     const uploads = await Promise.all([
-      uploadDeliveryImage(orderCode, "signature", signatureData),
       uploadDeliveryImage(orderCode, "exception-photo", photoData)
     ]);
     const attachments = {};
@@ -21103,6 +21331,11 @@ document.addEventListener("click", async (event) => {
     renderDelivery();
     return;
   }
+  const manifest = event.target.closest("[data-route-manifest]");
+  if (manifest) {
+    exportDeliveryRouteManifest(manifest.dataset.routeId, manifest.dataset.routeManifest);
+    return;
+  }
   const presenceMapsButton = event.target.closest("[data-presence-open-maps]");
   if (presenceMapsButton) {
     event.preventDefault();
@@ -21311,8 +21544,8 @@ byId("deliveryItemsList").addEventListener("change", () => {
   updateDeliveryReturnSummary();
   updateDeliveryPaymentDefaults();
 });
-byId("clearDeliverySignatureBtn").addEventListener("click", clearDeliverySignature);
-byId("clearDeliveryExceptionSignatureBtn").addEventListener("click", clearDeliveryExceptionSignature);
+byId("clearDeliverySignatureBtn")?.addEventListener("click", clearDeliverySignature);
+byId("clearDeliveryExceptionSignatureBtn")?.addEventListener("click", clearDeliveryExceptionSignature);
 byId("deliveryExceptionStatus").addEventListener("change", updateDeliveryExceptionMode);
 byId("deliveryExceptionForm").addEventListener("submit", submitDeliveryException);
 byId("deliveryCollectionForm").addEventListener("submit", submitDeliveryCollection);
@@ -21349,8 +21582,14 @@ byId("deliveryRecoveryReturnBtn").addEventListener("click", () => {
   switchView("reparto");
   renderDelivery();
 });
-initializeDeliverySignature();
-initializeDeliveryExceptionSignature();
+document.addEventListener("focusin", (event) => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || input.type !== "number" || input.readOnly || input.disabled) return;
+  if (input.value !== "" && Number(input.value) === 0) {
+    input.value = "";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+});
 
 const resetDemoButton = byId("resetDemoBtn");
 if (resetDemoButton) {

@@ -94,6 +94,7 @@ function clientInput(index, operationId) {
     consumidor_final: true,
     telefono: `35190000${String(index).padStart(2, "0")}`,
     domicilio: `Calle prueba ${100 + index}`,
+    referencia: `Porton de prueba ${index}`,
     localidad: "Cordoba",
     forma_pago: "Contado",
     limite_credito: 0,

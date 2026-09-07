@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-135-r20260906a">
+    <link rel="manifest" href="manifest.json?v=8790-138-r20260906b">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-135-r20260906a">
+    <link rel="stylesheet" href="styles.css?v=8790-138-r20260906b">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -159,7 +159,7 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-135</strong>
+              <strong data-version-value>8790-138</strong>
               <small data-version-build>Actualizada 06/09/2026 02:10</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
@@ -373,7 +373,11 @@
                 </div>
                 <label class="phone-field">
                   Domicilio
-                  <input id="mobileNewClientAddress" type="text" placeholder="Calle, numero o referencia">
+                  <input id="mobileNewClientAddress" type="text" placeholder="Calle y numero">
+                </label>
+                <label class="phone-field">
+                  Referencia para ubicarlo (obligatoria)
+                  <input id="mobileNewClientReference" type="text" placeholder="Ej: porton verde, frente a la plaza" required>
                 </label>
                 <div class="phone-actions compact">
                   <label class="phone-field">
@@ -1024,6 +1028,7 @@
                 <p>Padron normalizado: fiscal, comercial, ruta y cuenta corriente</p>
               </div>
               <div class="table-actions">
+                <button class="secondary-btn" id="exportClientPortfolioCsvBtn" type="button">CSV cartera completa</button>
                 <button class="secondary-btn" id="exportClientPortfolioPdfBtn" type="button">PDF cartera completa</button>
                 <button class="secondary-btn" id="newClientBtn" type="button">Nuevo cliente</button>
               </div>
@@ -1475,6 +1480,7 @@
                   <option value="5">Lista Nº 5</option>
                 </select>
                 <button class="secondary-btn" id="exportPriceListPdfBtn" type="button">Exportar lista PDF</button>
+                <button class="secondary-btn" id="exportPriceListCsvBtn" type="button">Exportar lista CSV</button>
                 <button class="primary-btn admin-only" id="derivePriceListOneBtn" type="button">Generar Lista 1 (-8% de Lista 2)</button>
                 <span class="empty-note">El PDF para clientes incluye codigo, producto y precio; no muestra costos ni stock.</span>
               </div>
@@ -1509,9 +1515,9 @@
                 <button class="secondary-btn" id="assignSellerPriceListBtn" type="button">Asignar lista</button>
               </div>
               <div class="data-filter-bar compact-filter-bar">
-                <button class="secondary-btn danger-btn" data-maintenance-cleanup="orders" type="button">Limpiar pedidos</button>
+                <button class="secondary-btn danger-btn" data-maintenance-cleanup="orders" type="button">Archivar y poner operacion en cero</button>
                 <button class="secondary-btn danger-btn" data-maintenance-cleanup="clients" type="button">Limpiar clientes</button>
-                <span class="empty-note">Las limpiezas crean backup y requieren escribir CONFIRMAR.</span>
+                <span class="empty-note">Los pedidos se quitan de la operacion, pero permanecen archivados con su historial. Siempre se crea backup.</span>
               </div>
             </section>
             <section class="table-panel price-list-main">
@@ -1521,6 +1527,7 @@
                   <p>Los pedidos confirmados conservan el precio historico del momento de venta</p>
                 </div>
                 <div class="table-actions">
+                  <button class="secondary-btn" id="exportProductPortfolioCsvBtn" type="button">CSV productos y precios</button>
                   <button class="secondary-btn" id="exportProductPortfolioPdfBtn" type="button">PDF productos y precios</button>
                 </div>
               </div>
@@ -2014,6 +2021,8 @@
                 <p>Compras, deuda, vencimientos y reposicion</p>
               </div>
               <div class="table-actions">
+                <button class="secondary-btn admin-only" id="exportSuppliersCsvBtn" type="button">Exportar CSV</button>
+                <button class="secondary-btn admin-only" id="exportSuppliersPdfBtn" type="button">Exportar PDF</button>
                 <button class="secondary-btn admin-only" id="newSupplierBtn" type="button">+ Nuevo proveedor</button>
                 <button class="secondary-btn admin-only" id="newSupplierPaymentBtn" type="button">Registrar pago</button>
                 <button class="primary-btn admin-receiver-only" id="newSupplierRemitBtn" type="button">Cargar remito</button>
@@ -2773,7 +2782,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-135</span>
+          <span id="appFooterVersion">Version del sistema: 8790-138</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -3050,7 +3059,11 @@
         </div>
         <label>
           Domicilio
-          <input name="domicilio" required placeholder="Calle, numero y referencia">
+          <input name="domicilio" required placeholder="Calle y numero">
+        </label>
+        <label>
+          Referencia para ubicarlo (obligatoria al crear)
+          <input name="referencia" id="clientReferenceInput" placeholder="Ej: porton verde, frente a la plaza">
         </label>
         <div class="form-grid">
           <label>
@@ -4247,7 +4260,7 @@
             <textarea id="deliveryTransferObservations" rows="2" placeholder="Nro. operacion, banco emisor o comentario"></textarea>
           </label>
         </section>
-        <div class="signature-field">
+        <div class="signature-field" id="deliverySignatureBox" hidden>
           <div>
             <span>Firma del cliente (opcional)</span>
             <button class="mini-btn" id="clearDeliverySignatureBtn" type="button">Limpiar</button>
@@ -4308,7 +4321,7 @@
           Observacion obligatoria
           <textarea id="deliveryExceptionObservations" rows="3" required placeholder="Detalle breve para administracion"></textarea>
         </label>
-        <div class="signature-field" id="deliveryExceptionSignatureBox">
+        <div class="signature-field" id="deliveryExceptionSignatureBox" hidden>
           <div>
             <span>Firma del cliente (opcional)</span>
             <button class="mini-btn" id="clearDeliveryExceptionSignatureBtn" type="button">Limpiar</button>
@@ -4461,18 +4474,18 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-135-r20260906a"></script>
-    <script src="maps-config.js?v=8790-135-r20260906a"></script>
-    <script src="order-engine.js?v=8790-135-r20260906a"></script>
-    <script src="account-engine.js?v=8790-135-r20260906a"></script>
-    <script src="delivery-engine.js?v=8790-135-r20260906a"></script>
-    <script src="legal-engine.js?v=8790-135-r20260906a"></script>
-    <script src="client-portfolio-engine.js?v=8790-135-r20260906a"></script>
-    <script src="client-hours.js?v=8790-135-r20260906a"></script>
-    <script src="share-engine.js?v=8790-135-r20260906a"></script>
-    <script src="portfolio-export-engine.js?v=8790-135-r20260906a"></script>
-    <script src="progressive-list.js?v=8790-135-r20260906a"></script>
-    <script src="app.js?v=8790-135-r20260906a"></script>
+    <script src="config.js?v=8790-138-r20260906b"></script>
+    <script src="maps-config.js?v=8790-138-r20260906b"></script>
+    <script src="order-engine.js?v=8790-138-r20260906b"></script>
+    <script src="account-engine.js?v=8790-138-r20260906b"></script>
+    <script src="delivery-engine.js?v=8790-138-r20260906b"></script>
+    <script src="legal-engine.js?v=8790-138-r20260906b"></script>
+    <script src="client-portfolio-engine.js?v=8790-138-r20260906b"></script>
+    <script src="client-hours.js?v=8790-138-r20260906b"></script>
+    <script src="share-engine.js?v=8790-138-r20260906b"></script>
+    <script src="portfolio-export-engine.js?v=8790-138-r20260906b"></script>
+    <script src="progressive-list.js?v=8790-138-r20260906b"></script>
+    <script src="app.js?v=8790-138-r20260906b"></script>
   </body>
 </html>
 

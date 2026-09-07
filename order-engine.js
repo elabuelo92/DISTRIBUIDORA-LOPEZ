@@ -558,11 +558,24 @@
     return order.commissions;
   }
 
+  function historicalOrders(state) {
+    const active = Array.isArray(state && state.orders) ? state.orders : [];
+    const archived = Array.isArray(state && state.archivedOrders) ? state.archivedOrders : [];
+    const seen = new Set();
+    return [...active, ...archived].filter((order, index) => {
+      const code = String(order && order.code || "").trim();
+      const key = code || `SIN-CODIGO-${index}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
   function refreshSellerMetrics(state) {
     const sellers = Array.isArray(state.sellers) ? state.sellers : [];
     sellers.forEach((seller) => {
       const sellerName = String(seller.name || "");
-      const orders = (state.orders || []).filter((order) => order.seller === sellerName && !CANCELLED_COMMISSION_STATUSES.has(order.status));
+      const orders = historicalOrders(state).filter((order) => order.seller === sellerName && !CANCELLED_COMMISSION_STATUSES.has(order.status));
       seller.orders = orders.length;
       seller.sales = orders.reduce((sum, order) => sum + positive(order.amount), 0);
       seller.commission = orders.reduce((sum, order) => {
@@ -642,7 +655,7 @@
     const from = filters.dateFrom ? new Date(validIso(filters.dateFrom)).getTime() : Number.NEGATIVE_INFINITY;
     const to = filters.dateTo ? new Date(validIso(filters.dateTo)).getTime() : Number.POSITIVE_INFINITY;
     const rows = new Map();
-    (state.orders || []).forEach((order) => {
+    historicalOrders(state).forEach((order) => {
       const orderAt = new Date(validIso(order.createdAt || order.receivedAt || order.date)).getTime();
       if (orderAt < from || orderAt > to) return;
       const commissions = order.commissions || normalizeOrderCommissions(state, order);
@@ -704,7 +717,7 @@
     const from = commissionBoundary(filters.dateFrom || filters.from, false);
     const to = commissionBoundary(filters.dateTo || filters.to, true);
     if (from > to) throw new Error("El rango de fechas de la cuenta de comisiones no es valido.");
-    const orders = (state.orders || []).filter((order) => {
+    const orders = historicalOrders(state).filter((order) => {
       const at = new Date(validIso(order.createdAt || order.receivedAt || order.date)).getTime();
       return at >= from && at <= to && sellerCommissionAmount(order, seller) > 0;
     }).sort((a, b) => new Date(a.createdAt || a.receivedAt || 0) - new Date(b.createdAt || b.receivedAt || 0));
@@ -779,7 +792,8 @@
     statement.orders.forEach((row) => {
       if (remaining <= 0 || row.balance <= 0) return;
       const applied = Math.min(row.balance, remaining);
-      const order = (state.orders || []).find((item) => item.code === row.orderCode);
+      const order = historicalOrders(state).find((item) => item.code === row.orderCode);
+      if (!order) throw new Error(`No se encontro el pedido historico ${row.orderCode}.`);
       const paidAfter = row.paid + applied;
       order.commissionPaidAmount = paidAfter;
       order.commissionBalance = Math.max(0, row.accrued - paidAfter);
@@ -1228,7 +1242,7 @@
   }
 
   function maxAssemblyOrderNumber(state) {
-    return (state.orders || []).reduce((max, order) => {
+    return historicalOrders(state).reduce((max, order) => {
       const assembly = order && order.assembly && typeof order.assembly === "object" ? order.assembly : {};
       return Math.max(max, Math.floor(positive(assembly.orderNumber ?? assembly.assemblyOrderNumber ?? order.assemblyOrderNumber)));
     }, 0);
@@ -1253,7 +1267,7 @@
   function orderWithAssemblyOrderNumber(state, number, exceptCode) {
     const target = Math.floor(positive(number));
     if (target <= 0) return null;
-    return (state.orders || []).find((item) => {
+    return historicalOrders(state).find((item) => {
       if (!item || item.code === exceptCode) return false;
       const assembly = normalizeAssembly(item);
       return Math.floor(positive(assembly.orderNumber ?? assembly.assemblyOrderNumber)) === target;
@@ -1395,7 +1409,7 @@
   }
 
   function nextOrderCode(state) {
-    const maxNumber = (state.orders || []).reduce((max, order) => {
+    const maxNumber = historicalOrders(state).reduce((max, order) => {
       const match = String(order.code || "").match(/PED-(\d+)/i);
       return match ? Math.max(max, Number(match[1])) : max;
     }, 2051);
@@ -2403,6 +2417,7 @@
     previewCommissionRule,
     refreshOrderCommissions,
     refreshSellerMetrics,
+    historicalOrders,
     recalculateCommissions,
     summarizeCommissions,
     commissionAccountStatement,

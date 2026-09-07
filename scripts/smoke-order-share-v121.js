@@ -45,16 +45,18 @@ assert.match(summary.text, /Promocion autorizada para el cliente/);
   assert.equal(summary.text.includes(secret), false, `Se filtro informacion interna: ${secret}`);
 });
 assert.match(ShareEngine.whatsappUrl(summary), /^https:\/\/wa\.me\/5493512223344\?text=/);
+assert.match(ShareEngine.whatsappAppUrl(summary), /^whatsapp:\/\/send\?phone=5493512223344&text=/);
 assert.equal(ShareEngine.argentinaWhatsAppPhone("+54 9 351 222 3344"), "5493512223344");
 assert.equal(ShareEngine.argentinaWhatsAppPhone("3512223344"), "5493512223344");
 
 const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
 const indexSource = fs.readFileSync(path.join(root, "index.html"), "utf8");
 assert.match(indexSource, /id="shareMobileOrderWhatsAppBtn"/);
-assert.match(indexSource, /share-engine\.js\?v=8790-133-r20260905c/);
+assert.match(indexSource, /share-engine\.js\?v=8790-138-r20260906b/);
 assert.match(appSource, /const order = payload\.order;[\s\S]{0,900}mobileLastConfirmedOrderShare =/);
 assert.match(appSource, /shareConfirmedMobileOrderWhatsApp/);
 assert.match(appSource, /navigator\.share/);
+assert.match(appSource, /hasAndroidBridge[\s\S]{0,400}whatsappAppUrl/);
 
 async function verifyConfirmedOrder() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dl-v121-share-"));
