@@ -8228,12 +8228,12 @@ function exportSelectedOrdersCsv() {
   downloadBlob(`pedidos-seleccionados-${reportDateStamp()}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }));
 }
 
-async function downloadXlsxReport({ fileName, sheetName, headers, rows }) {
+async function downloadXlsxReport({ fileName, sheetName, headers, rows, ...options }) {
   const response = await fetchWithTimeout(apiUrl("api/reports/xlsx"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     cache: "no-store",
-    body: JSON.stringify({ fileName, sheetName, headers, rows })
+    body: JSON.stringify({ fileName, sheetName, headers, rows, ...options })
   }, 30000);
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || "No se pudo generar el Excel.");
@@ -8985,12 +8985,6 @@ function deliveryPlannerGroupKey(order) {
   return orderRouteText(order) || orderZoneText(order) || "Sin ruta";
 }
 
-const DELIVERY_PLANNER_CSV_HEADERS = [
-  "Secuencia", "Orden armado", "Pedido", "Cliente", "Telefono", "Domicilio", "Referencia",
-  "Localidad", "Zona", "Ruta comercial", "Bultos", "Importe", "Horario", "Vendedor", "Estado",
-  "Ruta reparto", "Repartidor", "GPS", "Latitud", "Longitud", "Maps"
-];
-
 const DELIVERY_PLANNER_PDF_HEADERS = [
   "#", "Pedido", "Cliente", "Domicilio / referencia", "Telefono", "Zona / ruta", "Bultos",
   "Importe", "Horario", "Vendedor", "Estado", "GPS"
@@ -9038,7 +9032,7 @@ function deliveryPlannerManifestRecord(order, index) {
   };
 }
 
-function exportDeliveryPlannerManifest(format) {
+async function exportDeliveryPlannerManifest(format) {
   if (!canPlanDeliveryRoutes()) {
     window.alert("No posee permisos para exportar la planificacion.");
     return;
@@ -9052,37 +9046,46 @@ function exportDeliveryPlannerManifest(format) {
   const day = byId("deliveryPlannerDay")?.value || routeDayToday();
   const source = deliveryPlannerSelection.size ? "seleccion" : "filtros";
   const filePart = safeFilePart(`${day}-${source}-${records.length}-pedidos`);
-  if (format === "csv") {
-    const rows = records.map((record) => [
-      record.sequence, record.assemblyOrder, record.orderCode, record.client, record.phone, record.address,
-      record.reference, record.locality, record.zone, record.commercialRoute, record.packages, record.amount,
-      record.hours, record.seller, record.status, record.deliveryRoute, record.driver, record.gps,
-      record.latitude, record.longitude, record.maps
-    ]);
-    downloadCsvReport(`manifiesto-planificacion-${filePart}.csv`, DELIVERY_PLANNER_CSV_HEADERS, rows);
-  } else {
-    const rows = records.map((record) => [
-      record.sequence,
-      record.orderCode,
-      record.client,
-      [record.address, record.reference].filter(Boolean).join(" - "),
-      record.phone,
-      [record.zone, record.commercialRoute].filter(Boolean).join(" / "),
-      record.packages,
-      money.format(record.amount),
-      record.hours || "-",
-      record.seller,
-      record.status,
-      record.gps
-    ]);
-    downloadBlob(`manifiesto-planificacion-${filePart}.pdf`, makeTablePdf(`Manifiesto para planificar - ${day}`, DELIVERY_PLANNER_PDF_HEADERS, rows, {
-      weights: [0.35, 0.75, 1.2, 2.35, 0.85, 1.15, 0.48, 0.8, 1.15, 0.85, 1.05, 0.4],
-      fontSize: 5.7,
-      rowHeight: 18,
-      subtitle: `${records.length} pedidos - ${deliveryPlannerSelection.size ? "seleccion actual" : "resultados filtrados"}`
-    }));
+  const compactRows = records.map((record) => [
+    record.sequence,
+    record.orderCode,
+    record.client,
+    [record.address, record.reference].filter(Boolean).join(" - "),
+    record.phone,
+    [record.zone, record.commercialRoute].filter(Boolean).join(" / "),
+    record.packages,
+    numeric(record.amount, 0),
+    record.hours || "-",
+    record.seller,
+    record.status,
+    record.gps
+  ]);
+  try {
+    if (format === "xlsx") {
+      await downloadXlsxReport({
+        fileName: `manifiesto-planificacion-${filePart}.xlsx`,
+        sheetName: "Planificacion",
+        title: `Manifiesto para planificar - ${day}`,
+        subtitle: `${records.length} pedidos - ${deliveryPlannerSelection.size ? "seleccion actual" : "resultados filtrados"}`,
+        headers: DELIVERY_PLANNER_PDF_HEADERS,
+        rows: compactRows,
+        columnWidths: [6, 15, 24, 46, 16, 24, 9, 14, 24, 16, 22, 8],
+        columnFormats: ["0", "@", "@", "@", "@", "@", "0", "$ #,##0.00", "@", "@", "@", "@"],
+        wrapColumns: [3, 4, 6, 9, 11]
+      });
+    } else {
+      const rows = compactRows.map((row) => row.map((value, index) => index === 7 ? money.format(value) : value));
+      downloadBlob(`manifiesto-planificacion-${filePart}.pdf`, makeTablePdf(`Manifiesto para planificar - ${day}`, DELIVERY_PLANNER_PDF_HEADERS, rows, {
+        weights: [0.35, 0.75, 1.2, 2.35, 0.85, 1.15, 0.48, 0.8, 1.15, 0.85, 1.05, 0.4],
+        fontSize: 6.4,
+        rowHeight: 20,
+        subtitle: `${records.length} pedidos - ${deliveryPlannerSelection.size ? "seleccion actual" : "resultados filtrados"}`
+      }));
+    }
+    showCompactNotice(`${records.length} pedidos exportados en ${format === "xlsx" ? "Excel" : "PDF"}.`, "ok");
+  } catch (error) {
+    showCompactNotice(error.message || "No se pudo exportar el manifiesto.", "danger");
   }
-  showCompactNotice(`${records.length} pedidos exportados en ${String(format).toUpperCase()}.`, "ok");
 }
 
 function renderDeliveryPlannerOrder(order) {
@@ -13811,13 +13814,13 @@ function makeTablePdf(title, headers, rows, options = {}) {
   };
   const pageRefs = [];
   chunks.forEach((pageData, pageIndex) => {
-    const commands = ["0 G", "0.45 w"];
+    const commands = ["0 G", "0 g", "0.45 w"];
     commands.push("BT", "/F1 14 Tf", `${margin} ${pageHeight - 32} Td`, `(${pdfEscape(title)}) Tj`, "ET");
     const meta = `${options.subtitle || "Distribuidora Lopez"} - ${new Date().toLocaleString("es-AR")} - Pagina ${pageIndex + 1}/${chunks.length}`;
     commands.push("BT", "/F1 7 Tf", `${margin} ${pageHeight - 49} Td`, `(${pdfEscape(pdfCellText(meta, availableWidth, 7))}) Tj`, "ET");
 
     const drawRow = (values, y, header = false) => {
-      if (header) commands.push("0.92 g", `${margin} ${y} ${availableWidth} ${rowHeight} re f`, "0 G");
+      if (header) commands.push("0.92 g", `${margin} ${y} ${availableWidth} ${rowHeight} re f`, "0 g", "0 G");
       commands.push(`${margin} ${y} ${availableWidth} ${rowHeight} re S`);
       let x = margin;
       values.forEach((value, index) => {
@@ -21255,7 +21258,7 @@ byId("selectFilteredDeliveryPlannerBtn").addEventListener("click", () => {
   refreshDeliveryPlannerSelectionUi();
 });
 
-byId("exportDeliveryPlannerCsvBtn").addEventListener("click", () => exportDeliveryPlannerManifest("csv"));
+byId("exportDeliveryPlannerXlsxBtn").addEventListener("click", () => exportDeliveryPlannerManifest("xlsx"));
 byId("exportDeliveryPlannerPdfBtn").addEventListener("click", () => exportDeliveryPlannerManifest("pdf"));
 
 byId("deliveryPlannerSelectAll").addEventListener("change", (event) => {

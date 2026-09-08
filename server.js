@@ -21,7 +21,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-140";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-141";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
@@ -4136,19 +4136,54 @@ async function reportWorkbookBase64(input, user) {
   workbook.created = new Date();
   const sheetName = String(input.sheetName || "Reporte").replace(/[\\/*?:\[\]]/g, " ").slice(0, 31) || "Reporte";
   const sheet = workbook.addWorksheet(sheetName);
+  const title = String(input.title || "").trim().slice(0, 180);
+  const subtitle = String(input.subtitle || "").trim().slice(0, 240);
+  let headerRowNumber = 1;
+  if (title) {
+    sheet.addRow([title]);
+    sheet.mergeCells(1, 1, 1, headers.length);
+    sheet.getRow(1).font = { bold: true, size: 16, color: { argb: "FF111827" } };
+    sheet.getRow(1).height = 25;
+    sheet.getRow(1).alignment = { vertical: "middle" };
+    if (subtitle) {
+      sheet.addRow([subtitle]);
+      sheet.mergeCells(2, 1, 2, headers.length);
+      sheet.getRow(2).font = { size: 10, color: { argb: "FF374151" } };
+      sheet.getRow(2).height = 19;
+    }
+    headerRowNumber = subtitle ? 3 : 2;
+  }
   sheet.addRow(headers);
   rows.forEach((row) => sheet.addRow(row.map((value) => value == null ? "" : value)));
-  sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-  sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F766E" } };
-  sheet.views = [{ state: "frozen", ySplit: 1 }];
-  sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: headers.length } };
+  sheet.getRow(headerRowNumber).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  sheet.getRow(headerRowNumber).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F766E" } };
+  sheet.getRow(headerRowNumber).height = 22;
+  sheet.getRow(headerRowNumber).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+  sheet.views = [{ state: "frozen", ySplit: headerRowNumber }];
+  sheet.autoFilter = { from: { row: headerRowNumber, column: 1 }, to: { row: headerRowNumber, column: headers.length } };
+  const requestedWidths = Array.isArray(input.columnWidths) ? input.columnWidths : [];
   sheet.columns.forEach((column, index) => {
     const values = [headers[index], ...rows.slice(0, 500).map((row) => row[index])];
-    column.width = Math.max(12, Math.min(48, values.reduce((max, value) => Math.max(max, String(value == null ? "" : value).length), 0) + 2));
+    const requested = Number(requestedWidths[index]);
+    column.width = Number.isFinite(requested)
+      ? Math.max(6, Math.min(60, requested))
+      : Math.max(12, Math.min(48, values.reduce((max, value) => Math.max(max, String(value == null ? "" : value).length), 0) + 2));
   });
+  const columnFormats = Array.isArray(input.columnFormats) ? input.columnFormats : [];
+  const wrapColumns = new Set((Array.isArray(input.wrapColumns) ? input.wrapColumns : []).map(Number).filter((value) => Number.isInteger(value) && value >= 1 && value <= headers.length));
   sheet.eachRow((row, number) => {
-    if (number > 1 && number % 2 === 0) row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F4" } };
+    if (number > headerRowNumber && (number - headerRowNumber) % 2 === 0) row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F4" } };
+    if (number > headerRowNumber) {
+      row.alignment = { vertical: "top" };
+      row.eachCell((cell, columnNumber) => {
+        const format = String(columnFormats[columnNumber - 1] || "").trim();
+        if (format) cell.numFmt = format;
+        if (wrapColumns.has(columnNumber)) cell.alignment = { vertical: "top", wrapText: true };
+      });
+    }
   });
+  sheet.pageSetup = { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
+  sheet.printTitlesRow = `${headerRowNumber}:${headerRowNumber}`;
   return Buffer.from(await workbook.xlsx.writeBuffer()).toString("base64");
 }
 
@@ -5679,8 +5714,8 @@ const server = http.createServer(async (req, res) => {
     if (requestUrl.pathname === "/api/reports/xlsx" && req.method === "POST") {
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
-      if (sessionUser.role !== "admin") {
-        sendJson(res, 403, { ok: false, error: "Exportar reportes requiere Administrador." });
+      if (sessionUser.role !== "admin" && !canPlanDeliveryRoutes(sessionUser)) {
+        sendJson(res, 403, { ok: false, error: "Exportar reportes requiere Administrador o Planificador de reparto." });
         return;
       }
       try {

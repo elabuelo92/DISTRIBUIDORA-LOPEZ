@@ -100,7 +100,7 @@ assert.match(app, /openOrderTimeline\(code\)[\s\S]{0,220}archivedOrders/);
 
 console.log(JSON.stringify({
   ok: true,
-  version: "8790-140",
+  version: "8790-141",
   restored: result.restored,
   activeOrders: state.orders.length,
   historicalOrders: state.archivedOrders.length,

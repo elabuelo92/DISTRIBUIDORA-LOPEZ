@@ -122,7 +122,8 @@ assert.match(app, /currentUser\.role === "driver"[\s\S]*username[\s\S]*=== "dari
 assert.match(app, /data-route-drag/);
 assert.match(app, /persistDeliveryDragOrder/);
 assert.match(server, /function canPlanDeliveryRoutes\(user\)/);
-assert.equal((server.match(/!canPlanDeliveryRoutes\(sessionUser\)/g) || []).length, 4);
+assert.equal((server.match(/!canPlanDeliveryRoutes\(sessionUser\)/g) || []).length, 5);
+assert.match(server, /Exportar reportes requiere Administrador o Planificador de reparto/);
 assert.match(html, /delivery-planner-authorized/);
 assert.match(html, /id="deliverySignatureBox" hidden/);
 assert.match(html, /id="deliveryExceptionSignatureBox" hidden/);
@@ -135,7 +136,7 @@ assert.doesNotMatch(server, /Planificacion permitida solo para administradores/)
 
 console.log(JSON.stringify({
   ok: true,
-  version: "8790-140",
+  version: "8790-141",
   plannedOrders: route.stops.length,
   reorderedOrders: reordered.stops.length,
   dispatchedWithoutScanner: state.orders.filter((order) => !order.assembly.label.scanned).length,
