@@ -5486,6 +5486,24 @@ td small {
   text-align: left;
 }
 
+.planner-route-summary-row {
+  display: grid;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.planner-route-summary-row .planner-route-summary {
+  border: 0;
+  padding: 3px;
+}
+
+.planner-route-summary-row > .mini-btn {
+  justify-self: start;
+}
+
 .planner-route-summary:hover {
   border-color: var(--accent);
 }

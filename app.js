@@ -9093,9 +9093,12 @@ function renderDeliveryPlannerOrder(order) {
   const route = deliveryPlannerRoute(order);
   const assembly = orderAssemblyInfo(order);
   const selected = deliveryPlannerSelection.has(order.code);
+  const selectionReason = route
+    ? `Ya incluido en ${route.id}. Deshacer esa planificacion para volver a seleccionarlo.`
+    : (!destination.hasDestination ? "El pedido necesita domicilio o GPS para planificarlo." : "");
   return `
     <tr class="${selected ? "selected" : ""} ${destination.hasDestination ? "" : "invalid"}" data-planner-row="${escapeHtml(order.code)}">
-      <td><input type="checkbox" data-planner-order="${escapeHtml(order.code)}" aria-label="Seleccionar ${escapeHtml(order.code)}" ${selected ? "checked" : ""} ${(!destination.hasDestination || route) ? "disabled" : ""}></td>
+      <td><input type="checkbox" data-planner-order="${escapeHtml(order.code)}" aria-label="Seleccionar ${escapeHtml(order.code)}" title="${escapeHtml(selectionReason)}" ${selected ? "checked" : ""} ${(!destination.hasDestination || route) ? "disabled" : ""}></td>
       <td>${escapeHtml(formatAssemblyOrderNumber(assembly))}</td>
       <td><strong>${escapeHtml(order.code)}</strong></td>
       <td><strong>${escapeHtml(order.client)}</strong></td>
@@ -9132,12 +9135,46 @@ function renderDeliveryPlannerRoutes() {
   const target = byId("deliveryPlannerRoutes");
   if (!target) return;
   const selectedDay = byId("deliveryPlannerDay")?.value || routeDayToday();
-  const routes = (state.deliveryRoutes || []).filter((route) => !isDeliveryRouteClosed(route) && String(route.day || "").slice(0, 10) === selectedDay);
+  const routes = (state.deliveryRoutes || []).filter((route) => (
+    !isDeliveryRouteClosed(route)
+    && (
+      String(route.day || "").slice(0, 10) === selectedDay
+      || (String(route.status || "").trim() === "Planificada" && !route.publishedAt && !route.startedAt)
+    )
+  ));
   target.innerHTML = routes.length ? routes.map((route) => {
     const orders = (route.stops || []).map((stop) => state.orders.find((order) => order.code === stop.orderCode)).filter(Boolean);
     const packages = orders.reduce((sum, order) => sum + numeric(orderAssemblyInfo(order).bultos, 0), 0);
-    return `<button type="button" class="planner-route-summary" data-delivery-route="${escapeHtml(route.id)}"><strong>${escapeHtml(route.id)}</strong><span>${orders.length} pedidos / ${packages} bultos</span><small>${escapeHtml(route.deviceLabel || route.driverUser || "Sin repartidor")}</small></button>`;
+    const canUnplan = String(route.status || "").trim() === "Planificada" && !route.publishedAt && !route.startedAt;
+    return `
+      <div class="planner-route-summary-row">
+        <button type="button" class="planner-route-summary" data-delivery-route="${escapeHtml(route.id)}">
+          <strong>${escapeHtml(route.id)}</strong>
+          <span>${escapeHtml(route.day || "Sin fecha")} - ${orders.length} pedidos / ${packages} bultos</span>
+          <small>${escapeHtml(route.deviceLabel || route.driverUser || "Sin repartidor")}</small>
+        </button>
+        ${canUnplan ? `<button type="button" class="mini-btn" data-unplan-planned-route="${escapeHtml(route.id)}">Deshacer planificacion</button>` : ""}
+      </div>
+    `;
   }).join("") : '<p class="empty-note">Todavia no hay rutas abiertas.</p>';
+}
+
+async function unplanDeliveryRoute(routeId, reason) {
+  const route = (state.deliveryRoutes || []).find((item) => item.id === routeId);
+  if (!route) throw new Error("La hoja planificada ya no existe o fue actualizada.");
+  if (String(route.status || "").trim() !== "Planificada" || route.publishedAt || route.startedAt) {
+    throw new Error("Solo se puede deshacer una hoja que no fue publicada ni iniciada.");
+  }
+  if (!window.confirm(`Deshacer ${route.id} y devolver sus ${route.stops.length} pedidos a Sin asignar?`)) return false;
+  await postOperationalAction(`api/delivery/routes/${encodeURIComponent(routeId)}/unplan`, {
+    reason: reason || "Deshacer hoja planificada"
+  });
+  if (activeDeliveryRouteId === routeId) activeDeliveryRouteId = "";
+  if (deliveryPlannerUndoRouteId === routeId) deliveryPlannerUndoRouteId = "";
+  const undo = byId("undoDeliveryPlannerBtn");
+  if (undo) undo.hidden = true;
+  showCompactNotice(`${routeId} deshecha. Los pedidos volvieron a Sin asignar.`, "warn");
+  return true;
 }
 
 function renderDeliveryPlanner() {
@@ -21326,10 +21363,7 @@ byId("undoDeliveryPlannerBtn").addEventListener("click", async () => {
   if (!deliveryPlannerUndoRouteId) return;
   const routeId = deliveryPlannerUndoRouteId;
   try {
-    await postOperationalAction(`api/delivery/routes/${encodeURIComponent(routeId)}/unplan`, { reason: "Deshacer ultima asignacion masiva" });
-    deliveryPlannerUndoRouteId = "";
-    byId("undoDeliveryPlannerBtn").hidden = true;
-    showCompactNotice(`${routeId} deshecha. Los pedidos volvieron a Sin asignar.`, "warn");
+    await unplanDeliveryRoute(routeId, "Deshacer ultima asignacion masiva");
   } catch (error) {
     window.alert(error.message || "No se pudo deshacer la planificacion.");
   }
@@ -21468,6 +21502,18 @@ document.addEventListener("click", async (event) => {
   const manifest = event.target.closest("[data-route-manifest]");
   if (manifest) {
     exportDeliveryRouteManifest(manifest.dataset.routeId, manifest.dataset.routeManifest);
+    return;
+  }
+  const unplanRoute = event.target.closest("[data-unplan-planned-route]");
+  if (unplanRoute) {
+    unplanRoute.disabled = true;
+    try {
+      await unplanDeliveryRoute(unplanRoute.dataset.unplanPlannedRoute, "Deshacer hoja planificada persistida");
+    } catch (error) {
+      window.alert(error.message || "No se pudo deshacer la planificacion.");
+    } finally {
+      unplanRoute.disabled = false;
+    }
     return;
   }
   const presenceMapsButton = event.target.closest("[data-presence-open-maps]");

@@ -5,9 +5,9 @@
     SOCKET_URL: "",
     SERVER_NAME: "SERVIDOR_UNICO_8790",
     MAGIC_DNS_HOST: "desktop-c2c0q4v.tail6f19de.ts.net",
-    VERSION: "8790-142",
-    BUILD_LABEL: "09/09/2026 01:15 ART",
-    BUILD_AT: "2026-09-09T01:15:00-03:00",
+    VERSION: "8790-143",
+    BUILD_LABEL: "09/09/2026 09:16 ART",
+    BUILD_AT: "2026-09-09T09:16:59-03:00",
     RELEASE_CHANNEL: "Produccion",
     TIMEOUTS: {
       server: 7000,

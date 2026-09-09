@@ -94,6 +94,18 @@ const route = DeliveryEngine.createPlannedRoute(state, {
 assert.equal(route.stops.length, 60);
 assert.equal(route.driverUser, "dario");
 
+const undoState = buildState(3);
+const undoRoute = DeliveryEngine.createPlannedRoute(undoState, {
+  orderCodes: undoState.orders.map((order) => order.code),
+  day: "2026-09-04",
+  zone: "Centro",
+  driverUser: "dario",
+  driverLabel: "Darío"
+}, context);
+DeliveryEngine.removePlannedRoute(undoState, undoRoute.id, context);
+assert.equal(undoState.deliveryRoutes.length, 0);
+assert.equal(undoState.orders.filter((order) => order.status === OrderEngine.STATUS.READY_DISPATCH).length, 3);
+
 const reversed = route.stops.map((stop) => stop.orderCode).reverse();
 const reordered = DeliveryEngine.reorderRoute(state, route.id, reversed, context);
 assert.equal(reordered.manualOrder, true);
@@ -132,6 +144,9 @@ assert.doesNotMatch(app, /uploadDeliveryImage\(orderCode, "signature"/);
 assert.match(app, /Scanner opcional/);
 assert.match(app, /class="delivery-stop-table"/);
 assert.match(app, /data-route-manifest="csv"/);
+assert.match(app, /data-unplan-planned-route/);
+assert.match(app, /function unplanDeliveryRoute\(routeId, reason\)/);
+assert.match(html, /Rutas abiertas/);
 assert.doesNotMatch(server, /Planificacion permitida solo para administradores/);
 
 console.log(JSON.stringify({
