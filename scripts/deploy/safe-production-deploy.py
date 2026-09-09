@@ -21,6 +21,7 @@ DATA_DIR = "/opt/distribuidora-lopez/data"
 BACKUP_ROOT = "/opt/distribuidora-lopez/backups"
 SERVICE = "distribuidora-lopez.service"
 PUBLIC_HEALTH = "https://lopez.gruporochaapp.com/api/health"
+MAINTENANCE_FILE = f"{DATA_DIR}/maintenance-mode.json"
 
 
 def connect():
@@ -83,6 +84,16 @@ fi
 BACKUP_DIR="{BACKUP_ROOT}/emergency-$STAMP"
 sudo mkdir -p "$BACKUP_DIR"
 
+enable_maintenance() {{
+  printf '%s\n' '{{"active":true,"startedAt":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","message":"Ventana de trabajo programada"}}' | sudo tee {MAINTENANCE_FILE} >/dev/null
+  sudo chown {USER}:{USER} {MAINTENANCE_FILE}
+  sudo chmod 640 {MAINTENANCE_FILE}
+}}
+
+disable_maintenance() {{
+  sudo rm -f {MAINTENANCE_FILE}
+}}
+
 git fetch origin main
 git show origin/main:scripts/order-dispatch-snapshot.js > /tmp/dl-order-dispatch-snapshot.js
 node --check /tmp/dl-order-dispatch-snapshot.js
@@ -99,10 +110,12 @@ if [ -n "$DESTRUCTIVE_DIFF" ]; then
   fi
 fi
 
+enable_maintenance
 sudo tar -C /opt/distribuidora-lopez -czf "$BACKUP_DIR/app.tar.gz" app
 sudo systemctl stop {SERVICE}
 if ! sudo tar -C /opt/distribuidora-lopez -czf "$BACKUP_DIR/data.tar.gz" data; then
   sudo systemctl start {SERVICE}
+  disable_maintenance
   echo 'ERROR: DATA_BACKUP_FAILED'
   exit 33
 fi
@@ -127,6 +140,7 @@ rollback_deploy() {{
     if curl -fsS --max-time 5 http://127.0.0.1:8790/api/health >/tmp/dl-health-rollback.json; then break; fi
     sleep 1
   done
+  disable_maintenance
   cat /tmp/dl-health-rollback.json 2>/dev/null || true
   exit "$ROLLBACK_CODE"
 }}
@@ -164,6 +178,7 @@ if ! sudo node /tmp/dl-order-dispatch-snapshot.js compare --before "$BACKUP_DIR/
   rollback_deploy 42 'ORDER_INTEGRITY_COMPARISON_FAILED'
 fi
 sudo chown -R {USER}:{USER} "$BACKUP_DIR"
+disable_maintenance
 echo __DEPLOYED_COMMIT__; git rev-parse --short HEAD
 echo __BACKUP__; echo "$BACKUP_DIR"
 echo __ORDER_PROTECTION__; cat "$BACKUP_DIR/orders-today-comparison.json"; echo

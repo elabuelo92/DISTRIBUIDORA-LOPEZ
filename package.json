@@ -33,7 +33,8 @@
     "test:portfolio-pdf": "node scripts/smoke-portfolio-pdf-v137.js",
     "test:operational-archive": "node scripts/smoke-operational-archive-v138.js",
     "test:operational-restore": "node scripts/smoke-operational-restore-v139.js",
-    "test:planner-manifest": "node scripts/smoke-planner-manifest-v141.js"
+    "test:planner-manifest": "node scripts/smoke-planner-manifest-v141.js",
+    "test:maintenance-mode": "node scripts/smoke-maintenance-mode-v142.js"
   },
   "engines": {
     "node": ">=18"

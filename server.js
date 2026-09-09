@@ -21,9 +21,11 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-141";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-142";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
+const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
+const MAINTENANCE_PAGE = path.join(ROOT, "maintenance.html");
 const PASSWORD_RECOVERY_LOG = path.join(DATA_DIR, "password-recovery.log");
 const SESSION_CONFIG_FILE = path.join(DATA_DIR, "session-config.json");
 const SESSION_AUDIT_LOG = path.join(DATA_DIR, "session-audit.log");
@@ -117,6 +119,44 @@ function sendJson(res, status, data, headers) {
     return;
   }
   finish(payload);
+}
+
+function maintenanceStatus() {
+  try {
+    if (!fs.existsSync(MAINTENANCE_FILE)) return null;
+    const payload = JSON.parse(fs.readFileSync(MAINTENANCE_FILE, "utf8"));
+    if (!payload || payload.active === false) return null;
+    return {
+      active: true,
+      startedAt: String(payload.startedAt || ""),
+      message: String(payload.message || "Mantenimiento programado").trim()
+    };
+  } catch {
+    return null;
+  }
+}
+
+function sendMaintenance(req, res, status, requestUrl) {
+  const isApiRequest = requestUrl.pathname.startsWith("/api/");
+  if (!isApiRequest && (req.method === "GET" || req.method === "HEAD")) {
+    const page = fs.existsSync(MAINTENANCE_PAGE)
+      ? fs.readFileSync(MAINTENANCE_PAGE)
+      : Buffer.from("<!doctype html><html lang=\"es\"><meta charset=\"utf-8\"><title>Mantenimiento</title><body><h1>Estamos trabajando</h1><p>Volvemos en unos minutos.</p></body></html>", "utf8");
+    send(res, 503, "text/html; charset=utf-8", req.method === "HEAD" ? "" : page, {
+      "Retry-After": "20",
+      "X-Maintenance-Mode": "active"
+    });
+    return;
+  }
+  sendJson(res, 503, {
+    ok: false,
+    code: "MAINTENANCE_MODE",
+    error: "El sistema se encuentra en mantenimiento. Volver a intentar en unos minutos.",
+    maintenance: status
+  }, {
+    "Retry-After": "20",
+    "X-Maintenance-Mode": "active"
+  });
 }
 
 function boundedNumber(value, fallback, min, max) {
@@ -4737,6 +4777,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    const activeMaintenance = maintenanceStatus();
+    const maintenanceAsset = requestUrl.pathname === "/icons/logo-distribuidora-lopez-512.png";
+    if (activeMaintenance && requestUrl.pathname !== "/api/health" && !maintenanceAsset) {
+      sendMaintenance(req, res, activeMaintenance, requestUrl);
+      return;
+    }
     const runtimeSecurity = securityEngine.verifyRuntime(false);
     if (!runtimeSecurity.allowed && requestUrl.pathname !== "/api/health") {
       sendJson(res, 423, {
@@ -9105,6 +9151,7 @@ const server = http.createServer(async (req, res) => {
     if (requestUrl.pathname === "/api/health" && req.method === "GET") {
       const payload = readStateFileCached();
       const currentState = payload.state || {};
+      const activeMaintenance = maintenanceStatus();
       const includeDetails = requestUrl.searchParams.get("details") === "1";
       orderEngine.migrateState(currentState);
       deliveryEngine.migrateState(currentState);
@@ -9129,6 +9176,7 @@ const server = http.createServer(async (req, res) => {
         usersFile: USERS_FILE,
         version: APP_RUNTIME_VERSION,
         runtimeVersion: APP_RUNTIME_VERSION,
+        maintenance: activeMaintenance || { active: false, startedAt: "", message: "" },
         stateVersion: payload.version || 0,
         activeSessions: publicSessions().length,
         openSessions: sessions.size,

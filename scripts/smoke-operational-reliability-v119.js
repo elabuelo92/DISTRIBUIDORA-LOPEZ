@@ -103,7 +103,7 @@ async function request(cookie, endpoint, body, expected = 200) {
 
   const clientResult = await request(sellerCookie, "api/clients/mobile", {
     operationId: "CLIENT-V119-PIN-0001", codigo_cliente: "C-PIN-119", nombre_comercial: "Cliente PIN v119",
-    consumidor_final: true, telefono: "3510000119", domicilio: "Calle 119", localidad: "Cordoba", forma_pago: "Contado",
+    consumidor_final: true, telefono: "3510000119", domicilio: "Calle 119", referencia: "Porton gris", localidad: "Cordoba", forma_pago: "Contado",
     limite_credito: 0, zona: "Centro", ruta: "Centro", dia_visita: "Lunes", operationPin: pinResult.pin,
     gps: { lat: -31.4167, lng: -64.1833, accuracy: 8, source: "gps" }
   });

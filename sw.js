@@ -1,6 +1,7 @@
-const CACHE_NAME = "distribuidora-lopez-servidor-unico-8790-v141";
+const CACHE_NAME = "distribuidora-lopez-servidor-unico-8790-v142";
 const ASSETS = [
   "./manifest.json",
+  "./maintenance.html",
   "./icons/icon.svg",
   "./icons/logo-distribuidora-lopez.jpg",
   "./icons/logo-distribuidora-lopez-192.png",
@@ -37,9 +38,11 @@ self.addEventListener("fetch", (event) => {
 
   if (event.request.mode === "navigate" || url.pathname.endsWith(".html") || url.pathname === "/") {
     event.respondWith(
-      fetch(event.request, { cache: "no-store" }).catch(() => new Response(
-        "<!doctype html><html lang=\"es\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Servidor sin conexion</title><body style=\"margin:0;display:grid;min-height:100vh;place-items:center;background:#11252b;color:#fff;font-family:Arial,sans-serif\"><main style=\"max-width:420px;padding:24px;text-align:center\"><h1>Servidor sin conexion</h1><p>La aplicacion no pudo llegar al servidor 8790. Abrir el servidor en la PC y volver a intentar.</p></main></body></html>",
-        { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } }
+      fetch(event.request, { cache: "no-store" }).catch(async () => (
+        await caches.match("./maintenance.html") || new Response(
+          "<!doctype html><html lang=\"es\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Mantenimiento</title><body><h1>Estamos trabajando</h1><p>Volvemos en unos minutos.</p></body></html>",
+          { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } }
+        )
       ))
     );
     return;
