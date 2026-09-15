@@ -1,6 +1,6 @@
 # Incidente de sesiones - 2026-09-15
 
-Estado: `8790-145` desplegada en produccion y validada en salud, integridad, pedidos, sesiones de vendedores y monitor. Ingreso de Administracion pendiente de comprobacion manual.
+Estado: `8790-145` desplegada en produccion y validada en salud, integridad, pedidos, sesiones de vendedores y administradores, y monitor. Navegacion administrativa manual pendiente de confirmacion del usuario.
 
 ## Evidencia
 
@@ -40,7 +40,7 @@ Pruebas locales: rafaga GPS/sesion, respuesta de estado sin cambios, activacion 
 - Pedidos al desplegar: 144 antes y 144 despues; 1.094 lineas, $12.506.740,97 y 224 bultos iguales; faltantes, agregados y modificados: 0.
 - `/api/health` local inicial: 0,54 s; publico con vendedores conectados: 0,09 a 0,22 s. Antes de esta fase se observo una respuesta de 19 s bajo carga; son muestras operativas, no un benchmark controlado de mejora porcentual.
 - El monitor quedo programado cada minuto. Hubo un timeout aislado en su primer ciclo, que se limpio en el siguiente; el contador volvio a 0 y el PID `68247` se mantuvo. No se registraron reinicios posteriores durante la observacion.
-- Cuatro inicios de sesion de vendedores comprobados. El unico cierre auditado fue renovacion voluntaria de login del mismo usuario, no una caida global. Falta comprobar un ingreso administrativo real despues del despliegue.
+- Cinco inicios de sesion de vendedores y dos de administradores comprobados por auditoria. El primer cierre auditado fue renovacion voluntaria de login del mismo usuario, no una caida global. La navegacion administrativa especifica requiere confirmacion manual del usuario.
 
 ## Mitigacion operativa
 
