@@ -1,6 +1,6 @@
 # Incidente de sesiones - 2026-09-15
 
-Estado: `8790-144` desplegada; se detecto saturacion de lectura con usuarios activos. `8790-145` preparada y probada para despliegue urgente autorizado.
+Estado: `8790-145` desplegada en produccion y validada en salud, integridad, pedidos, sesiones de vendedores y monitor. Ingreso de Administracion pendiente de comprobacion manual.
 
 ## Evidencia
 
@@ -32,6 +32,15 @@ Con `8790-144` en produccion, el monitor dejo de reiniciar el ERP durante la pri
 `8790-145` evita migraciones cuando el cliente ya tiene la version actual o solicita una respuesta diferida. Conserva la aplicacion de listas programadas realmente vencidas. `/api/health` deja de migrar estado para entregar solo el diagnostico. Se corrigio tambien una referencia obsoleta en la activacion de listas programadas que dejaba la lista como "Programada" y provocaba reintentos.
 
 Pruebas locales: rafaga GPS/sesion, respuesta de estado sin cambios, activacion programada de L3, proveedores/precios, precios comerciales, confiabilidad operativa, descuentos por producto, cache y sintaxis. Todas correctas. La lista base L2 permanece activa por regla preexistente; no se modifico esa politica.
+
+## Resultado en produccion
+
+- Commit de codigo: `02f6892`; version publica `8790-145`, sin mantenimiento.
+- Backup frio: `/opt/distribuidora-lopez/backups/state-fastpath-v145-20260915T153540Z/data-cold.tar` (2,07 GB) y copia adicional del estado, usuarios, configuracion, integridad y unit del monitor.
+- Pedidos al desplegar: 144 antes y 144 despues; 1.094 lineas, $12.506.740,97 y 224 bultos iguales; faltantes, agregados y modificados: 0.
+- `/api/health` local inicial: 0,54 s; publico con vendedores conectados: 0,09 a 0,22 s. Antes de esta fase se observo una respuesta de 19 s bajo carga; son muestras operativas, no un benchmark controlado de mejora porcentual.
+- El monitor quedo programado cada minuto. Hubo un timeout aislado en su primer ciclo, que se limpio en el siguiente; el contador volvio a 0 y el PID `68247` se mantuvo. No se registraron reinicios posteriores durante la observacion.
+- Cuatro inicios de sesion de vendedores comprobados. El unico cierre auditado fue renovacion voluntaria de login del mismo usuario, no una caida global. Falta comprobar un ingreso administrativo real despues del despliegue.
 
 ## Mitigacion operativa
 
