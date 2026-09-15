@@ -43,6 +43,7 @@ Description=Ejecuta el monitor Distribuidora Lopez cada minuto
 
 [Timer]
 OnBootSec=2min
+OnActiveSec=1min
 OnUnitActiveSec=1min
 AccuracySec=5s
 Persistent=true
