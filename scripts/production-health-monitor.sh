@@ -7,9 +7,9 @@ STATE_DIR="${DL_MONITOR_STATE_DIR:-/var/lib/distribuidora-lopez-monitor}"
 LOG_FILE="${DL_MONITOR_LOG_FILE:-/var/log/distribuidora-lopez-monitor.log}"
 FAILURE_LIMIT="${DL_MONITOR_FAILURE_LIMIT:-6}"
 MEMORY_HIGH_BYTES="${DL_MONITOR_MEMORY_HIGH_BYTES:-1073741824}"
-MEMORY_RESTART_BYTES="${DL_MONITOR_MEMORY_RESTART_BYTES:-1610612736}"
+MEMORY_CRITICAL_BYTES="${DL_MONITOR_MEMORY_CRITICAL_BYTES:-${DL_MONITOR_MEMORY_RESTART_BYTES:-1610612736}}"
 MEMORY_FAILURE_LIMIT="${DL_MONITOR_MEMORY_FAILURE_LIMIT:-2}"
-RESTART_COOLDOWN_SECONDS="${DL_MONITOR_RESTART_COOLDOWN_SECONDS:-900}"
+ALERT_REPEAT_SECONDS="${DL_MONITOR_ALERT_REPEAT_SECONDS:-900}"
 MODE="${1:-monitor}"
 
 mkdir -p "$STATE_DIR"
@@ -38,33 +38,19 @@ log_event() {
   logger -t distribuidora-lopez-monitor -- "$line"
 }
 
-restart_service() {
+alert_operator() {
   local reason="$1"
-  local now last_restart elapsed
+  local now last_alert elapsed alert_file
   now="$(date +%s)"
-  last_restart="$(read_counter "$STATE_DIR/last_restart")"
-  [[ "$last_restart" =~ ^[0-9]+$ ]] || last_restart=0
-  elapsed=$((now - last_restart))
-  if (( elapsed < RESTART_COOLDOWN_SECONDS )); then
-    log_event WARN "restart_omitted=cooldown reason=$reason remaining_seconds=$((RESTART_COOLDOWN_SECONDS - elapsed))"
+  alert_file="$STATE_DIR/last_alert_$reason"
+  last_alert="$(read_counter "$alert_file")"
+  [[ "$last_alert" =~ ^[0-9]+$ ]] || last_alert=0
+  elapsed=$((now - last_alert))
+  if (( elapsed < ALERT_REPEAT_SECONDS )); then
     return 0
   fi
-
-  log_event ERROR "restart_requested=true reason=$reason"
-  if systemctl restart "$SERVICE_NAME"; then
-    write_counter "$STATE_DIR/last_restart" "$now"
-    write_counter "$STATE_DIR/health_failures" 0
-    write_counter "$STATE_DIR/memory_failures" 0
-    sleep 4
-    if curl --silent --show-error --fail --max-time 8 "$HEALTH_URL" >/dev/null; then
-      log_event INFO "restart_result=healthy reason=$reason"
-    else
-      log_event ERROR "restart_result=unhealthy reason=$reason"
-    fi
-  else
-    log_event ERROR "restart_result=failed reason=$reason"
-    return 1
-  fi
+  write_counter "$alert_file" "$now"
+  log_event ERROR "alert=operator_required reason=$reason active=$active_state health_code=${health_code:-none} memory_bytes=$memory_current action=diagnose_no_automatic_restart"
 }
 
 health_failures="$(read_counter "$STATE_DIR/health_failures")"
@@ -82,6 +68,12 @@ health_code="$(printf '%s' "$health_meta" | awk '{print $1}')"
 health_seconds="$(printf '%s' "$health_meta" | awk '{print $2}')"
 
 if [[ "$active_state" == "active" && "$health_code" == "200" ]]; then
+  if (( health_failures > 0 )); then
+    log_event INFO "health=recovered previous_failures=$health_failures"
+    write_counter "$STATE_DIR/last_alert_health" 0
+    write_counter "$STATE_DIR/last_alert_health_warning" 0
+  fi
+  write_counter "$STATE_DIR/last_alert_service" 0
   health_failures=0
   write_counter "$STATE_DIR/health_failures" 0
 else
@@ -90,7 +82,7 @@ else
   log_event WARN "health=failed active=$active_state code=${health_code:-none} consecutive=$health_failures"
 fi
 
-if (( memory_current >= MEMORY_RESTART_BYTES )); then
+if (( memory_current >= MEMORY_CRITICAL_BYTES )); then
   memory_failures=$((memory_failures + 1))
   write_counter "$STATE_DIR/memory_failures" "$memory_failures"
   log_event WARN "memory=critical bytes=$memory_current consecutive=$memory_failures"
@@ -99,16 +91,32 @@ elif (( memory_current >= MEMORY_HIGH_BYTES )); then
   write_counter "$STATE_DIR/memory_failures" 0
   log_event WARN "memory=high bytes=$memory_current"
 else
+  if (( memory_failures > 0 )); then
+    log_event INFO "memory=recovered previous_failures=$memory_failures"
+    write_counter "$STATE_DIR/last_alert_memory" 0
+  fi
   memory_failures=0
   write_counter "$STATE_DIR/memory_failures" 0
 fi
 
+if [[ "$active_state" != "active" ]]; then
+  alert_operator service
+fi
+if (( health_failures >= 3 && health_failures < FAILURE_LIMIT )); then
+  alert_operator health_warning
+fi
 if (( health_failures >= FAILURE_LIMIT )); then
-  restart_service "health_failures_$health_failures"
-elif (( memory_failures >= MEMORY_FAILURE_LIMIT )); then
-  restart_service "memory_critical_$memory_current"
-elif [[ "$MODE" == "preflight" ]]; then
-  log_event INFO "preflight=ok active=$active_state health_code=${health_code:-none} latency_seconds=${health_seconds:-unknown} memory_bytes=$memory_current"
+  alert_operator health
+fi
+if (( memory_failures >= MEMORY_FAILURE_LIMIT )); then
+  alert_operator memory
+fi
+if [[ "$MODE" == "preflight" ]]; then
+  if [[ "$active_state" == "active" && "$health_code" == "200" && "$memory_current" -lt "$MEMORY_CRITICAL_BYTES" ]]; then
+    log_event INFO "preflight=ok active=$active_state health_code=$health_code latency_seconds=${health_seconds:-unknown} memory_bytes=$memory_current"
+  else
+    log_event ERROR "preflight=attention_required active=$active_state health_code=${health_code:-none} latency_seconds=${health_seconds:-unknown} memory_bytes=$memory_current"
+  fi
 fi
 
 exit 0

@@ -21,7 +21,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-145";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-146";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -1610,12 +1610,16 @@ function systemMonitorPayload() {
       healthFailures: readNumericFile(path.join(SYSTEM_MONITOR_STATE_DIR, "health_failures")),
       memoryFailures: readNumericFile(path.join(SYSTEM_MONITOR_STATE_DIR, "memory_failures")),
       lastRestartEpoch: readNumericFile(path.join(SYSTEM_MONITOR_STATE_DIR, "last_restart")),
+      lastHealthAlertEpoch: readNumericFile(path.join(SYSTEM_MONITOR_STATE_DIR, "last_alert_health")),
+      lastMemoryAlertEpoch: readNumericFile(path.join(SYSTEM_MONITOR_STATE_DIR, "last_alert_memory")),
+      policy: "alert_only",
       thresholds: {
-        healthFailures: 3,
+        healthFailures: 6,
+        healthWarningFailures: 3,
         memoryHighBytes: 1073741824,
-        memoryRestartBytes: 1610612736,
+        memoryCriticalBytes: 1610612736,
         memoryFailureChecks: 2,
-        restartCooldownSeconds: 300
+        alertRepeatSeconds: 900
       },
       events: recentMonitorEvents(24)
     }
@@ -7288,6 +7292,20 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    const orderLabelStatusMatch = requestUrl.pathname.match(/^\/api\/orders\/([^/]+)\/label\/status$/);
+    if (orderLabelStatusMatch && req.method === "GET") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (!["admin", "depot"].includes(sessionUser.role)) {
+        sendJson(res, 403, { ok: false, error: "Consulta permitida solo para administradores o deposito autorizado." });
+        return;
+      }
+      const currentPayload = readStateFileCached();
+      const order = entitySnapshot(currentPayload.state || {}, "pedido", decodeURIComponent(orderLabelStatusMatch[1]));
+      sendJson(res, 200, { ok: true, found: Boolean(order), order: order || null, version: currentPayload.version });
+      return;
+    }
+
     const orderLabelMatch = requestUrl.pathname.match(/^\/api\/orders\/([^/]+)\/(label|scan)$/);
     if (orderLabelMatch && req.method === "POST") {
       const sessionUser = requireUser(req, res);
@@ -7303,6 +7321,26 @@ const server = http.createServer(async (req, res) => {
       const code = decodeURIComponent(orderLabelMatch[1]);
       const action = orderLabelMatch[2];
       try {
+        if (action === "label") {
+          const existingOrder = entitySnapshot(currentState, "pedido", code);
+          const assembly = existingOrder && existingOrder.assembly || {};
+          const label = assembly.label || {};
+          if (label.generated) {
+            const operationId = String(input.operationId || "").trim();
+            const unchanged = Number(assembly.bultosConfirmed || assembly.bultos || 0) === Number(input.packages || input.bultos || 0)
+              && Number(assembly.orderNumber || assembly.assemblyOrderNumber || 0) === Number(input.assemblyOrderNumber || input.orderNumber || 0)
+              && String(assembly.observations || "").trim() === String(input.observations || "").trim()
+              && String(label.printer || "").trim() === String(input.printer || "").trim();
+            if ((operationId && label.operationId === operationId) || unchanged) {
+              sendJson(res, 200, { ok: true, found: true, idempotentReplay: true, order: existingOrder, version: currentPayload.version });
+              return;
+            }
+            if (input.regenerate !== true) {
+              sendJson(res, 409, { ok: false, code: "LABEL_ALREADY_GENERATED", error: "La etiqueta ya existe. Reimprimirla o confirmar expresamente un cambio de datos.", order: existingOrder, version: currentPayload.version });
+              return;
+            }
+          }
+        }
         const previousOrder = JSON.parse(JSON.stringify(entitySnapshot(currentState, "pedido", code)));
         const context = {
           user: sessionUser.name,

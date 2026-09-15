@@ -6718,6 +6718,12 @@ td small {
   width: min(680px, calc(100vw - 32px));
 }
 
+.order-label-modal .form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .assembly-fast-scan {
   display: grid;
   grid-template-columns: minmax(260px, 420px) minmax(0, 1fr);

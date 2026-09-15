@@ -35,7 +35,11 @@
     "test:operational-restore": "node scripts/smoke-operational-restore-v139.js",
     "test:planner-manifest": "node scripts/smoke-planner-manifest-v141.js",
     "test:maintenance-mode": "node scripts/smoke-maintenance-mode-v142.js",
-    "test:session-stability": "node scripts/smoke-session-stability-v144.js"
+    "test:session-stability": "node scripts/smoke-session-stability-v144.js",
+    "test:monitor-safety": "node scripts/smoke-monitor-safety.js",
+    "test:monitor-linux": "bash scripts/smoke-monitor-policy.sh",
+    "test:label-reprint": "node scripts/smoke-label-reprint.js",
+    "test:label-reprint-api": "node scripts/smoke-label-reprint-api.js"
   },
   "engines": {
     "node": ">=18"

@@ -562,6 +562,7 @@ let assemblyFastScanIndex = { signature: "", labels: new Map(), products: new Ma
 let orderEditTargetCode = "";
 let orderEditDraftItems = [];
 let orderLabelTargetCode = "";
+let orderLabelPendingOperationId = "";
 let orderScanTargetCode = "";
 let clientEditTargetId = "";
 let supplierRemitItems = [];
@@ -633,6 +634,11 @@ function fetchWithTimeout(url, options = {}, timeoutMs = SERVER_TIMEOUT_MS) {
   return fetch(url, {
     ...options,
     signal: controller.signal
+  }).catch((error) => {
+    if (!controller.signal.aborted) throw error;
+    const timeoutError = new Error(`El servidor demoro mas de ${Math.ceil(timeoutMs / 1000)} segundos. Compruebe el estado antes de repetir una operacion.`);
+    timeoutError.code = "REQUEST_TIMEOUT";
+    throw timeoutError;
   }).finally(() => clearTimeout(timer));
 }
 
@@ -788,7 +794,7 @@ function renderSystemMonitor() {
     { label: "RAM disponible", value: monitorBytes(host.freeMemoryBytes), tone: Number(host.freeMemoryBytes || 0) > 1024 ** 3 ? "ok" : "warn" },
     { label: "Estado activo", value: monitorBytes(stateInfo.bytes), tone: Number(stateInfo.bytes || 0) < 100 * 1024 ** 2 ? "ok" : "warn" },
     { label: "Sesiones", value: `${sessionInfo.active || 0} online / ${sessionInfo.total || 0}`, tone: "ok" },
-    { label: "Fallas health", value: `${monitor.healthFailures || 0} / ${thresholds.healthFailures || 3}`, tone: Number(monitor.healthFailures || 0) ? "warn" : "ok" },
+    { label: "Fallas health", value: `${monitor.healthFailures || 0} / ${thresholds.healthFailures || 6}`, tone: Number(monitor.healthFailures || 0) ? "warn" : "ok" },
     { label: "Tiempo activo", value: monitorDuration(data.service && data.service.uptimeSeconds), tone: "ok" }
   ];
   cards.innerHTML = cardItems.map((item) => `
@@ -796,7 +802,7 @@ function renderSystemMonitor() {
   `).join("");
 
   memoryBox.innerHTML = [
-    monitorBar("Uso actual", processInfo.rssBytes, processInfo.memoryMaxBytes || thresholds.memoryRestartBytes, rssTone),
+    monitorBar("Uso actual", processInfo.rssBytes, processInfo.memoryMaxBytes || thresholds.memoryCriticalBytes, rssTone),
     monitorBar("Heap JavaScript", processInfo.heapUsedBytes, processInfo.heapTotalBytes || 1, "ok"),
     monitorBar("Umbral preventivo", processInfo.rssBytes, processInfo.memoryHighBytes || thresholds.memoryHighBytes, rssTone)
   ].join("");
@@ -807,13 +813,18 @@ function renderSystemMonitor() {
   ].join("");
 
   const lastRestart = Number(monitor.lastRestartEpoch || 0);
+  const lastHealthAlert = Number(monitor.lastHealthAlertEpoch || 0);
+  const lastMemoryAlert = Number(monitor.lastMemoryAlertEpoch || 0);
   const protectionItems = [
     ["Control automatico", `Cada ${data.service && data.service.monitorIntervalSeconds || 60} segundos`],
     ["Chequeo previo", data.service && data.service.preflightLocalTime || "06:45 ART"],
-    ["Reinicio por health", `${thresholds.healthFailures || 3} fallas consecutivas`],
+    ["Alerta temprana", `${thresholds.healthWarningFailures || 3} fallas consecutivas`],
+    ["Alerta critica de health", `${thresholds.healthFailures || 6} fallas consecutivas; no reinicia`],
     ["Alerta de RAM", monitorBytes(thresholds.memoryHighBytes)],
-    ["Reinicio por RAM", `${monitorBytes(thresholds.memoryRestartBytes)} durante ${thresholds.memoryFailureChecks || 2} controles`],
-    ["Ultimo reinicio automatico", lastRestart ? new Date(lastRestart * 1000).toLocaleString("es-AR") : "Sin reinicios automaticos"]
+    ["Alerta critica de RAM", `${monitorBytes(thresholds.memoryCriticalBytes)} durante ${thresholds.memoryFailureChecks || 2} controles; no reinicia`],
+    ["Ultima alerta health", lastHealthAlert ? new Date(lastHealthAlert * 1000).toLocaleString("es-AR") : "Sin alertas"],
+    ["Ultima alerta RAM", lastMemoryAlert ? new Date(lastMemoryAlert * 1000).toLocaleString("es-AR") : "Sin alertas"],
+    ["Reinicio del monitor anterior", lastRestart ? new Date(lastRestart * 1000).toLocaleString("es-AR") : "Sin registros"]
   ];
   protections.innerHTML = protectionItems.map(([label, value]) => `<article class="diagnostic-detail"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(value)}</span></article>`).join("");
 
@@ -2410,7 +2421,7 @@ async function postOperationalAction(path, body, options = {}) {
     headers: { "Content-Type": "application/json" },
     cache: "no-store",
     body: JSON.stringify(body || {})
-  }, Math.max(1000, Number(options.timeoutMs || 12000)));
+  }, Math.max(1000, Number(options.timeoutMs || 45000)));
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(payload.error || "No se pudo completar la operacion.");
@@ -6785,6 +6796,25 @@ function canOpenLabelDialog(order) {
   return canOperateAssembly() && order && [ORDER_STATUS.ASSEMBLY, ORDER_STATUS.LABELED, ORDER_STATUS.READY_DISPATCH].includes(order.status);
 }
 
+function canReprintOrderLabel(order) {
+  const info = orderAssemblyInfo(order);
+  return canOperateAssembly() && Boolean(order) && info.generated && info.bultos > 0;
+}
+
+function reprintOrderLabel(code) {
+  const order = state.orders.find((item) => item.code === code);
+  if (!canReprintOrderLabel(order)) {
+    window.alert("Este pedido no tiene una etiqueta guardada para imprimir.");
+    return false;
+  }
+  const info = orderAssemblyInfo(order);
+  if (info.packageLabels.length && (info.packageLabels.length !== info.bultos || info.packageLabels.some((item) => !item.scanCode))) {
+    window.alert("Faltan codigos de bultos guardados. No se puede reimprimir sin regenerar la etiqueta.");
+    return false;
+  }
+  return printOrderLabel(order);
+}
+
 function canOpenScanDialog(order) {
   const info = orderAssemblyInfo(order);
   return canOperateAssembly() && order && order.status === ORDER_STATUS.LABELED && info.generated && info.bultos > 0;
@@ -6963,8 +6993,8 @@ function smartLabelPageHtml(order, packageLabel) {
   `;
 }
 
-function printOrderLabel(order) {
-  if (!order) return;
+function printOrderLabel(order, targetWindow = null) {
+  if (!order) return false;
   const label = orderLabelFields(order);
   const packageLabels = orderPackageLabels(order);
   const html = `<!doctype html>
@@ -7007,14 +7037,15 @@ function printOrderLabel(order) {
         <script>window.onload = function () { window.focus(); window.print(); };</script>
       </body>
     </html>`;
-  const printWindow = window.open("", "_blank", "width=520,height=420");
+  const printWindow = targetWindow && !targetWindow.closed ? targetWindow : window.open("", "_blank", "width=520,height=420");
   if (!printWindow) {
     window.alert("El navegador bloqueo la ventana de impresion. Habilitar popups para imprimir etiquetas.");
-    return;
+    return false;
   }
   printWindow.document.open();
   printWindow.document.write(html);
   printWindow.document.close();
+  return true;
 }
 
 function printOrderNumber(order) {
@@ -8526,6 +8557,7 @@ function renderOrders() {
           ${!order.__archivedReadOnly && isAdminUser() && pendingCommercialApproval(order) ? `<button class="mini-btn" type="button" data-commercial-approval="${escapeHtml(order.code)}" data-commercial-decision="approve">Aprobar</button><button class="mini-btn danger-btn" type="button" data-commercial-approval="${escapeHtml(order.code)}" data-commercial-decision="reject">Rechazar</button>` : ""}
           ${!order.__archivedReadOnly && canEditOrder(order) ? `<button class="mini-btn order-edit-btn" type="button" data-order-edit="${escapeHtml(order.code)}">Editar pedido</button>` : ""}
           ${!order.__archivedReadOnly && canOpenLabelDialog(order) ? `<button class="mini-btn" type="button" data-order-label="${escapeHtml(order.code)}">Etiqueta</button>` : ""}
+          ${!order.__archivedReadOnly && canReprintOrderLabel(order) ? `<button class="mini-btn" type="button" data-order-reprint="${escapeHtml(order.code)}">Reimprimir</button>` : ""}
           ${!order.__archivedReadOnly && canOpenScanDialog(order) ? `<button class="mini-btn" type="button" data-order-scan="${escapeHtml(order.code)}">Escanear</button>` : ""}
           ${!order.__archivedReadOnly && orderCanPrintInvoice(order) ? `<button class="mini-btn" type="button" data-print="${escapeHtml(order.code)}">Factura</button>` : ""}
           ${!order.__archivedReadOnly && nextOrderStatus(order.status) && ![ORDER_STATUS.ASSEMBLY, ORDER_STATUS.LABELED, ORDER_STATUS.READY_DISPATCH].includes(order.status) ? `<button class="mini-btn" type="button" data-order-next="${escapeHtml(order.code)}">Avanzar</button>` : ""}
@@ -8817,6 +8849,7 @@ function assemblyDepotOrderCard(order) {
         <button class="mini-btn" type="button" data-order-trace="${escapeHtml(order.code)}">Historial</button>
         ${canAdvance ? `<button class="mini-btn primary-mini" type="button" data-order-next="${escapeHtml(order.code)}">${escapeHtml(assemblyDepotActionLabel(order))}</button>` : ""}
         ${canOpenLabelDialog(order) ? `<button class="mini-btn primary-mini" type="button" data-order-label="${escapeHtml(order.code)}">Etiquetas</button>` : ""}
+        ${canReprintOrderLabel(order) ? `<button class="mini-btn" type="button" data-order-reprint="${escapeHtml(order.code)}">Reimprimir</button>` : ""}
         ${canOpenScanDialog(order) ? `<button class="mini-btn primary-mini" type="button" data-order-scan="${escapeHtml(order.code)}">Scanner</button>` : ""}
       </div>
     </article>
@@ -16998,6 +17031,7 @@ function openOrderLabelDialog(code) {
   }
   const label = orderLabelFields(order);
   orderLabelTargetCode = order.code;
+  orderLabelPendingOperationId = "";
   byId("orderLabelCode").value = order.code;
   byId("orderLabelTitle").textContent = `Pedido ${formatAssemblyPedidoNumber(order.code)} - ${order.client}`;
   byId("orderLabelAssemblyOrder").value = label.assemblyOrderNumber > 0 ? label.assemblyOrderNumber : "";
@@ -17005,6 +17039,10 @@ function openOrderLabelDialog(code) {
   byId("orderLabelPrinter").value = label.printer || localStorage.getItem("dlLabelPrinter") || "";
   byId("orderLabelObservations").value = label.observations || "";
   byId("orderLabelMessage").textContent = "";
+  byId("orderLabelReprintBtn").hidden = !canReprintOrderLabel(order);
+  byId("orderLabelVerifyBtn").hidden = true;
+  byId("orderLabelForm").querySelector('[data-label-action="mark"]').hidden = Boolean(orderAssemblyInfo(order).generated);
+  byId("orderLabelForm").querySelector('[data-label-action="print"]').textContent = orderAssemblyInfo(order).generated ? "Imprimir etiqueta" : "Generar e imprimir";
   const packageLabels = orderPackageLabels(order);
   const firstPackageLabel = packageLabels[0] || { packageNumber: 1, totalPackages: label.packages || 1 };
   byId("orderLabelPreview").innerHTML = `
@@ -17033,6 +17071,51 @@ function openOrderLabelDialog(code) {
   window.setTimeout(() => byId("orderLabelPackages").focus(), 50);
 }
 
+function savedLabelMatchesInput(order, input) {
+  const info = orderAssemblyInfo(order);
+  return info.generated
+    && info.bultos === input.packages
+    && info.orderNumber === input.assemblyOrderNumber
+    && info.observations.trim() === input.observations
+    && info.printer.trim() === input.printer;
+}
+
+async function checkSavedOrderLabel(code, operationId, attempts = 1) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const response = await fetchWithTimeout(apiUrl(`api/orders/${encodeURIComponent(code)}/label/status`), { cache: "no-store" }, 10000);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "No se pudo verificar la etiqueta.");
+      if (payload.found && payload.order?.assembly?.label?.operationId === operationId) {
+        applyOrderPatches([payload.order], payload.version);
+        return payload.order;
+      }
+    } catch {
+      // A failed read cannot prove that the preceding write failed.
+    }
+    if (attempt + 1 < attempts) await sleep(1500);
+  }
+  return null;
+}
+
+async function verifyPendingOrderLabel() {
+  if (!orderLabelPendingOperationId) return;
+  const button = byId("orderLabelVerifyBtn");
+  button.disabled = true;
+  byId("orderLabelMessage").textContent = "Verificando la etiqueta guardada...";
+  try {
+    const order = await checkSavedOrderLabel(orderLabelTargetCode, orderLabelPendingOperationId, 1);
+    byId("orderLabelMessage").textContent = order
+      ? "Etiqueta guardada. Ya puede usar Reimprimir, sin generar de nuevo."
+      : "Aun no se pudo confirmar. No genere de nuevo; vuelva a verificar cuando regrese el servicio.";
+    if (order) byId("orderLabelReprintBtn").hidden = !canReprintOrderLabel(order);
+  } catch (error) {
+    byId("orderLabelMessage").textContent = error.message || "No se pudo verificar la etiqueta.";
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function submitOrderLabel(event) {
   event.preventDefault();
   const submitter = event.submitter;
@@ -17049,22 +17132,62 @@ async function submitOrderLabel(event) {
   }
   const printer = byId("orderLabelPrinter").value.trim();
   if (printer) safeLocalStorageSet("dlLabelPrinter", printer, 4000);
+  const input = {
+    assemblyOrderNumber,
+    packages,
+    printer,
+    observations: byId("orderLabelObservations").value.trim(),
+    printed: print
+  };
+  const savedOrder = state.orders.find((item) => item.code === orderLabelTargetCode);
+  if (savedLabelMatchesInput(savedOrder, input)) {
+    if (print) {
+      if (reprintOrderLabel(orderLabelTargetCode)) byId("orderLabelDialog").close("default");
+    } else {
+      byId("orderLabelMessage").textContent = "La etiqueta ya esta guardada. Puede imprimirla con Reimprimir.";
+    }
+    return;
+  }
+  if (orderAssemblyInfo(savedOrder).generated && !window.confirm("Cambiar estos datos regenera los codigos de bulto y puede invalidar escaneos. Confirmar cambio?")) return;
+  input.regenerate = Boolean(orderAssemblyInfo(savedOrder).generated);
+  input.operationId = globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
+    ? globalThis.crypto.randomUUID()
+    : `ETQ-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  orderLabelPendingOperationId = input.operationId;
+  byId("orderLabelVerifyBtn").hidden = true;
+  const printWindow = print ? window.open("", "_blank", "width=520,height=420") : null;
+  if (printWindow) {
+    printWindow.document.write("<p style='font:16px Arial,sans-serif;padding:20px'>Preparando etiquetas...</p>");
+    printWindow.document.close();
+  }
   const buttons = byId("orderLabelForm").querySelectorAll("button");
   buttons.forEach((button) => { button.disabled = true; });
   byId("orderLabelMessage").textContent = print ? "Generando etiqueta e imprimiendo..." : "Marcando etiqueta generada...";
   try {
-    const payload = await postOperationalAction(`api/orders/${encodeURIComponent(orderLabelTargetCode)}/label`, {
-      assemblyOrderNumber,
-      packages,
-      printer,
-      observations: byId("orderLabelObservations").value.trim(),
-      printed: print
-    });
+    const payload = await postOperationalAction(`api/orders/${encodeURIComponent(orderLabelTargetCode)}/label`, input, { timeoutMs: 60000 });
+    if (!payload.order) throw new Error("No se recibio confirmacion de la etiqueta guardada.");
     applyOrderPatches(payload.order ? [payload.order] : [], payload.version);
-    if (print) printOrderLabel(payload.order);
-    byId("orderLabelDialog").close("default");
+    const opened = !print || printOrderLabel(payload.order, printWindow);
+    byId("orderLabelReprintBtn").hidden = !canReprintOrderLabel(payload.order);
+    if (opened) byId("orderLabelDialog").close("default");
+    else byId("orderLabelMessage").textContent = "Etiqueta guardada. El navegador bloqueo la impresion; use Reimprimir tras habilitar ventanas emergentes.";
   } catch (error) {
-    byId("orderLabelMessage").textContent = error.message || "No se pudo generar la etiqueta.";
+    if (printWindow && !printWindow.closed) printWindow.close();
+    if (error.payload?.order) applyOrderPatches([error.payload.order], error.payload.version);
+    if (!error.status) {
+      byId("orderLabelMessage").textContent = "Respuesta incierta. Comprobando si la etiqueta quedo guardada...";
+      const saved = await checkSavedOrderLabel(orderLabelTargetCode, input.operationId, 3);
+      if (saved) {
+        byId("orderLabelReprintBtn").hidden = !canReprintOrderLabel(saved);
+        byId("orderLabelMessage").textContent = "Etiqueta guardada. Use Reimprimir; no vuelva a generarla.";
+      } else {
+        byId("orderLabelVerifyBtn").hidden = false;
+        byId("orderLabelMessage").textContent = "No se pudo confirmar si quedo guardada. No genere de nuevo; use Verificar etiqueta cuando vuelva el servicio.";
+      }
+    } else {
+      byId("orderLabelReprintBtn").hidden = !canReprintOrderLabel(error.payload?.order || savedOrder);
+      byId("orderLabelMessage").textContent = error.message || "No se pudo generar la etiqueta.";
+    }
   } finally {
     buttons.forEach((button) => { button.disabled = false; });
   }
@@ -20085,6 +20208,12 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const reprintButton = event.target.closest("[data-order-reprint]");
+  if (!reprintButton) return;
+  reprintOrderLabel(reprintButton.dataset.orderReprint);
+});
+
+document.addEventListener("click", (event) => {
   const scanButton = event.target.closest("[data-order-scan]");
   if (!scanButton) return;
   openOrderScanDialog(scanButton.dataset.orderScan);
@@ -20229,6 +20358,8 @@ byId("portfolioInactivateAllBtn").addEventListener("click", () => {
 });
 byId("orderEditForm").addEventListener("submit", submitOrderEdit);
 byId("orderLabelForm").addEventListener("submit", submitOrderLabel);
+byId("orderLabelReprintBtn").addEventListener("click", () => reprintOrderLabel(orderLabelTargetCode));
+byId("orderLabelVerifyBtn").addEventListener("click", verifyPendingOrderLabel);
 byId("orderScanForm").addEventListener("submit", submitOrderScan);
 byId("transferProofForm").addEventListener("submit", submitTransferProof);
 ["transferProofCamera", "transferProofGallery", "transferProofFile"].forEach((id) => {

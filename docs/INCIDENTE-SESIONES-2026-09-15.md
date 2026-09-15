@@ -55,3 +55,7 @@ Durante el horario productivo, si se autoriza expresamente una excepcion antes d
 5. Comprobar que no hubo cambios en pedidos y que las sesiones permanecen estables mientras el monitor opera.
 
 La correccion reduce la causa observada, pero no sustituye una futura persistencia segura de sesiones para sobrevivir a reinicios inevitables.
+
+## Protocolo posterior preparado localmente
+
+Tras observar que todavia puede haber un timeout bajo carga, se preparo una politica de monitor sin reinicio por fallo HTTP o memoria y un instalador sin reinicio implicito del ERP. Ver [PROTOCOLO-CONTINGENCIA-SESIONES-2026-09-15.md](PROTOCOLO-CONTINGENCIA-SESIONES-2026-09-15.md). Esto NO modifica la produccion `8790-145`. Faltan la prueba Linux aislada y un canal externo de alertas antes de activarlo sin vigilancia.

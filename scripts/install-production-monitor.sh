@@ -82,10 +82,10 @@ EOF
 systemctl daemon-reload
 systemctl enable --now distribuidora-lopez-monitor.timer
 systemctl enable --now distribuidora-lopez-preflight.timer
-systemctl restart distribuidora-lopez.service
-sleep 4
 systemctl start distribuidora-lopez-monitor.service
 systemctl start distribuidora-lopez-preflight.service
+
+echo 'Monitor instalado sin reiniciar el ERP. Los limites nuevos del servicio aplican en el siguiente arranque programado.'
 
 systemctl show distribuidora-lopez.service --property=ActiveState,SubState,MainPID,MemoryCurrent,MemoryHigh,MemoryMax,MemorySwapMax --no-pager
 systemctl list-timers distribuidora-lopez-monitor.timer distribuidora-lopez-preflight.timer --no-pager
