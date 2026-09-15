@@ -538,6 +538,8 @@ let priceListProductsExpanded = false;
 let presenceHeartbeatIntervalId = null;
 let presenceLocationIntervalId = null;
 let lastPresenceLocationSent = null;
+let presenceLocationRequestInFlight = false;
+let lastPresenceLocationAttemptAt = 0;
 let deliveryLocation = null;
 let deliveryGpsStartRequestedAt = 0;
 let deliveryGpsRefreshTimer = null;
@@ -2562,39 +2564,49 @@ async function captureLoginLocation() {
 
 async function sendPresenceLocation(location, force = false) {
   if (!location || !shouldSendPresenceLocation(location, force)) return null;
-  const response = await fetchWithTimeout(apiUrl("api/presence/location"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    cache: "no-store",
-    body: JSON.stringify({
-      device: sessionDevicePayload(),
-      status: currentPresenceStatus(),
-      gps: {
-        ...location,
-        deviceAt: location.deviceAt || location.at || new Date().toISOString()
+  const now = Date.now();
+  if (presenceLocationRequestInFlight || now - lastPresenceLocationAttemptAt < 5000) return null;
+  presenceLocationRequestInFlight = true;
+  lastPresenceLocationAttemptAt = now;
+  try {
+    const response = await fetchWithTimeout(apiUrl("api/presence/location"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        device: sessionDevicePayload(),
+        status: currentPresenceStatus(),
+        gps: {
+          ...location,
+          deviceAt: location.deviceAt || location.at || new Date().toISOString()
+        }
+      })
+    }, 8000).catch(() => null);
+    if (!response) return null;
+    if (response.status === 401) {
+      stopRealtimeChannels();
+      currentUser = null;
+      showLogin("Sesion cerrada o reemplazada por otro dispositivo.");
+      return null;
+    }
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      if (payload.code === "GPS_REJECTED") {
+        lastPresenceLocationSent = { ...location, sentAt: new Date().toISOString() };
+        showGpsWarning(payload.error || "Ubicacion no confiable o simulada.");
+        renderNotificationCenter();
       }
-    })
-  }, 8000).catch(() => null);
-  if (!response) return null;
-  if (response.status === 401) {
-    stopRealtimeChannels();
-    currentUser = null;
-    showLogin("Sesion cerrada o reemplazada por otro dispositivo.");
-    return null;
-  }
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    if (payload.code === "GPS_REJECTED") {
-      lastPresenceLocationSent = { ...location, sentAt: new Date().toISOString() };
-      showGpsWarning(payload.error || "Ubicacion no confiable o simulada.");
-      renderNotificationCenter();
+      return payload;
+    }
+    lastPresenceLocationSent = { ...location, sentAt: new Date().toISOString() };
+    if (!payload.throttled) {
+      applyPresencePayload(payload);
+      renderSessionMonitor();
     }
     return payload;
+  } finally {
+    presenceLocationRequestInFlight = false;
   }
-  lastPresenceLocationSent = { ...location, sentAt: new Date().toISOString() };
-  applyPresencePayload(payload);
-  renderSessionMonitor();
-  return payload;
 }
 
 function startPresenceHeartbeat() {
@@ -3347,6 +3359,8 @@ function stopRealtimeChannels() {
   currentSession = null;
   presenceSessions = [];
   lastPresenceLocationSent = null;
+  presenceLocationRequestInFlight = false;
+  lastPresenceLocationAttemptAt = 0;
   adminOrderNotificationReady = false;
   adminKnownOrderCodes = new Set();
   const toasts = byId("adminOrderToasts");

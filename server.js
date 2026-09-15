@@ -21,7 +21,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-143";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-144";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -48,6 +48,7 @@ const DEFAULT_WORKDAY_END_HOUR = Math.max(1, Math.min(24, Number(process.env.DL_
 const PRESENCE_OFFLINE_MS = Number(process.env.DL_PRESENCE_OFFLINE_MS || 45000);
 const GLOBAL_AUDIT_STATE_LIMIT = Math.max(1000, Number(process.env.DL_GLOBAL_AUDIT_STATE_LIMIT || 3000));
 const GPS_ALERT_THROTTLE_MS = Math.max(60 * 1000, Number(process.env.DL_GPS_ALERT_THROTTLE_MS || 15 * 60 * 1000));
+const GPS_PRESENCE_MIN_INTERVAL_MS = 5000;
 const sessions = new Map();
 const recentPresenceHistory = [];
 const recentGpsAlerts = new Map();
@@ -4777,6 +4778,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    if (requestUrl.pathname === "/api/health/live" && req.method === "GET") {
+      sendJson(res, 200, { ok: true });
+      return;
+    }
     const activeMaintenance = maintenanceStatus();
     const maintenanceAsset = requestUrl.pathname === "/icons/logo-distribuidora-lopez-512.png";
     if (activeMaintenance && requestUrl.pathname !== "/api/health" && !maintenanceAsset) {
@@ -5357,6 +5362,12 @@ const server = http.createServer(async (req, res) => {
         });
         return;
       }
+      const now = Date.now();
+      if (session.lastGpsAcceptedAt && now - session.lastGpsAcceptedAt < GPS_PRESENCE_MIN_INTERVAL_MS) {
+        sendJson(res, 200, { ok: true, throttled: true });
+        return;
+      }
+      session.lastGpsAcceptedAt = now;
       if (input.device) session.device = { ...session.device, ...normalizeDevice(input.device, req) };
       session.location = gps;
       session.lastGpsAt = gps.updatedAt;
