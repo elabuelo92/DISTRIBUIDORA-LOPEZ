@@ -15,7 +15,10 @@ const password = "Session-v144-test";
 const salt = crypto.randomBytes(16).toString("hex");
 const passwordHash = crypto.pbkdf2Sync(password, salt, 120000, 32, "sha256").toString("hex");
 fs.writeFileSync(path.join(tempDir, "users.json"), JSON.stringify({
-  users: [{ username: "seller-test", name: "Seller Test", role: "seller", active: true, salt, passwordHash }]
+  users: [
+    { username: "seller-test", name: "Seller Test", role: "seller", active: true, salt, passwordHash },
+    { username: "admin-test", name: "Admin Test", role: "admin", active: true, salt, passwordHash }
+  ]
 }));
 fs.writeFileSync(path.join(tempDir, "demo-state.json"), JSON.stringify({ version: 1, state: {} }));
 
@@ -53,8 +56,8 @@ async function waitForServer() {
   throw new Error(`Servidor de prueba no inicio (${childStatus}): ${childOutput}`);
 }
 
-async function login() {
-  const input = { username: "seller-test", password, device: { id: "SESSION-V144-TEST" } };
+async function login(username = "seller-test") {
+  const input = { username, password, device: { id: `SESSION-V144-${username}` } };
   let response = await fetch(`${base}/api/login`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input)
   });
@@ -79,10 +82,38 @@ async function postGps(cookie) {
   return response.json();
 }
 
+async function getState(cookie, version) {
+  const response = await fetch(`${base}/api/state?version=${version}`, { headers: { Cookie: cookie } });
+  assert.equal(response.status, 200);
+  return response.json();
+}
+
 (async () => {
   try {
     await waitForServer();
     const cookie = await login();
+    const initialState = await getState(cookie, 0);
+    assert.ok(initialState.version);
+    const unchangedState = await getState(cookie, initialState.version);
+    assert.equal(unchangedState.unchanged, true);
+    assert.equal(unchangedState.state, null);
+    const adminCookie = await login("admin-test");
+    const adminState = await getState(adminCookie, 0);
+    assert.equal((await getState(adminCookie, adminState.version)).unchanged, true);
+    const stateFile = path.join(tempDir, "demo-state.json");
+    const scheduledState = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+    scheduledState.state.priceLists = [{
+      id: "PL-L3", number: 3, name: "Lista programada", status: "Programada",
+      effectiveAt: new Date(Date.now() - 1000).toISOString(), items: [], motive: "Smoke"
+    }];
+    fs.writeFileSync(stateFile, JSON.stringify(scheduledState));
+    const changedAt = new Date(Date.now() + 2000);
+    fs.utimesSync(stateFile, changedAt, changedAt);
+    const dueState = await getState(cookie, initialState.version);
+    assert.notEqual(dueState.unchanged, true);
+    const persistedState = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+    assert.equal(persistedState.state.priceLists.find((list) => list.id === "PL-L3").status, "Activa");
+    assert.equal((await getState(cookie, dueState.version)).unchanged, true);
     const results = await Promise.all(Array.from({ length: 25 }, () => postGps(cookie)));
     assert.equal(results.filter((result) => result.throttled === true).length, 24);
     assert.equal(results.filter((result) => result.throttled !== true).length, 1);
@@ -99,7 +130,7 @@ async function postGps(cookie) {
     assert.equal((await fetch(`${base}/api/presence/status`, { headers: { Cookie: cookie } })).status, 200);
     fs.writeFileSync(path.join(tempDir, "maintenance-mode.json"), JSON.stringify({ active: true }));
     assert.equal((await fetch(`${base}/api/health/live`)).status, 200);
-    console.log(JSON.stringify({ ok: true, burstRequests: 25, gpsWrites: 1, sessionPreserved: true, liveDuringMaintenance: true }));
+    console.log(JSON.stringify({ ok: true, burstRequests: 25, gpsWrites: 1, sessionPreserved: true, liveDuringMaintenance: true, unchangedStateFastPath: true, scheduledPriceListApplied: true }));
   } finally {
     child.kill("SIGTERM");
     fs.rmSync(tempDir, { recursive: true, force: true });

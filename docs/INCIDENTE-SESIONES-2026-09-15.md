@@ -1,6 +1,6 @@
 # Incidente de sesiones - 2026-09-15
 
-Estado: diagnostico en produccion; correccion implementada localmente, pendiente de despliegue.
+Estado: `8790-144` desplegada; se detecto saturacion de lectura con usuarios activos. `8790-145` preparada y probada para despliegue urgente autorizado.
 
 ## Evidencia
 
@@ -25,13 +25,21 @@ Estado: diagnostico en produccion; correccion implementada localmente, pendiente
 - `node --check` de `server.js` y `app.js`, y `git diff --check`: correctos.
 - Estas pruebas usan una instancia aislada; no equivalen a una validacion de estabilidad en produccion.
 
+## Segunda fase: saturacion de lectura
+
+Con `8790-144` en produccion, el monitor dejo de reiniciar el ERP durante la primera prueba, pero Node llego a 82% de CPU y `/api/health` tardo hasta 19 segundos. En una copia del estado productivo, el parseo JSON tardo 610 ms; `orderEngine.migrateState` 1088 ms, `accountEngine.migrateState` 658 ms y `eventEngine.migrateState` 229 ms. Cada `GET /api/state` ejecutaba esas migraciones antes de responder "sin cambios", aunque Administracion consulta cada 2,5 segundos.
+
+`8790-145` evita migraciones cuando el cliente ya tiene la version actual o solicita una respuesta diferida. Conserva la aplicacion de listas programadas realmente vencidas. `/api/health` deja de migrar estado para entregar solo el diagnostico. Se corrigio tambien una referencia obsoleta en la activacion de listas programadas que dejaba la lista como "Programada" y provocaba reintentos.
+
+Pruebas locales: rafaga GPS/sesion, respuesta de estado sin cambios, activacion programada de L3, proveedores/precios, precios comerciales, confiabilidad operativa, descuentos por producto, cache y sintaxis. Todas correctas. La lista base L2 permanece activa por regla preexistente; no se modifico esa politica.
+
 ## Mitigacion operativa
 
 Durante el horario productivo, si se autoriza expresamente una excepcion antes de las 18:00 ART, desactivar temporalmente solo `distribuidora-lopez-monitor.timer` con `sudo systemctl disable --now distribuidora-lopez-monitor.timer`. No reiniciar el ERP ni tocar `data`. `distribuidora-lopez.service` conserva `Restart=always` para caidas reales del proceso. Mantener vigilancia manual de salud y volver a activar el monitor tras instalar y probar la correccion.
 
-## Despliegue despues de las 18:00 ART
+## Despliegue controlado
 
-1. Validar pruebas aisladas y sintaxis.
+1. Validar pruebas aisladas y sintaxis. Para esta jornada existe autorizacion expresa de excepcion antes de las 18:00 ART.
 2. Hacer backup de `data` y snapshot de pedidos antes de intervenir.
 3. Desplegar los archivos revisados y regenerar el manifiesto de integridad para `server.js` y `app.js`.
 4. Reiniciar una sola vez en ventana de mantenimiento y validar `/api/health/live`, `/api/health`, licencia, integridad, login admin y vendedor, GPS, pedidos y reparto.

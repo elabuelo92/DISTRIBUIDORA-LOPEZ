@@ -21,7 +21,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-144";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-145";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -4396,7 +4396,11 @@ function computePriceListSimulation(state, input = {}) {
 
 function activatePriceList(state, list, userName, motive) {
   ensurePriceListsState(state);
-  const byKey = new Map(list.items.map((item) => [
+  const listNumber = priceListNumberFromRecord(list);
+  const activeList = state.priceLists.find((item) => item.id === list.id)
+    || state.priceLists.find((item) => listNumber && priceListNumberFromRecord(item) === listNumber)
+    || list;
+  const byKey = new Map(activeList.items.map((item) => [
     normalizeSearchText(item.productCode || item.productName || item.codigo_barras),
     item
   ]));
@@ -4417,24 +4421,24 @@ function activatePriceList(state, list, userName, motive) {
       precio_lista_2: price,
       proveedor: supplier,
       supplier,
-      priceListId: list.id,
-      priceListName: list.name,
-      priceUpdatedAt: list.updatedAt || new Date().toISOString(),
+      priceListId: activeList.id,
+      priceListName: activeList.name,
+      priceUpdatedAt: activeList.updatedAt || new Date().toISOString(),
       priceUpdatedBy: userName || "Sistema"
     };
   });
   state.priceLists.forEach((item) => {
-    if (item.id !== list.id && item.isDefault && item.status === "Activa") {
+    if (item.id !== activeList.id && item.isDefault && item.status === "Activa") {
       item.isDefault = false;
       item.status = "Historica";
     }
   });
-  list.status = "Activa";
-  list.isDefault = true;
-  list.activatedAt = new Date().toISOString();
-  list.activatedBy = userName || "Sistema";
-  list.motive = motive || list.motive || "";
-  return list;
+  activeList.status = "Activa";
+  activeList.isDefault = true;
+  activeList.activatedAt = new Date().toISOString();
+  activeList.activatedBy = userName || "Sistema";
+  activeList.motive = motive || activeList.motive || "";
+  return activeList;
 }
 
 function appendPriceListAudit(state, list, simulation, input, userName) {
@@ -4530,8 +4534,8 @@ function applyDuePriceLists(state, actor = "Sistema") {
       increasePct: 0,
       marginPct: 0
     };
-    activatePriceList(state, list, actor, list.motive || "Vigencia programada alcanzada");
-    appendPriceListAudit(state, list, simulation, { operation: list.operation || "programada", motive: list.motive || "Vigencia programada alcanzada" }, actor);
+    const activeList = activatePriceList(state, list, actor, list.motive || "Vigencia programada alcanzada");
+    appendPriceListAudit(state, activeList, simulation, { operation: list.operation || "programada", motive: list.motive || "Vigencia programada alcanzada" }, actor);
   });
   return due.length;
 }
@@ -9164,12 +9168,6 @@ const server = http.createServer(async (req, res) => {
       const currentState = payload.state || {};
       const activeMaintenance = maintenanceStatus();
       const includeDetails = requestUrl.searchParams.get("details") === "1";
-      orderEngine.migrateState(currentState);
-      deliveryEngine.migrateState(currentState);
-      accountEngine.migrateState(currentState);
-      eventEngine.migrateState(currentState);
-      legalEngine.migrateState(currentState);
-      ensurePriceListsState(currentState);
       sendJson(res, 200, {
         ok: true,
         instance: "SERVIDOR_UNICO_8790",
@@ -9232,7 +9230,17 @@ const server = http.createServer(async (req, res) => {
       if (req.method === "GET") {
         const clientVersion = Number(requestUrl.searchParams.get("version") || req.headers["x-state-version"] || 0);
         let currentPayload = readStateFileCached();
-        if (currentPayload.state) {
+        const storedVersion = currentPayload.version || readStateVersionFast();
+        const now = Date.now();
+        const duePriceList = Array.isArray(currentPayload.state && currentPayload.state.priceLists)
+          && currentPayload.state.priceLists.some((list) => list.status === "Programada"
+            && priceListNumberFromRecord(list) !== 2
+            && new Date(list.effectiveAt).getTime() <= now);
+        const skipMigration = !duePriceList && (
+          (clientVersion && storedVersion && clientVersion >= storedVersion)
+          || (requestUrl.searchParams.get("deferState") === "clients" && (!clientVersion || clientVersion < storedVersion))
+        );
+        if (currentPayload.state && !skipMigration) {
           ensureGlobalAudit(currentPayload.state);
           ensureNotifications(currentPayload.state);
           ensureRejectedGps(currentPayload.state);
