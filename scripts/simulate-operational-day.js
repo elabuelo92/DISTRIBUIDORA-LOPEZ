@@ -15,6 +15,7 @@ const targetBytes = Number(process.env.DL_SIM_STATE_BYTES || 44269298);
 const sellerCount = Number(process.env.DL_SIM_SELLERS || 10);
 const adminCount = Number(process.env.DL_SIM_ADMINS || 4);
 const publicHealthUrl = String(process.env.DL_SIM_PUBLIC_HEALTH_URL || "");
+const connectionClose = process.env.DL_SIM_CONNECTION_CLOSE === "1";
 assert.ok(durationMs >= 10000 && durationMs <= 900000);
 assert.ok(targetOrders >= 1 && targetOrders <= 200);
 assert.ok(targetBytes >= 1000000 && targetBytes <= 60000000);
@@ -34,6 +35,7 @@ const report = {
   targetOrders,
   actors: { sellers: sellerCount, admins: adminCount, drivers: 1 },
   syntheticStateBytes: 0,
+  transport: connectionClose ? "new-connection" : "pooled-connection",
   productionWrites: 0,
   recoveredNetworkCuts: 0,
   operations: {},
@@ -184,7 +186,8 @@ async function main() {
         method: options.method || "GET",
         headers: {
           ...(options.actor ? { Cookie: cookies.get(options.actor) || "" } : {}),
-          ...(options.body ? { "Content-Type": "application/json" } : {})
+          ...(options.body ? { "Content-Type": "application/json" } : {}),
+          ...(connectionClose ? { Connection: "close" } : {})
         },
         body: options.body ? JSON.stringify(options.body) : undefined,
         signal: controller.signal
