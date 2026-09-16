@@ -11,12 +11,13 @@
     RELEASE_CHANNEL: "Produccion",
     TIMEOUTS: {
       server: 7000,
+      stateSync: 45000,
       health: 4500,
       loginGrace: 30000,
       healthRetries: [0, 800, 1600, 3000, 5000],
       loginRetries: [0, 800, 1600, 3000, 5000],
-      syncInterval: 2500,
-      mobileSyncInterval: 7000
+      syncInterval: 10000,
+      mobileSyncInterval: 15000
     }
   };
 

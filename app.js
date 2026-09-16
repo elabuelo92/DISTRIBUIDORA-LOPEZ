@@ -196,6 +196,7 @@ function configNumber(value, fallback) {
 }
 
 const SERVER_TIMEOUT_MS = configNumber(CONNECTION_TIMEOUTS.server, 7000);
+const STATE_SYNC_TIMEOUT_MS = Math.max(SERVER_TIMEOUT_MS, configNumber(CONNECTION_TIMEOUTS.stateSync, 45000));
 const HEALTH_TIMEOUT_MS = configNumber(CONNECTION_TIMEOUTS.health, 4500);
 const SERVER_HEALTH_RETRY_DELAYS_MS = Array.isArray(CONNECTION_TIMEOUTS.healthRetries)
   ? CONNECTION_TIMEOUTS.healthRetries
@@ -205,8 +206,8 @@ const LOGIN_RETRY_DELAYS_MS = Array.isArray(CONNECTION_TIMEOUTS.loginRetries)
   : [0, 800, 1600, 3000, 5000];
 const LOGIN_CONNECTION_GRACE_MS = configNumber(CONNECTION_TIMEOUTS.loginGrace, 30000);
 const LOGIN_REQUEST_TIMEOUT_MS = Math.max(SERVER_TIMEOUT_MS, LOGIN_CONNECTION_GRACE_MS);
-const SYNC_INTERVAL_MS = configNumber(CONNECTION_TIMEOUTS.syncInterval, 2500);
-const MOBILE_SYNC_INTERVAL_MS = Math.max(SYNC_INTERVAL_MS, configNumber(CONNECTION_TIMEOUTS.mobileSyncInterval, 7000));
+const SYNC_INTERVAL_MS = configNumber(CONNECTION_TIMEOUTS.syncInterval, 10000);
+const MOBILE_SYNC_INTERVAL_MS = Math.max(SYNC_INTERVAL_MS, configNumber(CONNECTION_TIMEOUTS.mobileSyncInterval, 15000));
 const LEGACY_LOCAL_STATE_KEY = "distribuidoraLopezDemo";
 const LOCAL_META_KEY = "dlPreventaLocalMeta";
 const LOCAL_STORAGE_MAX_VALUE_BYTES = 180000;
@@ -21961,11 +21962,15 @@ async function pullStateFromServer() {
   syncPullInFlight = true;
   try {
     const deferState = activeViewId() === "clientes" ? "&deferState=clients" : "";
-    const response = await fetchWithTimeout(apiUrl(`api/state?version=${encodeURIComponent(syncVersion || 0)}${deferState}`), { cache: "no-store" }, SERVER_TIMEOUT_MS);
+    const response = await fetchWithTimeout(apiUrl(`api/state?version=${encodeURIComponent(syncVersion || 0)}${deferState}`), { cache: "no-store" }, STATE_SYNC_TIMEOUT_MS);
     if (response.status === 401) {
       stopRealtimeChannels();
       currentUser = null;
       showLogin("Sesion vencida. Ingresar nuevamente.");
+      return;
+    }
+    if (response.status === 503 && response.headers.get("X-State-Sync-Busy") === "1") {
+      setSyncStatus("Servidor ocupado; sincronizacion en espera automatica.", "warn");
       return;
     }
     if (!response.ok) {
@@ -22041,7 +22046,7 @@ async function pushStateToServer() {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
       body: JSON.stringify({ state: getStateForServer(), baseVersion: syncVersion || 0 })
-    }, SERVER_TIMEOUT_MS);
+    }, STATE_SYNC_TIMEOUT_MS);
     if (response.status === 401) {
       stopRealtimeChannels();
       currentUser = null;

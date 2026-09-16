@@ -46,14 +46,20 @@ const DEFAULT_SESSION_TTL_MS = Math.max(16 * 60 * 60 * 1000, Number(process.env.
 const DEFAULT_WORKDAY_START_HOUR = Math.max(0, Math.min(23, Number(process.env.DL_WORKDAY_START_HOUR || 7)));
 const DEFAULT_WORKDAY_END_HOUR = Math.max(1, Math.min(24, Number(process.env.DL_WORKDAY_END_HOUR || 22)));
 const PRESENCE_OFFLINE_MS = Number(process.env.DL_PRESENCE_OFFLINE_MS || 45000);
-const GLOBAL_AUDIT_STATE_LIMIT = Math.max(1000, Number(process.env.DL_GLOBAL_AUDIT_STATE_LIMIT || 3000));
+const GLOBAL_AUDIT_STATE_LIMIT = Math.max(1000, Number(process.env.DL_GLOBAL_AUDIT_STATE_LIMIT || 1000));
 const GPS_ALERT_THROTTLE_MS = Math.max(60 * 1000, Number(process.env.DL_GPS_ALERT_THROTTLE_MS || 15 * 60 * 1000));
-const GPS_PRESENCE_MIN_INTERVAL_MS = 5000;
+const GPS_PRESENCE_MIN_INTERVAL_MS = Math.max(5000, Number(process.env.DL_GPS_PRESENCE_MIN_INTERVAL_MS || 15000));
+const GPS_SELLER_MIN_INTERVAL_MS = Math.max(GPS_PRESENCE_MIN_INTERVAL_MS, Number(process.env.DL_GPS_SELLER_MIN_INTERVAL_MS || 30000));
+const GPS_DRIVER_MIN_INTERVAL_MS = Math.max(5000, Number(process.env.DL_GPS_DRIVER_MIN_INTERVAL_MS || 10000));
+const GPS_AUDIT_MIN_INTERVAL_MS = Math.max(60000, Number(process.env.DL_GPS_AUDIT_MIN_INTERVAL_MS || 300000));
+const MAX_FULL_STATE_RESPONSES = Math.max(1, Number(process.env.DL_MAX_FULL_STATE_RESPONSES || 2));
 const sessions = new Map();
 const recentPresenceHistory = [];
 const recentGpsAlerts = new Map();
 const productPortfolioPreviews = new Map();
 const clientPortfolioPreviews = new Map();
+let fullStateResponsesInFlight = 0;
+let fullStateResponsesRejected = 0;
 const securityEngine = licenseEngine.createEngine({
   root: ROOT,
   dataDir: DATA_DIR,
@@ -122,6 +128,23 @@ function sendJson(res, status, data, headers) {
   finish(payload);
 }
 
+function reserveFullStateResponse(res) {
+  if (fullStateResponsesInFlight >= MAX_FULL_STATE_RESPONSES) {
+    fullStateResponsesRejected += 1;
+    return false;
+  }
+  fullStateResponsesInFlight += 1;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    fullStateResponsesInFlight = Math.max(0, fullStateResponsesInFlight - 1);
+  };
+  res.once("finish", release);
+  res.once("close", release);
+  return true;
+}
+
 function maintenanceStatus() {
   try {
     if (!fs.existsSync(MAINTENANCE_FILE)) return null;
@@ -187,7 +210,12 @@ function sessionTtlMs(config = readSessionConfig()) {
   return normalizeSessionConfig(config).sessionTtlMs;
 }
 
+let dataFilesEnsured = false;
+let usersCache = { checkedAt: 0, mtimeMs: -1, users: null };
+let sessionConfigCache = { checkedAt: 0, mtimeMs: -1, value: null };
+
 function ensureDataFiles() {
+  if (dataFilesEnsured) return;
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.mkdirSync(PRINT_DIR, { recursive: true });
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -219,13 +247,23 @@ function ensureDataFiles() {
       fs.writeFileSync(USERS_FILE, JSON.stringify({ users }, null, 2), "utf8");
     }
   }
+  dataFilesEnsured = true;
 }
 
 function readSessionConfig() {
   ensureDataFiles();
   try {
+    const now = Date.now();
+    if (sessionConfigCache.value && now - sessionConfigCache.checkedAt < 2000) return sessionConfigCache.value;
+    const mtimeMs = fs.statSync(SESSION_CONFIG_FILE).mtimeMs;
+    if (sessionConfigCache.value && sessionConfigCache.mtimeMs === mtimeMs) {
+      sessionConfigCache.checkedAt = now;
+      return sessionConfigCache.value;
+    }
     const config = JSON.parse(fs.readFileSync(SESSION_CONFIG_FILE, "utf8"));
-    return normalizeSessionConfig(config);
+    const value = normalizeSessionConfig(config);
+    sessionConfigCache = { checkedAt: now, mtimeMs, value };
+    return value;
   } catch {
     return normalizeSessionConfig({});
   }
@@ -234,6 +272,7 @@ function readSessionConfig() {
 function writeSessionConfig(config) {
   const next = normalizeSessionConfig(config);
   fs.writeFileSync(SESSION_CONFIG_FILE, JSON.stringify(next, null, 2), "utf8");
+  sessionConfigCache = { checkedAt: Date.now(), mtimeMs: fs.statSync(SESSION_CONFIG_FILE).mtimeMs, value: next };
   return next;
 }
 
@@ -339,12 +378,23 @@ function withoutSensitiveFields(input) {
 
 function readUsers() {
   ensureDataFiles();
-  return JSON.parse(fs.readFileSync(USERS_FILE, "utf8")).users || [];
+  const now = Date.now();
+  if (usersCache.users && now - usersCache.checkedAt < 2000) return usersCache.users;
+  const mtimeMs = fs.statSync(USERS_FILE).mtimeMs;
+  if (usersCache.users && usersCache.mtimeMs === mtimeMs) {
+    usersCache.checkedAt = now;
+    return usersCache.users;
+  }
+  const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8")).users || [];
+  usersCache = { checkedAt: now, mtimeMs, users };
+  return users;
 }
 
 function writeUsers(users) {
   ensureDataFiles();
-  fs.writeFileSync(USERS_FILE, JSON.stringify({ users: Array.isArray(users) ? users : [] }, null, 2), "utf8");
+  const next = Array.isArray(users) ? users : [];
+  fs.writeFileSync(USERS_FILE, JSON.stringify({ users: next }, null, 2), "utf8");
+  usersCache = { checkedAt: Date.now(), mtimeMs: fs.statSync(USERS_FILE).mtimeMs, users: next };
 }
 
 function backupUsersFile() {
@@ -960,7 +1010,6 @@ function recordRejectedGps(req, session, input, normalizedGps, reason) {
   };
   const alertKey = `${rejected.username || rejected.device && rejected.device.id || rejected.ip}|${reason}`;
   if (!shouldPersistGpsAlert(alertKey)) {
-    writeSessionAudit("GPS_REJECTED_THROTTLED", session, { gps: normalizedGps, note: reason });
     return rejected;
   }
   const rejectedGps = ensureRejectedGps(state);
@@ -1082,6 +1131,9 @@ function auditEntry(req, user, input, details) {
 function ensureGlobalAudit(state) {
   if (!state || typeof state !== "object") return [];
   state.globalAudit = Array.isArray(state.globalAudit) ? state.globalAudit : [];
+  if (state.globalAudit.length > GLOBAL_AUDIT_STATE_LIMIT) {
+    state.globalAudit = state.globalAudit.slice(0, GLOBAL_AUDIT_STATE_LIMIT);
+  }
   return state.globalAudit;
 }
 
@@ -4748,12 +4800,13 @@ function serveFile(req, res) {
       VERSION: APP_RUNTIME_VERSION,
       TIMEOUTS: {
         server: Number(process.env.DL_TIMEOUT_SERVER_MS || 7000),
+        stateSync: Number(process.env.DL_TIMEOUT_STATE_SYNC_MS || 45000),
         health: Number(process.env.DL_TIMEOUT_HEALTH_MS || 4500),
         loginGrace: Number(process.env.DL_TIMEOUT_LOGIN_GRACE_MS || 30000),
         healthRetries: [0, 800, 1600, 3000, 5000],
         loginRetries: [0, 800, 1600, 3000, 5000],
-        syncInterval: Number(process.env.DL_SYNC_INTERVAL_MS || 2500),
-        mobileSyncInterval: Number(process.env.DL_MOBILE_SYNC_INTERVAL_MS || 7000)
+        syncInterval: Number(process.env.DL_SYNC_INTERVAL_MS || 10000),
+        mobileSyncInterval: Number(process.env.DL_MOBILE_SYNC_INTERVAL_MS || 15000)
       }
     };
     const googleMapsKey = envGoogleMapsKey && envGoogleMapsKey !== "api-key-de-google-maps"
@@ -5357,6 +5410,14 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { ok: false, error: "Ubicacion GPS invalida." });
         return;
       }
+      const now = Date.now();
+      const gpsMinIntervalMs = session.user.role === "driver"
+        ? GPS_DRIVER_MIN_INTERVAL_MS
+        : (session.user.role === "seller" ? GPS_SELLER_MIN_INTERVAL_MS : GPS_PRESENCE_MIN_INTERVAL_MS);
+      if (session.lastGpsAcceptedAt && now - session.lastGpsAcceptedAt < gpsMinIntervalMs) {
+        sendJson(res, 200, { ok: true, throttled: true });
+        return;
+      }
       const rejectReason = gpsRejectReason(gps);
       if (rejectReason) {
         const rejected = recordRejectedGps(req, session, input, gps, rejectReason);
@@ -5370,11 +5431,6 @@ const server = http.createServer(async (req, res) => {
         });
         return;
       }
-      const now = Date.now();
-      if (session.lastGpsAcceptedAt && now - session.lastGpsAcceptedAt < GPS_PRESENCE_MIN_INTERVAL_MS) {
-        sendJson(res, 200, { ok: true, throttled: true });
-        return;
-      }
       session.lastGpsAcceptedAt = now;
       if (input.device) session.device = { ...session.device, ...normalizeDevice(input.device, req) };
       session.location = gps;
@@ -5385,7 +5441,10 @@ const server = http.createServer(async (req, res) => {
       session.ip = clientIp(req);
       appendGpsHistory(session, gps, input);
       const warning = gpsWarning(gps);
-      writeSessionAudit("GPS_UPDATED", session, { gps, note: warning || `GPS ${gps.lat}, ${gps.lng}` });
+      if (!session.lastGpsAuditAt || now - session.lastGpsAuditAt >= GPS_AUDIT_MIN_INTERVAL_MS || warning) {
+        session.lastGpsAuditAt = now;
+        writeSessionAudit("GPS_UPDATED", session, { gps, note: warning || `GPS ${gps.lat}, ${gps.lng}` });
+      }
       if (warning && shouldPersistGpsAlert(`${session.sessionId}|${warning}`)) {
         appendNotificationToStateFile(req, session.user, { ...input, gps }, {
           action: "GPS_PRECISION_BAJA",
@@ -9227,6 +9286,11 @@ const server = http.createServer(async (req, res) => {
         stateVersion: payload.version || 0,
         activeSessions: publicSessions().length,
         openSessions: sessions.size,
+        stateSync: {
+          inFlight: fullStateResponsesInFlight,
+          maxConcurrent: MAX_FULL_STATE_RESPONSES,
+          rejectedSinceStart: fullStateResponsesRejected
+        },
         security: publicSecurityStatus(securityEngine.verifyRuntime(false), false),
         orders: Array.isArray(currentState.orders) ? currentState.orders.length : 0,
         deliveryRoutes: Array.isArray(currentState.deliveryRoutes) ? currentState.deliveryRoutes.length : 0,
@@ -9327,6 +9391,18 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         session.lastSyncAt = new Date().toISOString();
+        if (!reserveFullStateResponse(res)) {
+          sendJson(res, 503, {
+            ok: false,
+            code: "STATE_SYNC_BUSY",
+            error: "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.",
+            retryAfterSeconds: 5
+          }, {
+            "Retry-After": "5",
+            "X-State-Sync-Busy": "1"
+          });
+          return;
+        }
         sendJson(res, 200, {
           ...currentPayload,
           state: stateForUser(currentPayload.state, user),
@@ -9469,6 +9545,9 @@ try {
 server.listen(PORT, HOST, () => {
   console.log(`Distribuidora Lopez SERVIDOR_UNICO_8790 ${APP_RUNTIME_VERSION} listening on ${HOST}:${PORT}`);
 });
+
+server.keepAliveTimeout = Math.max(5000, Number(process.env.DL_HTTP_KEEP_ALIVE_TIMEOUT_MS || 10000));
+server.headersTimeout = Math.max(server.keepAliveTimeout + 1000, Number(process.env.DL_HTTP_HEADERS_TIMEOUT_MS || 15000));
 
 
 

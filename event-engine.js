@@ -1,5 +1,5 @@
-const MAX_EVENTS = 3000;
-const MAX_OUTBOX = 3000;
+const MAX_EVENTS = Math.max(500, Number(process.env.DL_DOMAIN_EVENT_STATE_LIMIT || 1000));
+const MAX_OUTBOX = Math.max(500, Number(process.env.DL_INTEGRATION_OUTBOX_STATE_LIMIT || 1000));
 
 function nowIso() {
   return new Date().toISOString();
@@ -20,8 +20,8 @@ function eventId(prefix = "EVT") {
 
 function ensureState(state) {
   if (!state || typeof state !== "object") return state;
-  state.domainEvents = Array.isArray(state.domainEvents) ? state.domainEvents : [];
-  state.integrationOutbox = Array.isArray(state.integrationOutbox) ? state.integrationOutbox : [];
+  state.domainEvents = (Array.isArray(state.domainEvents) ? state.domainEvents : []).slice(0, MAX_EVENTS);
+  state.integrationOutbox = (Array.isArray(state.integrationOutbox) ? state.integrationOutbox : []).slice(0, MAX_OUTBOX);
   return state;
 }
 

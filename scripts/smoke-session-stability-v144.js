@@ -34,7 +34,10 @@ const child = spawn(process.execPath, [path.join(root, "server.js")], {
     USERS_FILE: path.join(tempDir, "users.json"),
     DL_VERSION: "8790-144-test",
     DL_LICENSE_ENFORCEMENT: "disabled",
-    DL_INTEGRITY_ENFORCE: "warn"
+    DL_INTEGRITY_ENFORCE: "warn",
+    DL_GPS_PRESENCE_MIN_INTERVAL_MS: "5000",
+    DL_GPS_SELLER_MIN_INTERVAL_MS: "5000",
+    DL_GPS_DRIVER_MIN_INTERVAL_MS: "5000"
   },
   stdio: ["ignore", "pipe", "pipe"]
 });
@@ -46,7 +49,7 @@ child.on("error", (error) => { childStatus = `spawn error: ${error.message}`; })
 child.on("exit", (code, signal) => { childStatus = `exit=${code} signal=${signal || "none"}`; });
 
 async function waitForServer() {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
     try {
       const response = await fetch(`${base}/api/health/live`);
       if (response.ok) return;

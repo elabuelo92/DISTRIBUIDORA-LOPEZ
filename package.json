@@ -38,6 +38,9 @@
     "test:session-stability": "node scripts/smoke-session-stability-v144.js",
     "test:monitor-safety": "node scripts/smoke-monitor-safety.js",
     "test:monitor-linux": "bash scripts/smoke-monitor-policy.sh",
+    "maintenance:rotate-logs": "node scripts/rotate-runtime-logs.js",
+    "test:runtime-log-rotation": "node scripts/smoke-runtime-log-rotation.js",
+    "test:state-sync-backpressure": "node scripts/smoke-state-sync-backpressure.js",
     "test:label-reprint": "node scripts/smoke-label-reprint.js",
     "test:label-reprint-api": "node scripts/smoke-label-reprint-api.js"
   },
