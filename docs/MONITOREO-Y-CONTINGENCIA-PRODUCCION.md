@@ -1,7 +1,7 @@
 # Monitoreo y contingencia de produccion
 
-La politica actualmente desplegada en `8790-145` todavia puede reiniciar el ERP por seis fallas de `/api/health/live` o dos lecturas de memoria >= 1,5 GiB. Esto puede cerrar todas las sesiones porque estan en memoria. No hay un umbral de CPU que ordene reinicio en el monitor.
+En `8790-146`, el monitor desplegado registra alertas ante fallas de salud o memoria, sin ordenar reinicios del ERP. Los timers de monitor y preflight estan activos. Una salida real del proceso u OOM todavia puede provocar reinicio por `Restart=always` de systemd y cerrar sesiones almacenadas en memoria.
 
-La politica nueva, preparada solo localmente, convierte esas condiciones en alertas y elimina el reinicio implicito del instalador. **No asumir que ya esta activa en produccion.** El procedimiento completo, criterios de recuperacion y despliegue futuro estan en [PROTOCOLO-CONTINGENCIA-SESIONES-2026-09-15.md](PROTOCOLO-CONTINGENCIA-SESIONES-2026-09-15.md).
+El cambio se probo en Linux aislado y se activo el 15/09/2026 sin reinicio posterior del servicio. Las alertas llegan a journal y al log del monitor; falta un canal externo antes de dejarlo sin vigilancia. El procedimiento y criterios de recuperacion estan en [PROTOCOLO-CONTINGENCIA-SESIONES-2026-09-15.md](PROTOCOLO-CONTINGENCIA-SESIONES-2026-09-15.md).
 
-Mientras el cambio no este desplegado, consultar estado y logs antes de decidir una intervencion. No ejecutar `scripts/install-production-monitor.sh` ni reiniciar el servicio fuera de una ventana autorizada y un backup validado.
+Ante una demora, consultar primero estado, PID y logs. No reiniciar el servicio fuera de una ventana autorizada y un backup validado; un timeout aislado no demuestra que el proceso haya caido.

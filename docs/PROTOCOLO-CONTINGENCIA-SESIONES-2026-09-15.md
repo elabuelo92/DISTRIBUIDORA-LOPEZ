@@ -1,16 +1,16 @@
 # Protocolo de contingencia: sesiones y disponibilidad
 
-Estado: preparado localmente el 15/09/2026. NO desplegado ni aplicado en Vultr. La produccion conserva su monitor anterior hasta un cambio autorizado.
+Estado: monitor sin reinicios por timeout o memoria desplegado en Vultr con `8790-146` el 15/09/2026. Servicio y timers activos; aviso externo todavia pendiente.
 
 ## Causa y regla de seguridad
 
 El monitor anterior ejecutaba `systemctl restart distribuidora-lopez.service` despues de seis fallas consecutivas de `/api/health/live` o dos controles de memoria >= 1,5 GiB. No existe un umbral de CPU que ordene reinicio en ese script. Un timeout HTTP no demuestra que Node haya muerto: puede estar ocupado temporalmente. Las sesiones viven en un `Map` dentro de `server.js`; cada reinicio las invalida.
 
-La politica local nueva nunca reinicia por salud, CPU ni memoria. Registra y deduplica alertas. `Restart=always` de systemd sigue cubriendo la salida real del proceso. `MemoryHigh=1G` presiona el uso de memoria y `MemoryMax=1536M` es el ultimo limite: una caida por OOM todavia puede reiniciar el servicio y perder sesiones hasta que exista persistencia segura.
+La politica desplegada nunca reinicia por salud, CPU ni memoria. Registra y deduplica alertas. `Restart=always` de systemd sigue cubriendo la salida real del proceso. `MemoryHigh=1G` presiona el uso de memoria y `MemoryMax=1536M` es el ultimo limite: una caida por OOM todavia puede reiniciar el servicio y perder sesiones hasta que exista persistencia segura.
 
 ## Niveles y respuesta
 
-| Sintoma | Deteccion | Monitor local nuevo | Operador |
+| Sintoma | Deteccion | Monitor desplegado | Operador |
 | --- | --- | --- | --- |
 | 1-2 fallas de ping | Control cada minuto | Log WARN | Observar tendencia |
 | 3-5 fallas | Ping consecutivo | Alerta `health_warning` | Revisar PID, carga y logs |
@@ -47,9 +47,11 @@ Si cae todo el VPS o la red, comunicar la incidencia. Registrar pedidos de conti
 
 Solo considerar reinicio si el proceso sigue activo pero no puede trabajar tras diagnostico, no se recupera y el impacto de esperar supera el de cerrar sesiones. Registrar hora, PID, sintomas, pedidos activos y autorizacion. Avisar a usuarios y tomar backup/snapshot consistente en ventana controlada. Reiniciar una sola vez, nunca en bucle. Tras arrancar verificar login admin y vendedor, pedidos, armado, despacho, reparto, licencia, integridad y logs. Comparar IDs, cantidad, lineas, totales y bultos antes/despues; diferencia esperada: cero. Si falla, detener acciones nuevas e investigar sin reemplazar `data` automaticamente.
 
-## Puerta para un despliegue futuro
+## Despliegue y siguientes ventanas
 
-Este documento NO autoriza produccion ahora. Lunes a viernes, esperar despues de las 18:00 ART salvo autorizacion especifica posterior. En fines de semana se mantienen backup, pruebas y validacion.
+El despliegue `8790-146` fue autorizado excepcionalmente, con backup frio verificable, prueba Linux aislada, servicio activo sin reinicio adicional y comparacion de 187 pedidos protegidos sin diferencias. No habilita nuevos cambios fuera de ventana: lunes a viernes, esperar despues de las 18:00 ART salvo autorizacion especifica posterior. En fines de semana se mantienen backup, pruebas y validacion.
+
+Para cualquier despliegue siguiente conservar esta puerta de seguridad:
 
 1. Probar el monitor en Linux aislado con `systemctl` falso y ping simulado: timeout de 8 s, seis fallas, memoria critica y recuperacion. Cero llamadas a `restart`; una alerta por motivo dentro de 15 minutos.
 2. Configurar y probar canal externo de alertas para titular y suplente. Journal solamente no alcanza para guardia desatendida.

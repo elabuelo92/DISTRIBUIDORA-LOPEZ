@@ -1,6 +1,6 @@
 # Reimpresion de etiquetas guardadas
 
-Estado: implementado localmente, pendiente de despliegue. No modifica datos productivos hasta un despliegue posterior autorizado.
+Estado: desplegado en produccion como `8790-146` el 15/09/2026. La reimpresion no modifica datos productivos.
 
 Cuando un pedido tiene etiqueta generada, las vistas Pedidos y Deposito muestran `Reimprimir`, aunque el servidor no la haya marcado como impresa. El modal tambien ofrece esa opcion. Puede usarse tantas veces como sea necesario: abre la impresion 100 x 60 mm con los codigos de bulto guardados, sin `POST`, sin timeout HTTP, sin regenerar IDs, sin cambiar estado ni borrar escaneos.
 
@@ -17,4 +17,4 @@ Contingencia para deposito:
 4. Si los codigos de bulto guardados estan incompletos, no imprimir otra etiqueta distinta sin revisar el pedido.
 5. Confirmar fisicamente las hojas y el escaneo de cada bulto; `printed` significa solicitud de impresion, no prueba de papel emitido.
 
-Pruebas locales: `npm.cmd run test:label-reprint`, `npm.cmd run test:label-reprint-api`, `npm.cmd run test:print-label`, `npm.cmd run test:order-workflow`, `npm.cmd run test:order-dispatch-protection` y `npm.cmd run test:operational-reliability`. El monitor local paso `test:monitor-safety`; `test:monitor-linux` quedo sin ejecutar porque WSL Bash devolvio acceso denegado. Antes del despliegue verificar manualmente: pedido sin etiqueta (sin boton), etiqueta generada con dos bultos (reimprimir varias veces con mismos codigos), pedido escaneado (escaneos conservados), respuesta de servidor tardia, popup bloqueado y Safari/Chrome con papel 100 x 60 mm.
+Pruebas locales: `npm.cmd run test:label-reprint`, `npm.cmd run test:label-reprint-api`, `npm.cmd run test:print-label`, `npm.cmd run test:order-workflow`, `npm.cmd run test:order-dispatch-protection` y `npm.cmd run test:operational-reliability`. En Vultr pasaron `node scripts/smoke-label-reprint.js` y la prueba Linux aislada del monitor. El pedido `PED-2363` conserva orden 702, dos bultos y los codigos `PED2363B1` y `PED2363B2`. La comparacion del snapshot productivo antes/despues dio cero pedidos protegidos modificados. Pendiente de comprobacion fisica: varias reimpresiones en Safari/Mac con papel 100 x 60 mm y lectura con la pistola; la marca `printed` no prueba que salio papel.

@@ -58,4 +58,4 @@ La correccion reduce la causa observada, pero no sustituye una futura persistenc
 
 ## Protocolo posterior preparado localmente
 
-Tras observar que todavia puede haber un timeout bajo carga, se preparo una politica de monitor sin reinicio por fallo HTTP o memoria y un instalador sin reinicio implicito del ERP. Ver [PROTOCOLO-CONTINGENCIA-SESIONES-2026-09-15.md](PROTOCOLO-CONTINGENCIA-SESIONES-2026-09-15.md). Esto NO modifica la produccion `8790-145`. Faltan la prueba Linux aislada y un canal externo de alertas antes de activarlo sin vigilancia.
+Tras observar que todavia puede haber un timeout bajo carga, se preparo una politica de monitor sin reinicio por fallo HTTP o memoria y un instalador sin reinicio implicito del ERP. Se probo en Linux aislado y se desplego posteriormente con `8790-146`; el resultado inicial mantuvo el mismo PID y no altero los 187 pedidos protegidos del snapshot. Ver [PROTOCOLO-CONTINGENCIA-SESIONES-2026-09-15.md](PROTOCOLO-CONTINGENCIA-SESIONES-2026-09-15.md). Falta un canal externo de alertas antes de dejarlo sin vigilancia.
