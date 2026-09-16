@@ -35,6 +35,7 @@ const report = {
   actors: { sellers: sellerCount, admins: adminCount, drivers: 1 },
   syntheticStateBytes: 0,
   productionWrites: 0,
+  recoveredNetworkCuts: 0,
   operations: {},
   failures: [],
   hostSamples: [],
@@ -199,8 +200,9 @@ async function main() {
         response.status >= 400 && !expectedLegalGate ? payload.error || text.slice(0, 180) : "");
       return { status: response.status, payload, cookie: String(response.headers.get("set-cookie") || "").split(";")[0] };
     } catch (error) {
-      if (name !== "simHealth") record(name, performance.now() - start, 0, error.message || String(error));
-      return { status: 0, payload: { error: error.message || String(error) } };
+      const detail = [error.message, error.cause?.code, error.cause?.message].filter(Boolean).join(" | ");
+      if (name !== "simHealth") record(name, performance.now() - start, 0, detail);
+      return { status: 0, payload: { error: detail } };
     } finally { clearTimeout(timer); }
   }
   async function login(username) {
@@ -245,9 +247,20 @@ async function main() {
     const actor = `simseller${index % sellerCount + 1}`;
     const client = `Cliente Sim ${index % 300 + 1}`;
     const items = Array.from({ length: 5 }, (_, item) => ({ productCode: `SIM-P${(index * 5 + item) % 711 + 1}`, qty: item % 2 + 1 }));
-    const result = await request("createOrder", "api/orders", {
-      actor, method: "POST", body: { client, items, source: "mobile", operationId: `SIM-OP-${String(index + 1).padStart(8, "0")}` }
-    });
+    const operationId = `SIM-OP-${String(index + 1).padStart(8, "0")}`;
+    const body = { client, items, source: "mobile", operationId };
+    let result = await request("createOrder", "api/orders", { actor, method: "POST", body });
+    if (result.status === 0 || result.status >= 500) {
+      const check = await request("createOrder.reconcile", `api/orders/mobile/status?operationId=${encodeURIComponent(operationId)}`, { actor });
+      if (check.status === 200 && check.payload.found && check.payload.order) {
+        result = { status: 200, payload: { order: check.payload.order } };
+        report.recoveredNetworkCuts += 1;
+      } else if (check.status === 200 && !check.payload.found) {
+        await sleep(250);
+        result = await request("createOrder.retry", "api/orders", { actor, method: "POST", body });
+        if (result.status === 200) report.recoveredNetworkCuts += 1;
+      }
+    }
     if (result.status === 200 && result.payload.order?.code) {
       created.push(result.payload.order.code);
       queued.push(result.payload.order.code);
