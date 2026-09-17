@@ -27,7 +27,10 @@ const state = {
     codigo_producto: "P-PAPA", name: "PAPAS FILLS 90GR - BATATA", proveedor: "", supplier: "",
     costo: 1103, cost: 1103, price: 1432, precio_lista_2: 1432, stock: 100, stock_fisico: 100, stock_actual: 100
   }],
-  clients: [{ codigo_cliente: "C-1", name: "Cliente v119", nombre_comercial: "Cliente v119", vendedor_asignado: "Sofia Benitez", seller: "Sofia Benitez", limit: 1000000, limite_credito: 1000000, status: "Activo" }],
+  clients: [
+    { codigo_cliente: "C-1", name: "Cliente v119", nombre_comercial: "Cliente v119", vendedor_asignado: "Sofia Benitez", seller: "Sofia Benitez", limit: 1000000, limite_credito: 1000000, status: "Activo" },
+    { codigo_cliente: "C-2", name: "Cliente ajeno v119", nombre_comercial: "Cliente ajeno v119", vendedor_asignado: "Otro vendedor", seller: "Otro vendedor", status: "Activo" }
+  ],
   sellers: [{ name: "Sofia Benitez", username: "sofia" }],
   suppliers: [
     { name: "Fills S.A.S.", razon_social: "Fills S.A.S.", nombre_comercial: "Fills", balance: 0, movements: [] },
@@ -95,6 +98,13 @@ async function request(cookie, endpoint, body, expected = 200) {
   assert.equal(health.version, "8790-119");
   const adminCookie = await login("admin1");
   const sellerCookie = await login("sofia");
+  const sellerStateResponse = await fetch(`${base}/api/state?version=0`, { headers: { Cookie: sellerCookie } });
+  assert.equal(sellerStateResponse.status, 200);
+  const sellerState = (await sellerStateResponse.json()).state;
+  assert.deepEqual(sellerState.clients.map((client) => client.codigo_cliente), ["C-1"]);
+  assert.deepEqual(sellerState.stockMovements, []);
+  assert.deepEqual(sellerState.orderAudit, []);
+  assert.deepEqual(sellerState.supplierMovements, []);
 
   const pinResult = await request(adminCookie, "api/admin/users/operation-pin", {
     username: "sofia", adminPassword: "Lopez2026!", motive: "Smoke v119"
@@ -125,10 +135,16 @@ async function request(cookie, endpoint, body, expected = 200) {
   assert.equal(margin.appliedNow, true);
   assert.equal(margin.simulation.items[0].price, 1434);
 
-  await request(adminCookie, "api/suppliers/remits/REM-V119/validate", {
+  const remitInput = {
     amount: 1200, invoiceNumber: "FC-119", costsValidated: true,
     lineValidations: [{ index: 0, productCode: "P-PAPA", cost: 1200, priceLists: [{ listNumber: 2, marginPct: 30, price: 1560 }] }]
-  });
+  };
+  const remitResult = await request(adminCookie, "api/suppliers/remits/REM-V119/validate", remitInput);
+  assert.equal(remitResult.compact, true);
+  assert.equal(remitResult.refreshRequired, true);
+  assert.equal(remitResult.state, undefined);
+  const remitReplay = await request(adminCookie, "api/suppliers/remits/REM-V119/validate", remitInput);
+  assert.equal(remitReplay.idempotentReplay, true);
   await request(adminCookie, "api/suppliers/manage", {
     supplier: "Duplicado limpio", action: "delete", motive: "Depuracion duplicado", adminPassword: "Lopez2026!"
   });
@@ -137,8 +153,11 @@ async function request(cookie, endpoint, body, expected = 200) {
   assert.equal(persisted.orders.filter((order) => order.createOperationId === orderInput.operationId).length, 1);
   assert.equal(persisted.products.find((product) => product.codigo_producto === "P-PAPA").costo, 1200);
   assert.equal(persisted.products.find((product) => product.codigo_producto === "P-PAPA").proveedor, "Fills S.A.S.");
+  assert.equal(persisted.accounts.filter((movement) => movement.remitId === "REM-V119").length, 1);
   assert.equal(persisted.suppliers.some((supplier) => supplier.name === "Duplicado limpio"), false);
-  assert.equal(fs.readFileSync(path.join(root, "app.js"), "utf8").includes("applyStateVisibility()"), false);
+  const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  assert.equal(appSource.includes("applyStateVisibility()"), false);
+  assert.equal(appSource.includes("hadMissingLocations"), false);
 
   console.log(JSON.stringify({
     ok: true,
@@ -146,6 +165,8 @@ async function request(cookie, endpoint, body, expected = 200) {
     sellerPinGenerated: true,
     clientPinValidated: true,
     orderIdempotent: true,
+    remitIdempotent: true,
+    sellerPayloadProjected: true,
     duplicateOrders: 0,
     providerMarginApplied: margin.simulation.items[0].price,
     remitCostUpdated: 1200,

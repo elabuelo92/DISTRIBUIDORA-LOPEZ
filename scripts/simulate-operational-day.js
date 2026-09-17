@@ -386,6 +386,8 @@ async function main() {
       while (queued.length) await processBatch(true);
       await publishRoute(ready.filter((code) => !routeCodes.has(code)), true);
     }
+    const performanceResult = await request("performance", "api/admin/performance", { actor: "simadmin1" });
+    report.serverPerformance = performanceResult.payload;
     const finalState = JSON.parse(fs.readFileSync(stateFile, "utf8")).state;
     report.created = created.length;
     report.ready = ready.length;

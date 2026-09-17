@@ -424,6 +424,29 @@
     return state;
   }
 
+  function refreshClientAccount(state, clientOrName) {
+    const client = findClient(state, clientOrName);
+    if (!client) return null;
+    const summary = accountSummary(state, client, 0);
+    if (!summary.ok) return null;
+    client.saldo_actual = summary.currentBalance;
+    client.balance = summary.currentBalance;
+    client.saldo_inicial = summary.currentBalance;
+    client.limite_credito = summary.creditLimit;
+    client.limit = summary.creditLimit;
+    client.deuda_vencida = summary.overdueDebt;
+    client.deuda_total = summary.totalDebt;
+    client.pedidos_pendientes_cuenta = summary.pendingOrderExposure;
+    client.credito_disponible = summary.creditLimit > 0 ? Math.max(0, summary.creditLimit - summary.totalDebt) : 0;
+    client.estado_cuenta = summary.status;
+    client.ultimo_pago = summary.lastPayment ? {
+      date: summary.lastPayment.date,
+      amount: summary.lastPayment.amount,
+      method: summary.lastPayment.method
+    } : null;
+    return summary;
+  }
+
   function syncTransferWithOrders(state, record) {
     historicalOrders(state).forEach((order) => {
       (Array.isArray(order.transferReceipts) ? order.transferReceipts : []).forEach((receipt) => {
@@ -961,6 +984,7 @@
 
   return {
     migrateState,
+    refreshClientAccount,
     accountSummary,
     pendingOrderExposure,
     lastPayment,

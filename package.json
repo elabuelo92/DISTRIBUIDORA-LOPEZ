@@ -41,6 +41,7 @@
     "maintenance:rotate-logs": "node scripts/rotate-runtime-logs.js",
     "test:runtime-log-rotation": "node scripts/smoke-runtime-log-rotation.js",
     "test:state-sync-backpressure": "node scripts/smoke-state-sync-backpressure.js",
+    "test:performance-contingency": "node scripts/smoke-operational-reliability-v119.js && node scripts/smoke-state-sync-backpressure.js && node scripts/smoke-runtime-log-rotation.js",
     "test:label-reprint": "node scripts/smoke-label-reprint.js",
     "test:label-reprint-api": "node scripts/smoke-label-reprint-api.js"
   },

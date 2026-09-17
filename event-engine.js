@@ -1,5 +1,5 @@
-const MAX_EVENTS = Math.max(500, Number(process.env.DL_DOMAIN_EVENT_STATE_LIMIT || 1000));
-const MAX_OUTBOX = Math.max(500, Number(process.env.DL_INTEGRATION_OUTBOX_STATE_LIMIT || 1000));
+const MAX_EVENTS = Math.max(500, Number(process.env.DL_DOMAIN_EVENT_STATE_LIMIT || 500));
+const MAX_OUTBOX = Math.max(500, Number(process.env.DL_INTEGRATION_OUTBOX_STATE_LIMIT || 500));
 
 function nowIso() {
   return new Date().toISOString();

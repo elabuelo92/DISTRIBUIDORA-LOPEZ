@@ -395,6 +395,10 @@
     return state;
   }
 
+  function prepareMutationState(state, context) {
+    return context && context.skipMigration === true ? ensureState(state) : migrateState(state);
+  }
+
   function routeAlreadyContainsOrder(state, orderCode) {
     return (state.deliveryRoutes || []).find((route) => (
       route.status !== ROUTE_STATUS.COMPLETED
@@ -403,7 +407,7 @@
   }
 
   function createPlannedRoute(state, input, context) {
-    migrateState(state);
+    prepareMutationState(state, context);
     const orderCodes = Array.from(new Set((input.orderCodes || []).map((code) => String(code || "").trim()).filter(Boolean)));
     if (!orderCodes.length) throw new Error("Seleccionar al menos un pedido en Armado.");
     const orders = orderCodes.map((code) => {
@@ -454,7 +458,7 @@
   }
 
   function reorderRoute(state, routeIdValue, orderCodes, context) {
-    migrateState(state);
+    prepareMutationState(state, context);
     const route = findRoute(state, routeIdValue);
     if (!route) throw new Error("Hoja de ruta no encontrada.");
     if (route.closure || route.status === ROUTE_STATUS.COMPLETED) throw new Error("No se puede reordenar una ruta cerrada.");
@@ -476,7 +480,7 @@
   }
 
   function removePlannedRoute(state, routeIdValue, context) {
-    migrateState(state);
+    prepareMutationState(state, context);
     const index = state.deliveryRoutes.findIndex((route) => route.id === routeIdValue);
     if (index < 0) throw new Error("Hoja de ruta no encontrada.");
     const route = state.deliveryRoutes[index];
@@ -493,7 +497,7 @@
   }
 
   function publishRoute(state, routeIdValue, context) {
-    migrateState(state);
+    prepareMutationState(state, context);
     const route = findRoute(state, routeIdValue);
     if (!route) throw new Error("Hoja de ruta no encontrada.");
     if (route.status !== ROUTE_STATUS.PLANNED) throw new Error("Solo se puede publicar una ruta planificada.");
@@ -554,7 +558,7 @@
   }
 
   function claimRoute(state, routeIdValue, context) {
-    migrateState(state);
+    prepareMutationState(state, context);
     const route = findRoute(state, routeIdValue);
     if (!route) throw new Error("Hoja de ruta no encontrada.");
     if (route.status === ROUTE_STATUS.PLANNED) throw new Error("La ruta todavia no fue publicada por administracion.");
@@ -652,7 +656,7 @@
   }
 
   function updateStopStatus(state, orderCode, targetStatus, context) {
-    migrateState(state);
+    prepareMutationState(state, context);
     if (targetStatus !== STATUS.IN_ROUTE) throw new Error("Estado de reparto invalido.");
     const order = findOrder(state, orderCode);
     const route = findRouteForOrder(state, orderCode);
@@ -681,7 +685,7 @@
   }
 
   function markStopException(state, orderCode, input, context) {
-    migrateState(state);
+    prepareMutationState(state, context);
     const order = findOrder(state, orderCode);
     const route = findRouteForOrder(state, orderCode);
     if (!order || !route) throw new Error("Pedido o ruta no encontrados.");
@@ -950,7 +954,7 @@
   }
 
   function collectAndDeliver(state, orderCode, input, context) {
-    migrateState(state);
+    prepareMutationState(state, context);
     const order = findOrder(state, orderCode);
     const route = findRouteForOrder(state, orderCode);
     if (!order || !route) throw new Error("Pedido o ruta no encontrados.");
@@ -1137,7 +1141,7 @@
   }
 
   function closeRoute(state, routeIdValue, input, context) {
-    migrateState(state);
+    prepareMutationState(state, context);
     const route = findRoute(state, routeIdValue);
     if (!route) throw new Error("Hoja de ruta no encontrada.");
     if (route.status === ROUTE_STATUS.PLANNED) throw new Error("La ruta planificada debe publicarse antes de rendir cierre.");

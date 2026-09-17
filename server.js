@@ -4,6 +4,7 @@ const path = require("path");
 const crypto = require("crypto");
 const os = require("os");
 const zlib = require("zlib");
+const { performance, monitorEventLoopDelay } = require("perf_hooks");
 const ExcelJS = require("exceljs");
 const { spawn } = require("child_process");
 const orderEngine = require("./order-engine");
@@ -21,7 +22,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-146";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-148";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -46,13 +47,18 @@ const DEFAULT_SESSION_TTL_MS = Math.max(16 * 60 * 60 * 1000, Number(process.env.
 const DEFAULT_WORKDAY_START_HOUR = Math.max(0, Math.min(23, Number(process.env.DL_WORKDAY_START_HOUR || 7)));
 const DEFAULT_WORKDAY_END_HOUR = Math.max(1, Math.min(24, Number(process.env.DL_WORKDAY_END_HOUR || 22)));
 const PRESENCE_OFFLINE_MS = Number(process.env.DL_PRESENCE_OFFLINE_MS || 45000);
-const GLOBAL_AUDIT_STATE_LIMIT = Math.max(1000, Number(process.env.DL_GLOBAL_AUDIT_STATE_LIMIT || 1000));
+const GLOBAL_AUDIT_STATE_LIMIT = Math.max(250, Number(process.env.DL_GLOBAL_AUDIT_STATE_LIMIT || 500));
+const NOTIFICATION_STATE_LIMIT = Math.max(200, Number(process.env.DL_NOTIFICATION_STATE_LIMIT || 500));
+const REJECTED_GPS_STATE_LIMIT = Math.max(100, Number(process.env.DL_REJECTED_GPS_STATE_LIMIT || 200));
 const GPS_ALERT_THROTTLE_MS = Math.max(60 * 1000, Number(process.env.DL_GPS_ALERT_THROTTLE_MS || 15 * 60 * 1000));
 const GPS_PRESENCE_MIN_INTERVAL_MS = Math.max(5000, Number(process.env.DL_GPS_PRESENCE_MIN_INTERVAL_MS || 15000));
 const GPS_SELLER_MIN_INTERVAL_MS = Math.max(GPS_PRESENCE_MIN_INTERVAL_MS, Number(process.env.DL_GPS_SELLER_MIN_INTERVAL_MS || 30000));
 const GPS_DRIVER_MIN_INTERVAL_MS = Math.max(5000, Number(process.env.DL_GPS_DRIVER_MIN_INTERVAL_MS || 10000));
 const GPS_AUDIT_MIN_INTERVAL_MS = Math.max(60000, Number(process.env.DL_GPS_AUDIT_MIN_INTERVAL_MS || 300000));
 const MAX_FULL_STATE_RESPONSES = Math.max(1, Number(process.env.DL_MAX_FULL_STATE_RESPONSES || 2));
+const RUNTIME_LOG_ROTATE_BYTES = Math.max(8 * 1024 * 1024, Number(process.env.DL_LOG_ROTATE_BYTES || 128 * 1024 * 1024));
+const RUNTIME_LOG_ROTATE_CHECK_MS = Math.max(30000, Number(process.env.DL_LOG_ROTATE_CHECK_MS || 60000));
+const SLOW_REQUEST_THRESHOLD_MS = Math.max(250, Number(process.env.DL_SLOW_REQUEST_THRESHOLD_MS || 1000));
 const sessions = new Map();
 const recentPresenceHistory = [];
 const recentGpsAlerts = new Map();
@@ -60,6 +66,23 @@ const productPortfolioPreviews = new Map();
 const clientPortfolioPreviews = new Map();
 let fullStateResponsesInFlight = 0;
 let fullStateResponsesRejected = 0;
+let projectedStateCacheVersion = 0;
+const projectedStateResponseCache = new Map();
+const runtimeLogChecks = new Map();
+const requestPerformance = new Map();
+const stateWritePerformance = {
+  count: 0,
+  totalMs: 0,
+  maxMs: 0,
+  lastMs: 0,
+  lastMigrationMs: 0,
+  lastSerializationMs: 0,
+  lastDiskMs: 0,
+  lastBytes: 0,
+  lastAt: ""
+};
+const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
+eventLoopDelay.enable();
 const securityEngine = licenseEngine.createEngine({
   root: ROOT,
   dataDir: DATA_DIR,
@@ -95,8 +118,7 @@ function send(res, status, type, body, headers) {
   res.end(payload);
 }
 
-function sendJson(res, status, data, headers) {
-  const payload = Buffer.from(JSON.stringify(data), "utf8");
+function sendJsonBuffer(res, status, payload, headers, prepared = null) {
   const responseHeaders = { ...(headers || {}) };
   const acceptEncoding = String(res._acceptEncoding || "gzip").toLowerCase();
   const finish = (body, encoding = "") => {
@@ -119,13 +141,69 @@ function sendJson(res, status, data, headers) {
     res.end(body);
   };
   if (payload.length > 2048 && acceptEncoding.includes("gzip")) {
-    zlib.gzip(payload, (error, compressed) => finish(error ? payload : compressed, error ? "" : "gzip"));
+    if (prepared && prepared.gzip) {
+      finish(prepared.gzip, "gzip");
+      return;
+    }
+    if (prepared && Array.isArray(prepared.gzipWaiters)) {
+      prepared.gzipWaiters.push(finish);
+      return;
+    }
+    if (prepared) prepared.gzipWaiters = [finish];
+    zlib.gzip(payload, (error, compressed) => {
+      if (prepared) {
+        const waiters = prepared.gzipWaiters || [];
+        prepared.gzipWaiters = null;
+        if (!error) prepared.gzip = compressed;
+        waiters.forEach((waiter) => waiter(error ? payload : compressed, error ? "" : "gzip"));
+        return;
+      }
+      finish(error ? payload : compressed, error ? "" : "gzip");
+    });
     return;
   } else if (payload.length > 2048 && acceptEncoding.includes("deflate")) {
     zlib.deflate(payload, (error, compressed) => finish(error ? payload : compressed, error ? "" : "deflate"));
     return;
   }
   finish(payload);
+}
+
+function sendJson(res, status, data, headers) {
+  sendJsonBuffer(res, status, Buffer.from(JSON.stringify(data), "utf8"), headers);
+}
+
+function projectedStateCacheKey(user) {
+  if (!user || !["admin", "depot", "receiver"].includes(user.role)) return "";
+  return user.role;
+}
+
+function sendProjectedStateResponse(res, currentPayload, user) {
+  const version = Number(currentPayload && currentPayload.version || 0);
+  if (projectedStateCacheVersion !== version) {
+    projectedStateCacheVersion = version;
+    projectedStateResponseCache.clear();
+  }
+  const key = projectedStateCacheKey(user);
+  if (!key) {
+    sendJson(res, 200, {
+      ...currentPayload,
+      state: stateForUser(currentPayload.state, user)
+    });
+    return;
+  }
+  let prepared = projectedStateResponseCache.get(key);
+  if (!prepared) {
+    prepared = {
+      payload: Buffer.from(JSON.stringify({
+        ...currentPayload,
+        state: stateForUser(currentPayload.state, user)
+      }), "utf8"),
+      gzip: null,
+      gzipWaiters: null
+    };
+    projectedStateResponseCache.set(key, prepared);
+  }
+  sendJsonBuffer(res, 200, prepared.payload, null, prepared);
 }
 
 function reserveFullStateResponse(res) {
@@ -143,6 +221,59 @@ function reserveFullStateResponse(res) {
   res.once("finish", release);
   res.once("close", release);
   return true;
+}
+
+function requestMetricPath(req) {
+  let pathname = "/";
+  try {
+    pathname = new URL(req.url, "http://localhost").pathname;
+  } catch {}
+  return pathname
+    .replace(/\/(PED|CLI|REM|RTA|EVT|AUDG|NOTI|STK)-[^/]+/gi, "/:$1")
+    .replace(/\/remits\/[^/]+\/validate$/i, "/remits/:id/validate")
+    .replace(/\/orders\/[^/]+/i, "/orders/:id")
+    .replace(/\/clients\/[^/]+/i, "/clients/:id");
+}
+
+function recordRequestPerformance(req, res, startedAt) {
+  const durationMs = Math.max(0, performance.now() - startedAt);
+  const key = `${String(req.method || "GET").toUpperCase()} ${requestMetricPath(req)}`;
+  const current = requestPerformance.get(key) || {
+    key,
+    count: 0,
+    errors: 0,
+    slow: 0,
+    totalMs: 0,
+    maxMs: 0,
+    lastMs: 0,
+    lastStatus: 0,
+    lastAt: ""
+  };
+  current.count += 1;
+  current.errors += res.statusCode >= 500 ? 1 : 0;
+  current.slow += durationMs >= SLOW_REQUEST_THRESHOLD_MS ? 1 : 0;
+  current.totalMs += durationMs;
+  current.maxMs = Math.max(current.maxMs, durationMs);
+  current.lastMs = durationMs;
+  current.lastStatus = res.statusCode;
+  current.lastAt = new Date().toISOString();
+  requestPerformance.set(key, current);
+  if (requestPerformance.size > 200) {
+    const oldest = Array.from(requestPerformance.values()).sort((a, b) => new Date(a.lastAt) - new Date(b.lastAt))[0];
+    if (oldest) requestPerformance.delete(oldest.key);
+  }
+}
+
+function requestPerformanceSnapshot(limit = 20) {
+  return Array.from(requestPerformance.values())
+    .map((entry) => ({
+      ...entry,
+      averageMs: entry.count ? Math.round(entry.totalMs / entry.count) : 0,
+      maxMs: Math.round(entry.maxMs),
+      lastMs: Math.round(entry.lastMs)
+    }))
+    .sort((left, right) => right.maxMs - left.maxMs)
+    .slice(0, Math.max(1, limit));
 }
 
 function maintenanceStatus() {
@@ -276,6 +407,31 @@ function writeSessionConfig(config) {
   return next;
 }
 
+function rotateRuntimeLogIfNeeded(file) {
+  const now = Date.now();
+  const previous = Number(runtimeLogChecks.get(file) || 0);
+  if (now - previous < RUNTIME_LOG_ROTATE_CHECK_MS) return;
+  runtimeLogChecks.set(file, now);
+  try {
+    const stat = fs.statSync(file);
+    if (stat.size < RUNTIME_LOG_ROTATE_BYTES) return;
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const archive = `${file}.${stamp}`;
+    if (fs.existsSync(archive)) return;
+    fs.renameSync(file, archive);
+    fs.writeFileSync(file, "", { encoding: "utf8", flag: "wx" });
+  } catch (error) {
+    if (error && error.code !== "ENOENT") {
+      console.warn(`No se pudo rotar ${path.basename(file)}: ${error.message || error}`);
+    }
+  }
+}
+
+function appendRuntimeLog(file, line) {
+  rotateRuntimeLogIfNeeded(file);
+  fs.appendFileSync(file, line, "utf8");
+}
+
 function writeSessionAudit(action, session, extra) {
   ensureDataFiles();
   const entry = {
@@ -291,7 +447,7 @@ function writeSessionAudit(action, session, extra) {
     gps: session && session.location || extra && extra.gps || null,
     note: extra && extra.note || ""
   };
-  fs.appendFileSync(SESSION_AUDIT_LOG, `${JSON.stringify(entry)}\n`, "utf8");
+  appendRuntimeLog(SESSION_AUDIT_LOG, `${JSON.stringify(entry)}\n`);
   return entry;
 }
 
@@ -718,7 +874,7 @@ function appendGpsHistory(session, gps, input = {}) {
     deviceAt: gps.deviceAt,
     serverAt: gps.serverAt
   };
-  fs.appendFileSync(GPS_HISTORY_LOG, `${JSON.stringify(entry)}\n`, "utf8");
+  appendRuntimeLog(GPS_HISTORY_LOG, `${JSON.stringify(entry)}\n`);
   return entry;
 }
 
@@ -980,7 +1136,7 @@ function pruneGpsHistory(retentionDays = 30) {
 
 function ensureRejectedGps(state) {
   if (!state || typeof state !== "object") return [];
-  state.rejectedGps = Array.isArray(state.rejectedGps) ? state.rejectedGps : [];
+  state.rejectedGps = (Array.isArray(state.rejectedGps) ? state.rejectedGps : []).slice(0, REJECTED_GPS_STATE_LIMIT);
   return state.rejectedGps;
 }
 
@@ -1014,7 +1170,7 @@ function recordRejectedGps(req, session, input, normalizedGps, reason) {
   }
   const rejectedGps = ensureRejectedGps(state);
   rejectedGps.unshift(rejected);
-  state.rejectedGps = rejectedGps.slice(0, 500);
+  state.rejectedGps = rejectedGps.slice(0, REJECTED_GPS_STATE_LIMIT);
   const audit = auditEntry(req, publicUserValue, { ...input, gps: normalizedGps }, {
     action: "GPS_RECHAZADO",
     entityType: "gps",
@@ -1147,7 +1303,7 @@ function appendGlobalAudit(state, entries) {
   if (audit.length > GLOBAL_AUDIT_STATE_LIMIT) audit.splice(GLOBAL_AUDIT_STATE_LIMIT);
   if (added.length) {
     try {
-      fs.appendFileSync(GLOBAL_AUDIT_LOG, `${added.map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf8");
+      appendRuntimeLog(GLOBAL_AUDIT_LOG, `${added.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
     } catch {
       // La auditoria activa debe continuar aunque el archivo historico no este disponible.
     }
@@ -1170,7 +1326,7 @@ function shouldPersistGpsAlert(key) {
 
 function ensureNotifications(state) {
   if (!state || typeof state !== "object") return [];
-  state.notifications = Array.isArray(state.notifications) ? state.notifications : [];
+  state.notifications = (Array.isArray(state.notifications) ? state.notifications : []).slice(0, NOTIFICATION_STATE_LIMIT);
   return state.notifications;
 }
 
@@ -1214,7 +1370,7 @@ function appendNotifications(state, entries) {
   });
   state.notifications = notifications
     .filter((entry, index, list) => entry && entry.id && list.findIndex((item) => item.id === entry.id) === index)
-    .slice(0, 1500);
+    .slice(0, NOTIFICATION_STATE_LIMIT);
   return state;
 }
 
@@ -1631,6 +1787,8 @@ function systemMonitorPayload() {
       heapUsedBytes: memory.heapUsed,
       heapTotalBytes: memory.heapTotal,
       externalBytes: memory.external,
+      eventLoopDelayP95Ms: Math.round(eventLoopDelay.percentile(95) / 1e6),
+      eventLoopDelayMaxMs: Math.round(eventLoopDelay.max / 1e6),
       memoryHighBytes: readCgroupLimit("memory.high"),
       memoryMaxBytes: readCgroupLimit("memory.max"),
       memorySwapMaxBytes: readCgroupLimit("memory.swap.max")
@@ -1657,6 +1815,26 @@ function systemMonitorPayload() {
       active: publicSessionList.filter((session) => session.online).length,
       total: publicSessionList.length,
       open: sessions.size
+    },
+    synchronization: {
+      fullStateInFlight: fullStateResponsesInFlight,
+      fullStateMaxConcurrent: MAX_FULL_STATE_RESPONSES,
+      fullStateRejectedSinceStart: fullStateResponsesRejected
+    },
+    httpPerformance: {
+      slowThresholdMs: SLOW_REQUEST_THRESHOLD_MS,
+      slowest: requestPerformanceSnapshot(20),
+      stateWrites: {
+        ...stateWritePerformance,
+        averageMs: stateWritePerformance.count
+          ? Math.round(stateWritePerformance.totalMs / stateWritePerformance.count)
+          : 0,
+        maxMs: Math.round(stateWritePerformance.maxMs),
+        lastMs: Math.round(stateWritePerformance.lastMs),
+        lastMigrationMs: Math.round(stateWritePerformance.lastMigrationMs),
+        lastSerializationMs: Math.round(stateWritePerformance.lastSerializationMs),
+        lastDiskMs: Math.round(stateWritePerformance.lastDiskMs)
+      }
     },
     monitor: {
       healthFailures: readNumericFile(path.join(SYSTEM_MONITOR_STATE_DIR, "health_failures")),
@@ -1782,28 +1960,37 @@ function ensureProductSupplierLinks(state) {
 }
 
 function writeState(state, options = {}) {
+  const startedAt = performance.now();
+  const migrationStartedAt = performance.now();
   if (state && typeof state === "object") {
     ensureGlobalAudit(state);
     ensureNotifications(state);
     ensureRejectedGps(state);
-    orderEngine.migrateState(state);
-    deliveryEngine.migrateState(state);
-    accountEngine.migrateState(state);
-    eventEngine.migrateState(state);
-    legalEngine.migrateState(state);
-    syncMixedEntityRelations(state);
-    ensureRouteLearningState(state);
-    ensurePrintState(state);
-    ensureProductSupplierLinks(state);
-    ensurePriceListsState(state);
-    applyDuePriceLists(state);
+    eventEngine.ensureState(state);
+    if (options.migrate === true) {
+      orderEngine.migrateState(state);
+      deliveryEngine.migrateState(state);
+      accountEngine.migrateState(state);
+      eventEngine.migrateState(state);
+      legalEngine.migrateState(state);
+      syncMixedEntityRelations(state);
+      ensureRouteLearningState(state);
+      ensurePrintState(state);
+      ensureProductSupplierLinks(state);
+      ensurePriceListsState(state);
+      applyDuePriceLists(state);
+    }
   }
+  const migrationMs = performance.now() - migrationStartedAt;
+  const serializationStartedAt = performance.now();
   const payload = {
     version: Date.now(),
     state: sanitizeState(state)
   };
   const serialized = JSON.stringify(payload);
-  if (options.atomic === true) {
+  const serializationMs = performance.now() - serializationStartedAt;
+  const diskStartedAt = performance.now();
+  if (options.atomic !== false) {
     const temporary = `${STATE_FILE}.${process.pid}.${Date.now()}.tmp`;
     fs.writeFileSync(temporary, serialized, "utf8");
     try {
@@ -1815,6 +2002,7 @@ function writeState(state, options = {}) {
   } else {
     fs.writeFileSync(STATE_FILE, serialized, "utf8");
   }
+  const diskMs = performance.now() - diskStartedAt;
   try {
     stateCache = {
       mtimeMs: fs.statSync(STATE_FILE).mtimeMs,
@@ -1826,6 +2014,16 @@ function writeState(state, options = {}) {
       payload
     };
   }
+  const totalMs = performance.now() - startedAt;
+  stateWritePerformance.count += 1;
+  stateWritePerformance.totalMs += totalMs;
+  stateWritePerformance.maxMs = Math.max(stateWritePerformance.maxMs, totalMs);
+  stateWritePerformance.lastMs = totalMs;
+  stateWritePerformance.lastMigrationMs = migrationMs;
+  stateWritePerformance.lastSerializationMs = serializationMs;
+  stateWritePerformance.lastDiskMs = diskMs;
+  stateWritePerformance.lastBytes = Buffer.byteLength(serialized);
+  stateWritePerformance.lastAt = new Date().toISOString();
   return payload.version;
 }
 
@@ -1911,7 +2109,8 @@ function deliveryContext(user, input) {
     deviceId: String(input.deviceId || ""),
     deviceLabel: String(input.deviceLabel || user.name || "Dispositivo reparto"),
     gps: input.gps || null,
-    note: input.note || ""
+    note: input.note || "",
+    skipMigration: true
   };
 }
 
@@ -2465,7 +2664,7 @@ function normalizeSupplierRemitItems(state, input) {
 
 function sanitizeState(state) {
   if (!state || typeof state !== "object") return null;
-  const clean = JSON.parse(JSON.stringify(state));
+  const clean = { ...state };
   if (Array.isArray(clean.sellers)) {
     clean.sellers = clean.sellers.map((seller) => ({
       ...seller,
@@ -2480,6 +2679,7 @@ function stateForUser(state, user) {
   legalEngine.migrateState(state || {});
   if (user && user.role === "seller") {
     const clean = { ...(state || {}) };
+    delete clean.performanceFixture;
     const visibleLists = Array.isArray(clean.priceLists)
       ? clean.priceLists
         .filter((list) => list.isDefault || list.status === "Activa")
@@ -2509,17 +2709,39 @@ function stateForUser(state, user) {
       user.name,
       user.username
     ].map(normalizeSearchText).filter(Boolean));
+    const belongsToSeller = (record) => sellerAliases.has(normalizeSearchText(
+      record && (record.sellerUsername || record.username || record.seller || record.vendedor_titular || record.vendedor || record.assignedSeller)
+    ));
+    clean.orders = (Array.isArray(clean.orders) ? clean.orders : []).filter(belongsToSeller);
+    clean.clients = (Array.isArray(clean.clients) ? clean.clients : []).filter(belongsToSeller);
     clean.archivedOrders = (Array.isArray(clean.archivedOrders) ? clean.archivedOrders : [])
-      .filter((order) => sellerAliases.has(normalizeSearchText(order.seller))
-        || sellerAliases.has(normalizeSearchText(order.sellerUsername)))
+      .filter(belongsToSeller)
       .slice(0, 2000);
+    clean.orderAudit = [];
+    clean.stockMovements = [];
+    clean.activity = [];
+    clean.suppliers = [];
+    clean.supplierMovements = [];
+    clean.accounts = [];
+    clean.bankTransfers = [];
+    clean.bankReconciliation = [];
+    clean.deliveryRoutes = [];
+    clean.archivedDeliveryRoutes = [];
+    clean.physicalStockCounts = [];
+    clean.physicalStockAdjustments = [];
+    clean.maintenanceBackups = [];
+    clean.preventaConsultations = (clean.preventaConsultations || []).filter(belongsToSeller).slice(0, 500);
+    clean.whatsappContacts = (clean.whatsappContacts || []).filter(belongsToSeller).slice(0, 500);
+    clean.noPurchaseVisits = (clean.noPurchaseVisits || []).filter(belongsToSeller).slice(0, 500);
+    clean.commissionSettlements = (clean.commissionSettlements || []).filter(belongsToSeller);
     clean.notifications = (clean.notifications || []).filter((entry) =>
       (entry.audience || []).includes("seller") || String(entry.username || "") === String(user.username || "")
     ).slice(0, 200);
     return clean;
   }
   if (user && user.role === "depot") {
-    const source = JSON.parse(JSON.stringify(state || {}));
+    const source = { ...(state || {}) };
+    delete source.performanceFixture;
     const allowedStatuses = new Set([
       orderEngine.STATUS.PENDING,
       orderEngine.STATUS.READY,
@@ -2628,6 +2850,9 @@ function stateForUser(state, user) {
       observaciones: product.observaciones || ""
     })) : [];
     source.accounts = [];
+    source.orderAudit = [];
+    source.stockMovements = [];
+    source.activity = [];
     source.archivedOrders = [];
     source.archivedDeliveryRoutes = [];
     source.bankReconciliation = [];
@@ -2649,10 +2874,35 @@ function stateForUser(state, user) {
       .filter((entry) => String(entry.entityType || "") === "pedido" && visibleCodes.has(String(entry.entityId || "")))
       .slice(0, 200) : [];
     source.routeLearning = { visits: [], clientStats: [], recommendations: [] };
+    source.domainEvents = [];
+    source.integrationOutbox = [];
+    source.rejectedGps = [];
+    source.preventaConsultations = [];
+    source.whatsappContacts = [];
     return source;
   }
   if (user && user.role === "driver") {
     const clean = { ...(state || {}) };
+    delete clean.performanceFixture;
+    const driverAliases = new Set([user.username, user.name].map(normalizeSearchText).filter(Boolean));
+    const isPlanner = String(user.username || "").trim().toLowerCase() === "dario";
+    const routeBelongsToDriver = (route) => isPlanner || [route && route.driverUser, route && route.driverUsername, route && route.driver]
+      .some((value) => driverAliases.has(normalizeSearchText(value)));
+    clean.deliveryRoutes = (Array.isArray(clean.deliveryRoutes) ? clean.deliveryRoutes : []).filter(routeBelongsToDriver);
+    const visibleOrderCodes = new Set();
+    clean.deliveryRoutes.forEach((route) => {
+      (Array.isArray(route.orderCodes) ? route.orderCodes : []).forEach((code) => visibleOrderCodes.add(String(code || "")));
+      (Array.isArray(route.stops) ? route.stops : []).forEach((stop) => {
+        visibleOrderCodes.add(String(stop && (stop.orderCode || stop.code || stop.order && stop.order.code) || ""));
+      });
+    });
+    if (!isPlanner) {
+      clean.orders = (Array.isArray(clean.orders) ? clean.orders : []).filter((order) => visibleOrderCodes.has(String(order.code || "")));
+      const visibleClients = new Set(clean.orders.map((order) => normalizeSearchText(order.client)));
+      clean.clients = (Array.isArray(clean.clients) ? clean.clients : []).filter((client) =>
+        visibleClients.has(normalizeSearchText(client.name || client.nombre_comercial))
+      );
+    }
     clean.priceListAudit = [];
     clean.commissionAudit = [];
     clean.legalAudit = [];
@@ -2664,6 +2914,21 @@ function stateForUser(state, user) {
     clean.rejectedGps = [];
     clean.archivedOrders = [];
     clean.archivedDeliveryRoutes = [];
+    clean.products = [];
+    clean.priceLists = [];
+    clean.orderAudit = [];
+    clean.stockMovements = [];
+    clean.activity = [];
+    clean.suppliers = [];
+    clean.supplierMovements = [];
+    clean.bankTransfers = [];
+    clean.bankReconciliation = [];
+    clean.physicalStockCounts = [];
+    clean.physicalStockAdjustments = [];
+    clean.maintenanceBackups = [];
+    clean.preventaConsultations = [];
+    clean.whatsappContacts = [];
+    clean.noPurchaseVisits = [];
     clean.notifications = (clean.notifications || []).filter((entry) =>
       (entry.audience || []).includes("driver") || String(entry.username || "") === String(user.username || "")
     ).slice(0, 200);
@@ -4831,6 +5096,8 @@ function serveFile(req, res) {
 }
 
 const server = http.createServer(async (req, res) => {
+  const requestStartedAt = performance.now();
+  res.once("finish", () => recordRequestPerformance(req, res, requestStartedAt));
   try {
     res._acceptEncoding = req.headers["accept-encoding"] || "";
     if (req.method === "OPTIONS") {
@@ -5686,7 +5953,7 @@ const server = http.createServer(async (req, res) => {
           entityId: result.priceList.id,
           entityLabel: result.priceList.name,
           audience: ["admin"]
-        }));
+        }), { atomic: true });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo generar la lista derivada." });
       }
@@ -6619,9 +6886,6 @@ const server = http.createServer(async (req, res) => {
       const input = JSON.parse(body || "{}");
       const currentPayload = readStateFileCached();
       const currentState = currentPayload.state || {};
-      orderEngine.migrateState(currentState);
-      deliveryEngine.migrateState(currentState);
-      accountEngine.migrateState(currentState);
       const mobileOperationId = sessionUser.role === "seller" || String(input.source || "").toLowerCase() === "mobile"
         ? mobileOrderOperationId(input)
         : "";
@@ -6648,7 +6912,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       try {
-        const quote = orderEngine.quoteOrder(currentState, pricedInput);
+        const quote = orderEngine.quoteOrder(currentState, pricedInput, { skipMigration: true });
         orderEngine.assertPreventaStockPolicy(currentState, quote.items);
         const credit = accountEngine.accountSummary(currentState, input.client, quote.amount);
         if (credit.requiresAuthorization) {
@@ -6707,7 +6971,7 @@ const server = http.createServer(async (req, res) => {
           sellerUsername: sessionUser.role === "seller" ? sessionUser.username : String(input.sellerUsername || ""),
           source: sessionUser.role === "seller" ? "mobile" : (input.source || "dashboard"),
           origin: sessionUser.role === "seller" ? "preventa" : (input.origin || "dashboard")
-        }, sessionUser.name);
+        }, sessionUser.name, { skipMigration: true });
         if (mobileOperationId) {
           order.createOperationId = mobileOperationId;
           order.createdByUsername = sessionUser.username;
@@ -6735,7 +6999,7 @@ const server = http.createServer(async (req, res) => {
             text: `${order.client}: ${credit.warning}`
           });
         }
-        accountEngine.migrateState(currentState);
+        accountEngine.refreshClientAccount(currentState, order.client);
         const orderAudit = auditEntry(req, sessionUser, withoutSensitiveFields(input), {
           action: "PEDIDO_CREADO",
           entityType: "pedido",
@@ -7251,7 +7515,7 @@ const server = http.createServer(async (req, res) => {
               return;
             }
             if (order.status !== orderEngine.STATUS.PENDING) throw new Error(`El pedido esta en ${order.status}; solo un Pendiente puede pasar a preparacion.`);
-            resultOrder = orderEngine.advanceOrder(currentState, code, sessionUser.name);
+            resultOrder = orderEngine.advanceOrder(currentState, code, sessionUser.name, { skipMigration: true });
             auditAction = "PEDIDO_AVANZADO";
             note = `Pedido avanzado a ${resultOrder.status}.`;
           } else if (action === "assembly") {
@@ -7260,7 +7524,7 @@ const server = http.createServer(async (req, res) => {
               return;
             }
             if (order.status !== orderEngine.STATUS.READY) throw new Error(`Primero marcar el pedido en ${orderEngine.STATUS.READY}.`);
-            resultOrder = orderEngine.advanceOrder(currentState, code, sessionUser.name);
+            resultOrder = orderEngine.advanceOrder(currentState, code, sessionUser.name, { skipMigration: true, skipShortageRebuild: true });
             auditAction = "PEDIDO_AVANZADO";
             note = `Pedido avanzado a ${resultOrder.status}.`;
           } else if (action === "labels") {
@@ -7281,7 +7545,8 @@ const server = http.createServer(async (req, res) => {
               user: sessionUser.name,
               username: sessionUser.username,
               role: sessionUser.role,
-              ip: clientIp(req)
+              ip: clientIp(req),
+              skipMigration: true
             }).order;
             auditAction = "PEDIDO_ETIQUETA_GENERADA";
             note = `Etiqueta generada. Bultos ${packages}.`;
@@ -7294,7 +7559,8 @@ const server = http.createServer(async (req, res) => {
               user: sessionUser.name,
               username: sessionUser.username,
               role: sessionUser.role,
-              ip: clientIp(req)
+              ip: clientIp(req),
+              skipMigration: true
             });
             auditAction = resultOrder.assembly && resultOrder.assembly.label && resultOrder.assembly.label.scanned
               ? "PEDIDO_LISTO_PARA_DESPACHO"
@@ -7406,7 +7672,8 @@ const server = http.createServer(async (req, res) => {
           username: sessionUser.username,
           role: sessionUser.role,
           ip: clientIp(req),
-          gps: input.gps || null
+          gps: input.gps || null,
+          skipMigration: true
         };
         const result = action === "label"
           ? orderEngine.generateOrderLabel(currentState, code, input, context)
@@ -7466,7 +7733,7 @@ const server = http.createServer(async (req, res) => {
           if (currentOrder && [orderEngine.STATUS.ASSEMBLY, orderEngine.STATUS.LABELED, orderEngine.STATUS.READY_DISPATCH].includes(currentOrder.status)) {
             throw new Error("Los pedidos de armado, etiquetado y despacho se gestionan desde etiqueta y planificador de rutas.");
           }
-          order = orderEngine.advanceOrder(currentState, code, sessionUser.name);
+          order = orderEngine.advanceOrder(currentState, code, sessionUser.name, { skipMigration: true });
         } else if (orderActionMatch[2] === "priority") {
           order = orderEngine.setPriority(currentState, code, input.priority, sessionUser.name);
         } else {
@@ -8032,12 +8299,32 @@ const server = http.createServer(async (req, res) => {
         currentState.products = Array.isArray(currentState.products) ? currentState.products : [];
         const remit = currentState.supplierMovements.find((item) => item.id === remitId);
         if (!remit) throw new Error("Remito no encontrado.");
-        if (remit.economicValidated) throw new Error("El remito ya fue validado administrativamente.");
         const supplier = currentState.suppliers.find((item) => sameText(item.name, remit.supplier) || sameText(item.razon_social, remit.supplier));
         if (!supplier) throw new Error("Proveedor no encontrado para validar remito.");
         const amount = Math.max(0, numeric(input.amount, 0));
         const invoiceNumber = String(input.invoiceNumber || input.factura || "").trim();
         if (!invoiceNumber) throw new Error("Indicar numero de factura para conciliar el remito.");
+        if (remit.economicValidated) {
+          const sameInvoice = sameText(remit.invoiceNumber, invoiceNumber);
+          const sameAmount = Math.abs(numeric(remit.amount, 0) - amount) < 0.01;
+          if (!sameInvoice || !sameAmount) {
+            throw new Error(`El remito ya fue validado con factura ${remit.invoiceNumber || "sin numero"}.`);
+          }
+          const products = (Array.isArray(remit.products) ? remit.products : [])
+            .map((line) => findProductByRemitItem(currentState, line))
+            .filter((product, index, list) => product && list.indexOf(product) === index);
+          sendJson(res, 200, {
+            ok: true,
+            version: currentPayload.version,
+            compact: true,
+            idempotentReplay: true,
+            remit,
+            supplier,
+            products,
+            completedOrders: []
+          });
+          return;
+        }
         const previousSupplier = cloneAuditValue(supplier);
         const previousRemit = cloneAuditValue(remit);
         const previousOrdersByCode = new Map((currentState.orders || []).map((order) => [order.code, cloneAuditValue(order)]));
@@ -8171,7 +8458,20 @@ const server = http.createServer(async (req, res) => {
           text: `${supplier.name}: factura ${invoiceNumber}, stock ingresado, importe ${amount}. ${remit.adminObservations}`.trim()
         });
         const completedOrders = Array.from(completedSet);
-        writeStateResponse(res, currentState, { remit, supplier, completedOrders }, [
+        const updatedProducts = productResults
+          .map((line) => findProductByRemitItem(currentState, line))
+          .filter((product, index, list) => product && list.indexOf(product) === index);
+        const completedOrderRecords = completedOrders
+          .map((code) => (currentState.orders || []).find((item) => item.code === code))
+          .filter(Boolean);
+        writeCompactStateResponse(res, currentState, {
+          refreshRequired: true,
+          remit,
+          supplier,
+          products: updatedProducts,
+          orders: completedOrderRecords,
+          completedOrders
+        }, [
           auditEntry(req, sessionUser, input, {
             action: "PROVEEDOR_REMITO_VALIDADO",
             entityType: "proveedor",
@@ -8198,7 +8498,7 @@ const server = http.createServer(async (req, res) => {
             const order = (currentState.orders || []).find((item) => item.code === code);
             return order ? orderStatusNotification(req, sessionUser, input, order, previousOrdersByCode.get(code), "PEDIDO_ESTADO") : null;
           })
-        ]);
+        ], { atomic: true });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo validar el remito." });
       }
@@ -8793,7 +9093,7 @@ const server = http.createServer(async (req, res) => {
           routeId,
           deliveryContext(sessionUser, input)
         );
-        writeStateResponse(res, currentState, { route }, auditEntry(req, sessionUser, input, {
+        writeCompactStateResponse(res, currentState, { route, refreshRequired: true }, auditEntry(req, sessionUser, input, {
           action: "RUTA_TOMADA",
           entityType: "ruta",
           entityId: routeId,
@@ -8811,7 +9111,7 @@ const server = http.createServer(async (req, res) => {
           entityId: route.id,
           entityLabel: route.zone || route.id,
           audience: ["admin"]
-        }));
+        }), { atomic: true });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo asignar la ruta." });
       }
@@ -8834,7 +9134,7 @@ const server = http.createServer(async (req, res) => {
           input,
           deliveryContext(sessionUser, input)
         );
-        writeStateResponse(res, currentState, result, auditEntry(req, sessionUser, input, {
+        writeCompactStateResponse(res, currentState, { ...result, refreshRequired: true }, auditEntry(req, sessionUser, input, {
           action: "RUTA_CIERRE_DIARIO",
           entityType: "ruta",
           entityId: routeId,
@@ -8852,7 +9152,7 @@ const server = http.createServer(async (req, res) => {
           entityId: routeId,
           entityLabel: result.route && (result.route.zone || result.route.id) || routeId,
           audience: ["admin"]
-        }));
+        }), { atomic: true });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo cerrar la ruta." });
       }
@@ -8875,7 +9175,7 @@ const server = http.createServer(async (req, res) => {
           String(input.status || ""),
           deliveryContext(sessionUser, input)
         );
-        writeStateResponse(res, currentState, result, auditEntry(req, sessionUser, input, {
+        writeCompactStateResponse(res, currentState, { ...result, refreshRequired: true }, auditEntry(req, sessionUser, input, {
           action: "REPARTO_ESTADO",
           entityType: "pedido",
           entityId: orderCode,
@@ -8883,7 +9183,7 @@ const server = http.createServer(async (req, res) => {
           previousValue: previousOrder,
           newValue: result.order,
           note: input.status || ""
-        }), orderStatusNotification(req, sessionUser, input, result.order, previousOrder, "PEDIDO_ESTADO"));
+        }), orderStatusNotification(req, sessionUser, input, result.order, previousOrder, "PEDIDO_ESTADO"), { atomic: true });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo actualizar la entrega." });
       }
@@ -8908,7 +9208,7 @@ const server = http.createServer(async (req, res) => {
           context
         );
         const collection = result.order && result.order.collection || {};
-        writeStateResponse(res, currentState, result, auditEntry(req, sessionUser, input, {
+        writeCompactStateResponse(res, currentState, { ...result, refreshRequired: true }, auditEntry(req, sessionUser, input, {
           action: "REPARTO_ENTREGA_COBRANZA",
           entityType: "pedido",
           entityId: orderCode,
@@ -8950,7 +9250,7 @@ const server = http.createServer(async (req, res) => {
             entityLabel: result.order && result.order.client || orderCode,
             audience: ["admin"]
           }) : null
-        ]);
+        ], { atomic: true });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo registrar la cobranza." });
       }
@@ -8975,7 +9275,7 @@ const server = http.createServer(async (req, res) => {
           context
         );
         const isRejected = result.order && result.order.status === orderEngine.STATUS.REJECTED;
-        writeStateResponse(res, currentState, result, auditEntry(req, sessionUser, input, {
+        writeCompactStateResponse(res, currentState, { ...result, refreshRequired: true }, auditEntry(req, sessionUser, input, {
           action: isRejected ? "PEDIDO_RECHAZADO" : "PEDIDO_NO_ENTREGADO",
           entityType: "pedido",
           entityId: orderCode,
@@ -8996,7 +9296,7 @@ const server = http.createServer(async (req, res) => {
             audience: ["admin"]
           }),
           orderStatusNotification(req, sessionUser, input, result.order, previousOrder, isRejected ? "PEDIDO_RECHAZADO" : "PEDIDO_ESTADO")
-        ]);
+        ], { atomic: true });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo registrar la incidencia de reparto." });
       }
@@ -9260,6 +9560,35 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/admin/performance" && req.method === "GET") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "ADMIN_REQUIRED" });
+        return;
+      }
+      sendJson(res, 200, {
+        ok: true,
+        generatedAt: new Date().toISOString(),
+        eventLoopDelayP95Ms: Math.round(eventLoopDelay.percentile(95) / 1e6),
+        eventLoopDelayMaxMs: Math.round(eventLoopDelay.max / 1e6),
+        stateWrites: {
+          ...stateWritePerformance,
+          averageMs: stateWritePerformance.count
+            ? Math.round(stateWritePerformance.totalMs / stateWritePerformance.count)
+            : 0
+        },
+        stateSync: {
+          inFlight: fullStateResponsesInFlight,
+          maxConcurrent: MAX_FULL_STATE_RESPONSES,
+          rejectedSinceStart: fullStateResponsesRejected
+        },
+        slowThresholdMs: SLOW_REQUEST_THRESHOLD_MS,
+        requests: requestPerformanceSnapshot(50)
+      });
+      return;
+    }
+
     if (requestUrl.pathname === "/api/health" && req.method === "GET") {
       const payload = readStateFileCached();
       const currentState = payload.state || {};
@@ -9403,14 +9732,7 @@ const server = http.createServer(async (req, res) => {
           });
           return;
         }
-        sendJson(res, 200, {
-          ...currentPayload,
-          state: stateForUser(currentPayload.state, user),
-          presence: {
-            sessions: publicSessions(),
-            settings: readSessionConfig()
-          }
-        });
+        sendProjectedStateResponse(res, currentPayload, user);
         return;
       }
       if (req.method === "POST") {
@@ -9460,13 +9782,13 @@ const server = http.createServer(async (req, res) => {
           const notificationsById = new Map([...previousNotifications, ...incomingNotifications].map((entry) => [entry.id, entry]));
           payload.state.notifications = Array.from(notificationsById.values())
             .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0))
-            .slice(0, 1500);
+            .slice(0, NOTIFICATION_STATE_LIMIT);
           const previousRejectedGps = ensureRejectedGps(currentPayload.state || {});
           const incomingRejectedGps = ensureRejectedGps(payload.state);
           const rejectedById = new Map([...previousRejectedGps, ...incomingRejectedGps].map((entry) => [entry.id, entry]));
           payload.state.rejectedGps = Array.from(rejectedById.values())
             .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0))
-            .slice(0, 500);
+            .slice(0, REJECTED_GPS_STATE_LIMIT);
           const previousLegalState = legalEngine.migrateState(currentPayload.state || {});
           const incomingLegalState = legalEngine.migrateState(payload.state);
           payload.state.legalSettings = previousLegalState.legalSettings || incomingLegalState.legalSettings;

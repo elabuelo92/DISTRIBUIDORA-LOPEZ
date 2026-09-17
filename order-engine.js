@@ -1433,8 +1433,8 @@
     return Array.from(grouped.values());
   }
 
-  function quoteOrder(state, input) {
-    migrateState(state);
+  function quoteOrder(state, input, options = {}) {
+    if (options.skipMigration !== true) migrateState(state);
     const sourceItems = Array.isArray(input && input.items) && input.items.length
       ? input.items
       : parseProductText(input && input.products);
@@ -1515,8 +1515,8 @@
     return matches;
   }
 
-  function createOrder(state, input, actor) {
-    migrateState(state);
+  function createOrder(state, input, actor, options = {}) {
+    if (options.skipMigration !== true) migrateState(state);
     const now = nowIso();
     const requested = prepareRequestedItems(state, input.items);
     const commercialInput = input && input.commercialRequest && typeof input.commercialRequest === "object"
@@ -1766,7 +1766,7 @@
   }
 
   function markOrderReadyForDispatch(state, code, context = {}) {
-    migrateState(state);
+    if (context.skipMigration !== true) migrateState(state);
     const order = getOrder(state, code);
     if (!order) throw new Error("Pedido no encontrado.");
     if (order.status === STATUS.READY_DISPATCH) return order;
@@ -1908,7 +1908,7 @@
   }
 
   function generateOrderLabel(state, code, input = {}, context = {}) {
-    migrateState(state);
+    if (context.skipMigration !== true) migrateState(state);
     const order = getOrder(state, code);
     if (!order) throw new Error("Pedido no encontrado.");
     if (![STATUS.ASSEMBLY, STATUS.LABELED, STATUS.READY_DISPATCH].includes(order.status)) {
@@ -1957,7 +1957,7 @@
   }
 
   function scanOrderLabel(state, code, input = {}, context = {}) {
-    migrateState(state);
+    if (context.skipMigration !== true) migrateState(state);
     const order = getOrder(state, code);
     if (!order) throw new Error("Pedido no encontrado.");
     if (![STATUS.LABELED, STATUS.READY_DISPATCH].includes(order.status)) {

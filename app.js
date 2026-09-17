@@ -2367,7 +2367,9 @@ function applyPresenceToState() {
 
 function applyServerStatePayload(payload) {
   if (!payload) return;
-  syncVersion = payload.version || syncVersion;
+  if (!(payload.refreshRequired && !payload.state)) {
+    syncVersion = payload.version || syncVersion;
+  }
   if (!payload.state) return;
   applyPresencePayload(payload);
   const nextState = normalizeState(payload.state);
@@ -2395,7 +2397,9 @@ function applyOrderPatches(orders, version) {
 
 function applyOperationalPatches(payload) {
   if (!payload || payload.state) return;
-  if (payload.version) syncVersion = Math.max(Number(syncVersion || 0), Number(payload.version || 0));
+  if (payload.version && !payload.refreshRequired) {
+    syncVersion = Math.max(Number(syncVersion || 0), Number(payload.version || 0));
+  }
   const orderPatches = [
     ...(Array.isArray(payload.orders) ? payload.orders : []),
     ...(payload.order && payload.order.code ? [payload.order] : [])
@@ -2412,6 +2416,32 @@ function applyOperationalPatches(payload) {
     state.deliveryRoutes = (state.deliveryRoutes || []).filter((route) => route.id !== payload.removedRouteId);
     if (activeDeliveryRouteId === payload.removedRouteId) activeDeliveryRouteId = "";
     persistLocalMeta("route-removed");
+    scheduleRenderForCurrentUser();
+  }
+  if (Array.isArray(payload.products) && payload.products.length) {
+    const byCode = new Map(payload.products.map((product) => [String(product.codigo_producto || product.code || ""), product]));
+    state.products = (state.products || []).map((product) => byCode.get(String(product.codigo_producto || product.code || "")) || product);
+    byCode.forEach((product, code) => {
+      if (code && !(state.products || []).some((item) => String(item.codigo_producto || item.code || "") === code)) {
+        state.products.push(product);
+      }
+    });
+  }
+  if (payload.supplier) {
+    const supplierName = normalizeSearchText(payload.supplier.name || payload.supplier.razon_social || "");
+    const supplierIndex = (state.suppliers || []).findIndex((item) =>
+      normalizeSearchText(item.name || item.razon_social || "") === supplierName
+    );
+    if (supplierIndex >= 0) state.suppliers[supplierIndex] = payload.supplier;
+    else state.suppliers = [payload.supplier, ...(state.suppliers || [])];
+  }
+  if (payload.remit && payload.remit.id) {
+    const remitIndex = (state.supplierMovements || []).findIndex((item) => item.id === payload.remit.id);
+    if (remitIndex >= 0) state.supplierMovements[remitIndex] = payload.remit;
+    else state.supplierMovements = [payload.remit, ...(state.supplierMovements || [])];
+  }
+  if (payload.products || payload.supplier || payload.remit) {
+    persistLocalMeta("operational-patches");
     scheduleRenderForCurrentUser();
   }
 }
@@ -2433,6 +2463,9 @@ async function postOperationalAction(path, body, options = {}) {
   applyServerStatePayload(payload);
   applyOperationalPatches(payload);
   cleanupOperationalLocalData(`operacion ${path}`);
+  if (payload.refreshRequired && !payload.state) {
+    window.setTimeout(pullStateFromServer, 150);
+  }
   return payload;
 }
 
@@ -15193,7 +15226,7 @@ async function submitSupplierRemitValidation(event) {
   try {
     const invoiceFile = supplierInvoiceAttachmentFile();
     const invoiceFileDataUrl = invoiceFile ? await fileToEvidenceDataUrl(invoiceFile) : "";
-    await postOperationalAction(`api/suppliers/remits/${encodeURIComponent(remitId)}/validate`, {
+    const result = await postOperationalAction(`api/suppliers/remits/${encodeURIComponent(remitId)}/validate`, {
       amount: numeric(byId("supplierRemitValidationAmount").value, 0),
       invoiceNumber,
       invoiceDate: byId("supplierRemitValidationInvoiceDate").value,
@@ -15203,9 +15236,11 @@ async function submitSupplierRemitValidation(event) {
       differences: byId("supplierRemitValidationDifferences").value,
       differenceAmount: numeric(byId("supplierRemitValidationDifferenceAmount").value, 0),
       observations: byId("supplierRemitValidationObservations").value
-    });
+    }, { timeoutMs: 120000 });
     byId("supplierRemitValidationDialog").close("default");
-    showCompactNotice("Remito conciliado. Stock y cuenta proveedor actualizados.", "ok");
+    showCompactNotice(result.idempotentReplay
+      ? "El remito ya estaba conciliado. Se recupero la confirmacion sin duplicar movimientos."
+      : "Remito conciliado. Stock y cuenta proveedor actualizados.", "ok");
   } catch (error) {
     setSupplierRemitValidationMessage(error.message || "No se pudo validar el remito.");
   } finally {
@@ -22004,16 +22039,14 @@ async function pullStateFromServer() {
       return;
     }
     if (payload.state && payload.version > previousSyncVersion) {
-      const hadMissingLocations = (payload.state.sellers || []).some((seller) => !seller.location);
       const nextState = normalizeState(payload.state);
       trackIncomingNotifications(nextState);
       state = nextState;
       applyPresenceToState();
-      const restoredOwnLocation = mergeOwnLocationIntoState();
+      mergeOwnLocationIntoState();
       syncVersion = payload.version;
       persistLocalMeta("pullStateFromServer");
       scheduleRenderForCurrentUser();
-      if (!isOperationalMobileUser() && (hadMissingLocations || restoredOwnLocation)) pushStateToServer();
     } else if (payload.state) {
       applyPresenceToState();
       if (!renderOperationalRole()) {
