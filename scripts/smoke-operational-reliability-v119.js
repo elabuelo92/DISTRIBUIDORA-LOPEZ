@@ -101,7 +101,7 @@ async function request(cookie, endpoint, body, expected = 200) {
   const sellerStateResponse = await fetch(`${base}/api/state?version=0`, { headers: { Cookie: sellerCookie } });
   assert.equal(sellerStateResponse.status, 200);
   const sellerState = (await sellerStateResponse.json()).state;
-  assert.deepEqual(sellerState.clients.map((client) => client.codigo_cliente), ["C-1"]);
+  assert.deepEqual(sellerState.clients.map((client) => client.codigo_cliente), ["C-1", "C-2"]);
   assert.deepEqual(sellerState.stockMovements, []);
   assert.deepEqual(sellerState.orderAudit, []);
   assert.deepEqual(sellerState.supplierMovements, []);

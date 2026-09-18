@@ -17,7 +17,7 @@ const fixture = [
 const kevin = { sellerIdentities: ["Kevin Guibert", "kevin"], sellerRoute: "Centro", workday: "Lunes" };
 assert.deepEqual(portfolio.filterClients(fixture, { ...kevin, scope: "today" }).map((item) => item.codigo_cliente), ["P101-K1"]);
 assert.deepEqual(portfolio.filterClients(fixture, { ...kevin, scope: "portfolio" }).map((item) => item.codigo_cliente), ["P101-K1", "P101-K2"]);
-assert.deepEqual(new Set(portfolio.filterClients(fixture, { ...kevin, scope: "outside" }).map((item) => item.codigo_cliente)), new Set(["P101-K2", "P101-C1", "P101-U1"]));
+assert.deepEqual(new Set(portfolio.filterClients(fixture, { ...kevin, scope: "outside" }).map((item) => item.codigo_cliente)), new Set(["P101-K1", "P101-K2", "P101-C1", "P101-U1"]));
 assert.deepEqual(portfolio.filterClients(fixture, { ...kevin, scope: "portfolio", search: "patria" }), []);
 assert.deepEqual(portfolio.filterClients(fixture, { ...kevin, scope: "portfolio", search: "otro dia" }).map((item) => item.codigo_cliente), ["P101-K2"]);
 assert.equal(portfolio.matchesWorkday({ dia_visita: "2/7 LuVi" }, "Lunes"), true);
@@ -119,7 +119,7 @@ async function jsonRequest(url, cookie, options = {}) {
     kevinToday: 1,
     kevinPortfolio: 2,
     carlosToday: 1,
-    outsideWithoutMixing: 3,
+    outsideCompleteCatalog: 4,
     bulkAssigned: applied.payload.affected,
     auditEntries: audit.length,
     wrongPasswordRejected: true

@@ -125,7 +125,7 @@
 
     return (Array.isArray(clients) ? clients : []).filter((client) => {
       if (!isActiveClient(client)) return false;
-      const inScope = scope === "portfolio" ? belongs(client) : scope === "outside" ? !belongsToday(client) : belongsToday(client);
+      const inScope = scope === "portfolio" ? belongs(client) : scope === "outside" ? true : belongsToday(client);
       return inScope && (!terms.length || terms.every((term) => searchText(client).includes(term)));
     }).sort((a, b) => {
       const score = (client) => {

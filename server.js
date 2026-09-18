@@ -22,7 +22,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-148";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-149";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -2713,7 +2713,9 @@ function stateForUser(state, user) {
       record && (record.sellerUsername || record.username || record.seller || record.vendedor_titular || record.vendedor || record.assignedSeller)
     ));
     clean.orders = (Array.isArray(clean.orders) ? clean.orders : []).filter(belongsToSeller);
-    clean.clients = (Array.isArray(clean.clients) ? clean.clients : []).filter(belongsToSeller);
+    // Every seller needs the complete catalog for outside-route sales.
+    // Orders and operational history remain scoped to the authenticated seller.
+    clean.clients = Array.isArray(clean.clients) ? clean.clients : [];
     clean.archivedOrders = (Array.isArray(clean.archivedOrders) ? clean.archivedOrders : [])
       .filter(belongsToSeller)
       .slice(0, 2000);
