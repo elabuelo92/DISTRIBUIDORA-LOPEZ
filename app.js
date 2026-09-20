@@ -5383,7 +5383,7 @@ function renderMobileProgressDashboard() {
       <article><span>Efectividad</span><strong>${stats.effectiveness}%</strong></article>
       <article><span>Avance</span><strong>${progress}%</strong></article>
       <article><span>Ticket promedio</span><strong>${money.format(stats.avgTicket)}</strong></article>
-      <article><span>GPS</span><strong>${gpsText}</strong></article>
+      <article><span>GPS</span><strong id="mobileProgressGpsStatus">${gpsText}</strong></article>
     </section>
     <section class="mobile-month-commission">
       <div>
@@ -5793,6 +5793,14 @@ function renderLocationStatus() {
   const battery = Number.isFinite(Number(seller.location.battery)) ? ` - bateria ${Math.round(Number(seller.location.battery))}%` : "";
   status.textContent = `${gpsTrustLabel(seller.location)}: ${seller.location.lat.toFixed(5)}, ${seller.location.lng.toFixed(5)} - ${seller.location.updatedAt}${seller.location.provider ? ` - ${seller.location.provider}` : ""}${battery}`;
   setGpsBadge(warning ? "Precision baja" : "Encendido", warning ? "warn" : "ok");
+}
+
+function refreshMobilePresence() {
+  renderLocationStatus();
+  const gps = byId("mobileProgressGpsStatus");
+  if (gps) gps.textContent = getSelectedMobileSeller()?.location ? "Activo" : "Pendiente";
+  renderDailyRoutePanel();
+  renderAssistantGuide();
 }
 
 function setGpsBadge(text, tone) {
@@ -22230,7 +22238,7 @@ async function pullStateFromServer() {
       if (now - lastPresenceRenderAt > 5000) {
         applyPresenceToState();
         lastPresenceRenderAt = now;
-        if (isOperationalMobileUser() && currentUser?.role !== "driver") renderOperationalRole();
+        if (currentUser?.role === "seller") refreshMobilePresence();
         else if (activeViewId() === "admin") renderSessionMonitor();
         else if (activeViewId() === "estadisticas") renderRoutes();
       }

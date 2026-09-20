@@ -92,7 +92,31 @@ assert.match(nodes.get("deliveryStopList").innerHTML, /PED-99/);
 assert.match(html, /id="deliveryStopSearch"/);
 assert.match(styles, /\.delivery-driver-stop-actions/);
 assert.match(app, /const showMap = deliveryMapVisible;/);
-assert.match(app, /currentUser\?\.role !== "driver"\) renderOperationalRole\(\)/);
+const unchangedStart = app.indexOf("if (payload.unchanged && !payload.state)");
+const unchangedEnd = app.indexOf("if (payload.state && payload.version > previousSyncVersion)", unchangedStart);
+assert.ok(unchangedStart >= 0 && unchangedEnd > unchangedStart);
+const unchangedBranch = app.slice(unchangedStart, unchangedEnd);
+assert.match(unchangedBranch, /currentUser\?\.role === "seller"\) refreshMobilePresence\(\)/);
+assert.doesNotMatch(unchangedBranch, /renderOperationalRole\(\)/);
+
+const presenceStart = app.indexOf("function refreshMobilePresence()");
+const presenceEnd = app.indexOf("\nfunction setGpsBadge(", presenceStart);
+assert.ok(presenceStart >= 0 && presenceEnd > presenceStart);
+const gpsNode = { textContent: "" };
+const presenceCalls = [];
+const presenceContext = {
+  renderLocationStatus: () => presenceCalls.push("location"),
+  byId: () => gpsNode,
+  getSelectedMobileSeller: () => ({ location: { lat: -31.4, lng: -64.2 } }),
+  renderDailyRoutePanel: () => presenceCalls.push("route"),
+  renderAssistantGuide: () => presenceCalls.push("guide")
+};
+vm.createContext(presenceContext);
+vm.runInContext(`${app.slice(presenceStart, presenceEnd)}\nthis.refreshMobilePresence = refreshMobilePresence;`, presenceContext);
+presenceContext.refreshMobilePresence();
+assert.equal(gpsNode.textContent, "Activo");
+assert.deepEqual(presenceCalls, ["location", "route", "guide"]);
+assert.match(app, /id="mobileProgressGpsStatus"/);
 
 const paymentStart = app.indexOf("function updateDeliveryPaymentPresetSelection(");
 const paymentEnd = app.indexOf("\nfunction updateDeliveryPaymentDefaults(", paymentStart);

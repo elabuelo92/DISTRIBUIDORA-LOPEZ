@@ -86,7 +86,7 @@ async function main() {
       DL_DEFAULT_PASSWORD: password, DL_LICENSE_ENFORCEMENT: "disabled", DL_INTEGRITY_ENFORCE: "warn",
       DL_SEED_DEFAULT_USERS: publicDemo ? "false" : "true",
       DL_PUBLIC_DEMO: publicDemo ? "true" : "false",
-      DL_API_BASE_URL: "", DL_VERSION: "8790-150-preview"
+      DL_API_BASE_URL: "", DL_VERSION: "8790-151-preview"
     },
     stdio: "ignore",
     detached: true,
