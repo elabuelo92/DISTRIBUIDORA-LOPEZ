@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-149-r20260917a">
+    <link rel="manifest" href="manifest.json?v=8790-150-r20260919a">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-149-r20260917a">
+    <link rel="stylesheet" href="styles.css?v=8790-150-r20260919b">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -159,8 +159,8 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-149</strong>
-              <small data-version-build>Actualizada 16/09/2026</small>
+              <strong data-version-value>8790-150</strong>
+              <small data-version-build>Actualizada 20/09/2026</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
             <button class="ghost-btn app-back-btn" id="appBackBtn" type="button">Volver</button>
@@ -949,6 +949,15 @@
                   <h2 id="deliveryActiveRouteTitle">Paradas</h2>
                   <p id="deliveryActiveRouteMeta">Seleccionar una hoja de ruta</p>
                 </div>
+              </div>
+              <div class="delivery-stop-toolbar" id="deliveryStopToolbar" hidden>
+                <input id="deliveryStopSearch" type="search" autocomplete="off" placeholder="Buscar cliente, pedido o direccion" aria-label="Buscar parada">
+                <div class="delivery-stop-filters" role="group" aria-label="Filtrar paradas">
+                  <button type="button" data-delivery-stop-filter="pending" aria-pressed="true">Pendientes</button>
+                  <button type="button" data-delivery-stop-filter="issues" aria-pressed="false">Incidencias</button>
+                  <button type="button" data-delivery-stop-filter="all" aria-pressed="false">Todas</button>
+                </div>
+                <span id="deliveryStopCount" aria-live="polite"></span>
               </div>
               <div class="delivery-stop-list" id="deliveryStopList"></div>
             </section>
@@ -2788,7 +2797,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-149</span>
+          <span id="appFooterVersion">Version del sistema: 8790-150</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -2975,6 +2984,19 @@
           <button class="primary-btn" type="submit">Validar scanner</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="accountPaymentChooserDialog">
+      <div class="modal-card account-payment-chooser">
+        <div class="modal-header">
+          <h2>Registrar pago de cliente</h2>
+          <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <label>Buscar cliente o codigo
+          <input id="accountPaymentChooserSearch" type="search" autocomplete="off" placeholder="Nombre o codigo de cliente">
+        </label>
+        <div id="accountPaymentChooserResults" class="account-payment-chooser-results"></div>
+      </div>
     </dialog>
 
     <dialog id="accountStatementDialog">
@@ -3378,6 +3400,10 @@
           <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
         </div>
         <div class="form-grid">
+          <label>
+            Codigo proveedor
+            <input id="supplierCode" name="codigo_proveedor" autocomplete="off" placeholder="Se genera si se deja vacio">
+          </label>
           <label>
             Razon social
             <input id="supplierName" name="razon_social" required autocomplete="off">
@@ -4024,6 +4050,7 @@
           <label data-price-list-row="4"><span>Lista 4</span><input name="precio_lista_4_pct" type="number" min="0" step="0.01"><input name="precio_lista_4" type="number" min="0" step="0.01"></label>
           <label data-price-list-row="5"><span>Lista 5</span><input name="precio_lista_5_pct" type="number" min="0" step="0.01"><input name="precio_lista_5" type="number" min="0" step="0.01"></label>
         </div>
+        <div id="stockPriceSimulation" class="stock-price-preview" aria-live="polite"></div>
         <div class="form-grid">
           <label>
             IVA
@@ -4179,11 +4206,11 @@
             </div>
           </div>
           <div class="payment-preset-grid" aria-label="Accesos rapidos de cobranza">
-            <button class="mini-btn" type="button" data-delivery-payment-preset="cash">Todo efectivo</button>
-            <button class="mini-btn" type="button" data-delivery-payment-preset="transfer">Todo transferencia</button>
-            <button class="mini-btn" type="button" data-delivery-payment-preset="pending-transfer">Promete transferir</button>
-            <button class="mini-btn" type="button" data-delivery-payment-preset="credit">Todo cuenta corriente</button>
-            <button class="mini-btn primary-mini" type="button" data-delivery-payment-preset="mixed">Pago mixto manual</button>
+            <button class="mini-btn" type="button" data-delivery-payment-preset="cash" aria-pressed="false">Todo efectivo</button>
+            <button class="mini-btn" type="button" data-delivery-payment-preset="transfer" aria-pressed="false">Todo transferencia</button>
+            <button class="mini-btn" type="button" data-delivery-payment-preset="pending-transfer" aria-pressed="false">Promete transferir</button>
+            <button class="mini-btn" type="button" data-delivery-payment-preset="credit" aria-pressed="false">Todo cuenta corriente</button>
+            <button class="mini-btn" type="button" data-delivery-payment-preset="mixed" aria-pressed="false">Pago mixto manual</button>
           </div>
           <div class="form-grid">
             <label>
@@ -4482,18 +4509,18 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-149-r20260917a"></script>
-    <script src="maps-config.js?v=8790-149-r20260917a"></script>
-    <script src="order-engine.js?v=8790-149-r20260917a"></script>
-    <script src="account-engine.js?v=8790-149-r20260917a"></script>
-    <script src="delivery-engine.js?v=8790-149-r20260917a"></script>
-    <script src="legal-engine.js?v=8790-149-r20260917a"></script>
-    <script src="client-portfolio-engine.js?v=8790-149-r20260917a"></script>
-    <script src="client-hours.js?v=8790-149-r20260917a"></script>
-    <script src="share-engine.js?v=8790-149-r20260917a"></script>
-    <script src="portfolio-export-engine.js?v=8790-149-r20260917a"></script>
-    <script src="progressive-list.js?v=8790-149-r20260917a"></script>
-    <script src="app.js?v=8790-149-r20260917a"></script>
+    <script src="config.js?v=8790-150-r20260919a"></script>
+    <script src="maps-config.js?v=8790-150-r20260919a"></script>
+    <script src="order-engine.js?v=8790-150-r20260919a"></script>
+    <script src="account-engine.js?v=8790-150-r20260919a"></script>
+    <script src="delivery-engine.js?v=8790-150-r20260919a"></script>
+    <script src="legal-engine.js?v=8790-150-r20260919a"></script>
+    <script src="client-portfolio-engine.js?v=8790-150-r20260919a"></script>
+    <script src="client-hours.js?v=8790-150-r20260919a"></script>
+    <script src="share-engine.js?v=8790-150-r20260919a"></script>
+    <script src="portfolio-export-engine.js?v=8790-150-r20260919a"></script>
+    <script src="progressive-list.js?v=8790-150-r20260919a"></script>
+    <script src="app.js?v=8790-150-r20260919b"></script>
   </body>
 </html>
 

@@ -129,6 +129,42 @@ const rejected = DeliveryEngine.markStopException(state, firstCode, {
 assert.equal(rejected.order.status, OrderEngine.STATUS.REJECTED);
 assert.deepEqual(rejected.stop.attachments, {});
 
+const directState = buildState(2);
+const directRoute = DeliveryEngine.createPlannedRoute(directState, {
+  orderCodes: directState.orders.map((order) => order.code),
+  day: "2026-09-05",
+  zone: "Centro",
+  driverUser: "dario",
+  driverLabel: "Darío"
+}, context);
+DeliveryEngine.publishRoute(directState, directRoute.id, context);
+DeliveryEngine.claimRoute(directState, directRoute.id, context);
+const directCode = directRoute.stops[0].orderCode;
+const directCollection = DeliveryEngine.collectAndDeliver(directState, directCode, {
+  method: "Efectivo",
+  amountPaid: directState.orders.find((order) => order.code === directCode).amount,
+  paymentSplit: {
+    cashAmount: directState.orders.find((order) => order.code === directCode).amount,
+    transferAmount: 0,
+    creditAmount: 0
+  },
+  deliveredItems: [{ productCode: "P-132", deliveredQty: 1, returnedQty: 0 }]
+}, context);
+assert.equal(directCollection.order.status, OrderEngine.STATUS.COLLECTED);
+assert.ok(directCollection.stop.visitStartedAt);
+assert.equal(directCollection.order.trace.filter((entry) => entry.status === OrderEngine.STATUS.IN_ROUTE).length, 1);
+assert.throws(() => DeliveryEngine.collectAndDeliver(directState, directCode, { method: "Efectivo" }, context));
+assert.equal(directCollection.order.collections.length, 1);
+const incidentCode = directRoute.stops[1].orderCode;
+const directIncident = DeliveryEngine.markStopException(directState, incidentCode, {
+  status: OrderEngine.STATUS.NOT_DELIVERED,
+  reason: "Cliente cerrado",
+  observations: "Se informo a administracion"
+}, context);
+assert.equal(directIncident.order.status, OrderEngine.STATUS.NOT_DELIVERED);
+assert.ok(directIncident.stop.visitStartedAt);
+assert.equal(directIncident.order.trace.filter((entry) => entry.status === OrderEngine.STATUS.IN_ROUTE).length, 1);
+
 assert.match(app, /function canPlanDeliveryRoutes\(\)/);
 assert.match(app, /currentUser\.role === "driver"[\s\S]*username[\s\S]*=== "dario"/);
 assert.match(app, /data-route-drag/);

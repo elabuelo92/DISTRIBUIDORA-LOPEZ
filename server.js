@@ -22,7 +22,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-149";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-150";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -41,6 +41,15 @@ const PRINT_LOG = path.join(DATA_DIR, "print-jobs.log");
 const STOCK_PRINT_SCRIPT = path.join(ROOT, "scripts", "print-stock-report.ps1");
 const STOCK_PRINTER_NAME = process.env.DL_STOCK_PRINTER_NAME || "";
 const DEFAULT_PASSWORD = process.env.DL_DEFAULT_PASSWORD || "Lopez2026!";
+const SEED_DEFAULT_USERS = process.env.DL_SEED_DEFAULT_USERS !== "false";
+const PUBLIC_DEMO = process.env.DL_PUBLIC_DEMO === "true";
+const PUBLIC_DEMO_FILES = new Set([
+  "/index.html", "/maintenance.html", "/styles.css", "/manifest.json", "/sw.js",
+  "/config.js", "/maps-config.js", "/order-engine.js", "/account-engine.js",
+  "/delivery-engine.js", "/legal-engine.js", "/client-portfolio-engine.js",
+  "/client-hours.js", "/share-engine.js", "/portfolio-export-engine.js",
+  "/progressive-list.js", "/app.js"
+]);
 const MANAGED_USER_ROLES = ["admin", "seller", "driver", "receiver", "depot"];
 const MAX_BODY = 16 * 1024 * 1024;
 const DEFAULT_SESSION_TTL_MS = Math.max(16 * 60 * 60 * 1000, Number(process.env.DL_SESSION_TTL_MS || 20 * 60 * 60 * 1000));
@@ -355,9 +364,11 @@ function ensureDataFiles() {
     fs.writeFileSync(SESSION_CONFIG_FILE, JSON.stringify(normalizeSessionConfig({}), null, 2), "utf8");
   }
   if (!fs.existsSync(USERS_FILE)) {
-    const users = seedUsers().map((user) => ({ ...user, password: undefined, ...hashPassword(user.password) }));
+    const users = SEED_DEFAULT_USERS
+      ? seedUsers().map((user) => ({ ...user, password: undefined, ...hashPassword(user.password) }))
+      : [];
     fs.writeFileSync(USERS_FILE, JSON.stringify({ users }, null, 2), "utf8");
-  } else {
+  } else if (SEED_DEFAULT_USERS) {
     try {
       const data = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
       const users = Array.isArray(data.users) ? data.users : [];
@@ -2181,6 +2192,7 @@ function normalizeSupplierServerRecord(supplier) {
   const commercialName = String(supplier.nombre_comercial || supplier.commercialName || supplier.nombre || name).trim();
   return {
     ...supplier,
+    codigo_proveedor: String(supplier.codigo_proveedor || "").trim(),
     name,
     razon_social: name,
     nombre_comercial: commercialName,
@@ -2217,6 +2229,7 @@ function normalizeSupplierCreateInput(input) {
   return normalizeSupplierServerRecord({
     razon_social: razonSocial,
     name: razonSocial,
+    codigo_proveedor: String(input.codigo_proveedor || "").trim(),
     nombre_comercial: String(input.nombre_comercial || input.commercialName || input.nombreComercial || razonSocial).trim(),
     cuit: String(input.cuit || "").trim(),
     direccion: String(input.direccion || input.address || "").trim(),
@@ -5054,6 +5067,10 @@ function serveFile(req, res) {
   const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   let pathname = decodeURIComponent(requestUrl.pathname);
   if (pathname === "/") pathname = "/index.html";
+  if (PUBLIC_DEMO && !PUBLIC_DEMO_FILES.has(pathname) && !/^\/icons\/[a-z0-9_-]+\.(?:png|jpg|jpeg|svg)$/i.test(pathname)) {
+    send(res, 404, "text/plain; charset=utf-8", "Not found");
+    return;
+  }
 
   if (pathname === "/config.js") {
     const envGoogleMapsKey = String(process.env.GOOGLE_MAPS_API_KEY || "").trim();
@@ -7927,6 +7944,17 @@ const server = http.createServer(async (req, res) => {
           status: existingSupplier.status,
           movements: existingSupplier.movements
         }) : enteredSupplier;
+        let supplierCode = enteredSupplier.codigo_proveedor || existingSupplier && existingSupplier.codigo_proveedor || "";
+        if (supplierCode.length > 40) throw new Error("El codigo de proveedor no puede superar 40 caracteres.");
+        if (!supplierCode) {
+          do {
+            supplierCode = `PRV-${crypto.randomBytes(5).toString("hex").toUpperCase()}`;
+          } while (currentState.suppliers.some((item) => sameText(item.codigo_proveedor, supplierCode)));
+        }
+        if (currentState.suppliers.some((item, index) => index !== existingIndex && item.codigo_proveedor && sameText(item.codigo_proveedor, supplierCode))) {
+          throw new Error(`Ya existe otro proveedor con el codigo ${supplierCode}.`);
+        }
+        supplier.codigo_proveedor = supplierCode;
         const duplicates = supplierDuplicateCandidates(currentState, supplier).filter((item) => !existingSupplier || !sameText(item.name, existingSupplier.name));
         const exactCuit = taxIdKey(supplier.cuit)
           ? duplicates.find((item) => taxIdKey(item.cuit) === taxIdKey(supplier.cuit))
@@ -9592,6 +9620,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (requestUrl.pathname === "/api/health" && req.method === "GET") {
+      if (PUBLIC_DEMO) {
+        sendJson(res, 200, { ok: true, version: APP_RUNTIME_VERSION, maintenance: maintenanceStatus() || { active: false } });
+        return;
+      }
       const payload = readStateFileCached();
       const currentState = payload.state || {};
       const activeMaintenance = maintenanceStatus();

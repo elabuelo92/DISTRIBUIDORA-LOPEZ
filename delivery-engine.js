@@ -693,13 +693,18 @@
     const gps = assertGps(context.gps);
     const active = nextStop(route);
     if (!active || active.orderCode !== orderCode) throw new Error("Primero debe finalizarse la parada anterior.");
-    if (![STATUS.IN_ROUTE, STATUS.CHECKED].includes(order.status)) throw new Error("El pedido debe estar EN REPARTO antes de registrar la incidencia.");
+    if (![STATUS.DISPATCHED, STATUS.IN_ROUTE, STATUS.CHECKED].includes(order.status)) throw new Error("El pedido debe estar despachado o EN REPARTO antes de registrar la incidencia.");
 
     const targetStatus = normalizeExceptionStatus(input.status || input.type);
     const reason = String(input.reason || input.motivo || "").trim();
     const observations = String(input.observations || input.observacion || input.note || "").trim();
     if (!reason) throw new Error("Indicar motivo de la incidencia.");
     if (!observations) throw new Error("Registrar una observacion para la incidencia.");
+    const stop = route.stops.find((item) => item.orderCode === orderCode);
+    if (order.status === STATUS.DISPATCHED) {
+      stop.visitStartedAt = stop.visitStartedAt || nowIso();
+      updateOrderTrace(order, STATUS.IN_ROUTE, { ...context, gps }, "Visita iniciada al registrar la incidencia");
+    }
     const at = nowIso();
     const parts = localTraceParts(at);
     const exception = {
@@ -723,7 +728,6 @@
     order.reprogrammingPending = targetStatus !== STATUS.REJECTED;
     updateOrderTrace(order, targetStatus, { ...context, gps }, `${targetStatus}: ${reason}. ${observations}`);
 
-    const stop = route.stops.find((item) => item.orderCode === orderCode);
     stop.status = targetStatus;
     stop.updatedAt = order.updatedAt;
     stop.deliveredAt = null;
@@ -962,7 +966,7 @@
     const gps = assertGps(context.gps);
     const active = nextStop(route);
     if (!active || active.orderCode !== orderCode) throw new Error("Primero debe finalizarse la parada anterior.");
-    if (![STATUS.IN_ROUTE, STATUS.CHECKED].includes(order.status)) throw new Error("El pedido debe estar EN REPARTO antes de cobrar.");
+    if (![STATUS.DISPATCHED, STATUS.IN_ROUTE, STATUS.CHECKED].includes(order.status)) throw new Error("El pedido debe estar despachado o EN REPARTO antes de cobrar.");
     let method = String(input.method || "");
     if (!PAYMENT_METHODS.has(method)) throw new Error("Forma de cobro invalida.");
     const split = input && input.paymentSplit && typeof input.paymentSplit === "object" ? input.paymentSplit : null;
@@ -1016,6 +1020,11 @@
     const transferReceipt = transferAmount > 0
       ? normalizeTransferReceipt(input, transferAmount, state.deliverySettings)
       : null;
+    const stop = route.stops.find((item) => item.orderCode === orderCode);
+    if (order.status === STATUS.DISPATCHED) {
+      stop.visitStartedAt = stop.visitStartedAt || nowIso();
+      updateOrderTrace(order, STATUS.IN_ROUTE, { ...context, gps }, "Visita iniciada al confirmar la entrega");
+    }
     const partialDelivery = deliveredItems.some((line) => line.pendingQty > 0);
     const collection = {
       method,
@@ -1089,10 +1098,9 @@
         includeDriver: true,
         driverUser: context.user || context.username || context.deviceLabel || ""
       });
-      if (typeof orderEngine.refreshSellerMetrics === "function") orderEngine.refreshSellerMetrics(state);
+      if (typeof orderEngine.refreshSellerMetrics === "function") orderEngine.refreshSellerMetrics(state, order.seller);
     }
 
-    const stop = route.stops.find((item) => item.orderCode === orderCode);
     stop.status = targetStatus;
     stop.updatedAt = order.updatedAt;
     stop.deliveredAt = order.updatedAt;

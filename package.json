@@ -29,6 +29,8 @@
     "test:planner-scanner": "node scripts/smoke-planner-scanner-v128.js",
     "test:delivery-planner": "node scripts/smoke-delivery-planner-v130.js",
     "test:delivery-operations": "node scripts/smoke-delivery-operations-v132.js",
+    "test:delivery-driver-ux": "node scripts/smoke-delivery-driver-ux.js",
+    "test:pending-revisions": "node scripts/smoke-pending-revisions.js",
     "test:consolidated-accounts": "node scripts/smoke-consolidated-accounts-v133.js",
     "test:portfolio-pdf": "node scripts/smoke-portfolio-pdf-v137.js",
     "test:operational-archive": "node scripts/smoke-operational-archive-v138.js",

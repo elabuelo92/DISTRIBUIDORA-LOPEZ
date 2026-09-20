@@ -299,7 +299,7 @@ const SYSTEM_PRICE_LISTS = [1, 2, 3, 4, 5];
 
 let state = loadState();
 let mobileSeller = "Sofia Benitez";
-let mobileClient = "Autoservicio La Esquina";
+let mobileClient = "";
 let mobileCart = {};
 let mobileProduct = "";
 let productPortfolioPreview = null;
@@ -556,6 +556,9 @@ let deliveryPlannerZoneFilter = "all";
 let deliveryPlannerSellerFilter = "all";
 let deliveryPlannerUndoRouteId = "";
 let deliveryMapVisible = false;
+let deliveryStopFilter = "pending";
+let deliveryStopSearchTerm = "";
+let deliveryStopPageSize = 15;
 let assemblyFastScanBuffer = "";
 let assemblyFastScanLastKeyAt = 0;
 let assemblyFastScanCounts = new Map();
@@ -2043,6 +2046,7 @@ function normalizeSupplierRecord(supplier) {
   const commercialName = String(supplier.nombre_comercial || supplier.commercialName || supplier.nombre || name).trim();
   return {
     ...supplier,
+    codigo_proveedor: String(supplier.codigo_proveedor || "").trim(),
     name,
     razon_social: name,
     nombre_comercial: commercialName,
@@ -2463,7 +2467,10 @@ async function postOperationalAction(path, body, options = {}) {
   applyServerStatePayload(payload);
   applyOperationalPatches(payload);
   cleanupOperationalLocalData(`operacion ${path}`);
-  if (payload.refreshRequired && !payload.state) {
+  const driverStopPatch = currentUser?.role === "driver"
+    && /^api\/delivery\/orders\/[^/]+\/(?:status|collect|exception)$/.test(path)
+    && payload.route && payload.order;
+  if (payload.refreshRequired && !payload.state && !driverStopPatch) {
     window.setTimeout(pullStateFromServer, 150);
   }
   return payload;
@@ -3193,6 +3200,7 @@ function applyCurrentUserRole() {
   const isDriver = currentUser && currentUser.role === "driver";
   const isReceiver = currentUser && currentUser.role === "receiver";
   const isDepot = currentUser && currentUser.role === "depot";
+  byId("reparto")?.classList.toggle("delivery-driver-mode", Boolean(isDriver));
   const commonViews = new Set(["legal", "ayuda", "acerca"]);
   document.querySelectorAll(".nav-item").forEach((item) => {
     const allowed = isSeller
@@ -4120,7 +4128,10 @@ function scheduleRenderForCurrentUser() {
   if (activeRenderFrame) return;
   activeRenderFrame = requestAnimationFrame(() => {
     activeRenderFrame = null;
+    const preserveDeliveryScroll = activeViewId() === "reparto";
+    const scrollY = preserveDeliveryScroll ? window.scrollY : 0;
     renderForCurrentUser();
+    if (preserveDeliveryScroll && scrollY !== window.scrollY) window.scrollTo(0, scrollY);
   });
 }
 
@@ -4722,11 +4733,10 @@ function renderMobileSeller() {
   mobileWorkday = mobileClientScope === "outside" ? "Fuera de Ruta" : defaultMobileWorkday();
   const outsideRoute = mobileClientScope === "outside";
   const clientsForSeller = getMobileClientOptions(seller);
-  const selectedClient = clientsForSeller.find((client) => client.name === mobileClient) || clientsForSeller[0] || null;
+  const selectedClient = clientsForSeller.find((client) => client.name === mobileClient) || null;
+  if (mobileClient && !selectedClient) clearMobileOrderDraft();
   mobileClient = selectedClient ? selectedClient.name : "";
-  if (!mobileProduct || !state.products.some((product) => product.name === mobileProduct)) {
-    mobileProduct = state.products[0] ? state.products[0].name : "";
-  }
+  if (mobileProduct && !state.products.some((product) => product.name === mobileProduct)) mobileProduct = "";
 
   byId("sellerRouteLabel").textContent = `${mobileClientScopeLabel()} - ${outsideRoute ? "Excepcional" : mobileWorkday}`;
   const sessionSeller = byId("mobileSessionSellerLabel");
@@ -4756,6 +4766,8 @@ function renderMobileSeller() {
     const credit = clientAccountSummary(selectedClient.name, getCartSummary().total);
     byId("mobileClientName").textContent = selectedClient.name;
     byId("mobileClientInfo").innerHTML = `
+      <span>Domicilio: ${escapeHtml(selectedClient.domicilio || selectedClient.address || "No informado")}</span>
+      ${selectedClient.referencia ? `<span>Referencia: ${escapeHtml(selectedClient.referencia)}</span>` : ""}
       <span>Saldo ${money.format(credit.currentBalance)} - Limite ${money.format(credit.creditLimit)}</span>
       <span>Deuda vencida ${money.format(credit.overdueDebt)} - Total ${money.format(credit.totalDebt)}</span>
       <span>Ultimo pago: ${escapeHtml(formatLastPayment(credit.lastPayment))}</span>
@@ -5160,7 +5172,7 @@ function renderMobileProductInfo() {
   if (!info || !addButton || !qtyInput) return;
   const product = state.products.find((item) => item.name === mobileProduct);
   if (!product) {
-    info.textContent = "No hay articulos cargados en el catalogo.";
+    info.textContent = state.products.length ? "Seleccionar un articulo." : "No hay articulos cargados en el catalogo.";
     addButton.disabled = true;
     return;
   }
@@ -9547,6 +9559,9 @@ function renderDeliveryActivePanel(route, routes) {
     title.textContent = "Hoja de ruta activa";
     meta.textContent = routes.length ? "Seleccionar una ruta disponible" : "Sin rutas disponibles para este equipo";
     actions.innerHTML = "";
+    const mapShell = byId("deliveryRouteMap")?.closest(".delivery-route-map-shell");
+    if (mapShell) mapShell.hidden = true;
+    mapShell?.closest(".delivery-active-grid")?.classList.add("map-hidden");
     summary.innerHTML = `
       <article class="delivery-active-empty">
         <strong>Sin ruta activa</strong>
@@ -9564,12 +9579,12 @@ function renderDeliveryActivePanel(route, routes) {
   const canClaim = currentUser?.role === "driver" && isDeliveryRoutePublished(route) && assignedHere && !route.deviceId;
   const canCloseRoute = !route.closure && isDeliveryRoutePublished(route) && (isAdminUser() || assignedHere) && allStopsManaged;
   const directionsUrl = deliveryRouteDirectionsUrl(route);
-  const showMap = currentUser?.role === "driver" || deliveryMapVisible;
+  const showMap = deliveryMapVisible;
 
   title.textContent = `${route.zone || "Ruta"} - ${route.id}`;
   meta.textContent = `${route.day || "Sin dia"} - ${route.deviceLabel || route.driverUser || "Sin dispositivo"} - ${stats.closed}/${stats.stops.length} gestionadas`;
   actions.innerHTML = `
-    ${isAdminUser() ? `<button class="secondary-btn" type="button" data-delivery-map-mode="${showMap ? "table" : "map"}">${showMap ? "Ver tabla" : "Ver mapa"}</button>` : ""}
+    <button class="secondary-btn" type="button" data-delivery-map-mode="${showMap ? "table" : "map"}">${showMap ? "Ocultar mapa" : "Ver mapa"}</button>
     ${canPlanDeliveryRoutes() ? `<button class="secondary-btn" type="button" data-route-manifest="csv" data-route-id="${escapeHtml(route.id)}">Manifiesto CSV</button>` : ""}
     ${canPlanDeliveryRoutes() ? `<button class="secondary-btn" type="button" data-route-manifest="pdf" data-route-id="${escapeHtml(route.id)}">Manifiesto PDF</button>` : ""}
     ${directionsUrl ? `<button class="secondary-btn" type="button" data-delivery-route-map-open="${escapeHtml(route.id)}">Abrir recorrido</button>` : ""}
@@ -9605,6 +9620,7 @@ function renderDeliveryActivePanel(route, routes) {
   `;
   const mapShell = byId("deliveryRouteMap")?.closest(".delivery-route-map-shell");
   if (mapShell) mapShell.hidden = !showMap;
+  mapShell?.closest(".delivery-active-grid")?.classList.toggle("map-hidden", !showMap);
   if (showMap) renderDeliveryRouteMap(route);
   else deliveryMapRenderToken += 1;
 }
@@ -9914,7 +9930,11 @@ function renderDeliveryStops(route) {
   const title = byId("deliveryActiveRouteTitle");
   const meta = byId("deliveryActiveRouteMeta");
   const list = byId("deliveryStopList");
+  const toolbar = byId("deliveryStopToolbar");
+  const previousTable = list.querySelector(".delivery-stop-table-wrap");
+  const previousScroll = previousTable ? { top: previousTable.scrollTop, left: previousTable.scrollLeft } : null;
   if (!route) {
+    if (toolbar) toolbar.hidden = true;
     title.textContent = "Paradas";
     meta.textContent = "Seleccionar una hoja de ruta";
     list.innerHTML = '<div class="empty-note">Sin hoja de ruta activa.</div>';
@@ -9926,6 +9946,12 @@ function renderDeliveryStops(route) {
   const ownsRoute = isAdminUser() || route.deviceId === deliveryDevice.id || route.driverUser === currentUser?.username;
   const visibleStops = (route.stops || []).filter((stop) => !isDeliveryStopDelivered(stop.status));
   const closureNote = route.closure ? `<article class="delivery-closure-card"><strong>Cierre diario registrado</strong><small>${escapeHtml(route.closure.user || "Reparto")} - ${escapeHtml(route.closure.date || "")} ${escapeHtml(route.closure.time || "")}</small>${deliveryClosureMetricsHtml(route.closure)}${route.closure.observations ? `<p>${escapeHtml(route.closure.observations)}</p>` : ""}</article>` : "";
+  if (currentUser?.role === "driver") {
+    if (toolbar) toolbar.hidden = false;
+    renderDeliveryDriverStops(route, current, ownsRoute, closureNote);
+    return;
+  }
+  if (toolbar) toolbar.hidden = true;
   if (!visibleStops.length) {
     list.innerHTML = closureNote + '<div class="empty-note">No quedan pedidos visibles en esta ruta. Los entregados se ocultan automaticamente.</div>';
     return;
@@ -9946,6 +9972,13 @@ function renderDeliveryStops(route) {
       exception ? `Incidencia: ${exception.reason || exception.status || stop.status}` : ""
     ].filter(Boolean).join(" - ");
     return `<tr class="delivery-stop-table-row ${isCurrent ? "current" : ""} ${isDeliveryStopClosed(stop.status) ? "completed" : ""}" ${canReorder ? `data-route-drop="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}"` : ""}>
+      <td><div class="delivery-stop-actions compact">
+        ${mapsUrl ? `<button class="secondary-btn" type="button" data-delivery-map="${escapeHtml(stop.orderCode)}">Ir</button>` : ""}
+        ${canReorder && index > 0 ? `<button class="secondary-btn" type="button" data-route-move="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}" data-direction="-1" title="Subir">↑</button>` : ""}
+        ${canReorder && index < route.stops.length - 1 ? `<button class="secondary-btn" type="button" data-route-move="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}" data-direction="1" title="Bajar">↓</button>` : ""}
+        ${canOperate && order && order.status === ORDER_STATUS.DISPATCHED ? `<button class="primary-btn" type="button" data-delivery-status="${escapeHtml(stop.orderCode)}" data-status="${ORDER_STATUS.IN_ROUTE}">Iniciar</button>` : ""}
+        ${canOperate && order && order.status === ORDER_STATUS.IN_ROUTE ? `<button class="primary-btn" type="button" data-delivery-collect="${escapeHtml(stop.orderCode)}">Cobrar</button><button class="secondary-btn" type="button" data-delivery-exception="${escapeHtml(stop.orderCode)}" data-exception-status="${ORDER_STATUS.NOT_DELIVERED}">No entregado</button><button class="secondary-btn" type="button" data-delivery-exception="${escapeHtml(stop.orderCode)}" data-exception-status="${ORDER_STATUS.POSTPONED}">Postergar</button>` : ""}
+      </div></td>
       <td>${canReorder ? `<span class="delivery-drag-handle" draggable="true" data-route-drag="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}" title="Arrastrar para cambiar el orden">Mover</span>` : ""}</td>
       <td>${canReorder ? `<input class="delivery-sequence-input" data-route-sequence="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}" type="number" min="1" max="${route.stops.length}" step="1" value="${escapeHtml(String(stop.sequence || index + 1))}" inputmode="numeric" aria-label="Secuencia de ${escapeHtml(stop.client)}">` : escapeHtml(String(stop.sequence || index + 1))}</td>
       <td><strong>${escapeHtml(formatAssemblyPedidoNumber(stop.orderCode))}</strong><small>Armado ${escapeHtml(formatAssemblyOrderNumber(assembly))}</small></td>
@@ -9955,16 +9988,73 @@ function renderDeliveryStops(route) {
       <td>${escapeHtml(String(assembly.bultos || stop.packages || 0))}</td>
       <td>${money.format(stop.amount)}</td>
       <td><span class="tag ${deliveryTone(stop.status)}">${escapeHtml(stop.status)}</span></td>
-      <td><div class="delivery-stop-actions compact">
-        ${mapsUrl ? `<button class="secondary-btn" type="button" data-delivery-map="${escapeHtml(stop.orderCode)}">Ir</button>` : ""}
-        ${canReorder && index > 0 ? `<button class="secondary-btn" type="button" data-route-move="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}" data-direction="-1" title="Subir">↑</button>` : ""}
-        ${canReorder && index < route.stops.length - 1 ? `<button class="secondary-btn" type="button" data-route-move="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}" data-direction="1" title="Bajar">↓</button>` : ""}
-        ${canOperate && order && order.status === ORDER_STATUS.DISPATCHED ? `<button class="primary-btn" type="button" data-delivery-status="${escapeHtml(stop.orderCode)}" data-status="${ORDER_STATUS.IN_ROUTE}">Iniciar</button>` : ""}
-        ${canOperate && order && order.status === ORDER_STATUS.IN_ROUTE ? `<button class="primary-btn" type="button" data-delivery-collect="${escapeHtml(stop.orderCode)}">Cobrar</button><button class="secondary-btn" type="button" data-delivery-exception="${escapeHtml(stop.orderCode)}" data-exception-status="${ORDER_STATUS.NOT_DELIVERED}">No entregado</button><button class="secondary-btn" type="button" data-delivery-exception="${escapeHtml(stop.orderCode)}" data-exception-status="${ORDER_STATUS.POSTPONED}">Postergar</button>` : ""}
-      </div></td>
     </tr>`;
   }).join("");
-  list.innerHTML = closureNote + `<div class="responsive-table delivery-stop-table-wrap"><table class="delivery-stop-table"><thead><tr><th>Mover</th><th>Orden</th><th>Pedido</th><th>Cliente</th><th>Direccion / referencia</th><th>Horario</th><th>Bultos</th><th>Importe</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  list.innerHTML = closureNote + `<div class="responsive-table delivery-stop-table-wrap"><table class="delivery-stop-table"><thead><tr><th>Acciones</th><th>Mover</th><th>Orden</th><th>Pedido</th><th>Cliente</th><th>Direccion / referencia</th><th>Horario</th><th>Bultos</th><th>Importe</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  if (previousScroll) {
+    const nextTable = list.querySelector(".delivery-stop-table-wrap");
+    nextTable.scrollTop = previousScroll.top;
+    nextTable.scrollLeft = previousScroll.left;
+  }
+}
+
+function renderDeliveryDriverStops(route, current, ownsRoute, closureNote = "") {
+  const list = byId("deliveryStopList");
+  const stops = [...(route.stops || [])].sort((a, b) => numeric(a.sequence, 0) - numeric(b.sequence, 0));
+  const pendingCount = stops.filter((stop) => !isDeliveryStopClosed(stop.status)).length;
+  const issueCount = stops.filter((stop) => [ORDER_STATUS.NOT_DELIVERED, ORDER_STATUS.POSTPONED, ORDER_STATUS.REJECTED].includes(stop.status)).length;
+  const search = normalizeSearchText(deliveryStopSearchTerm);
+  const orderByCode = new Map((state.orders || []).map((order) => [order.code, order]));
+  const filtered = stops.filter((stop) => {
+    if (deliveryStopFilter === "pending" && isDeliveryStopClosed(stop.status)) return false;
+    if (deliveryStopFilter === "issues" && ![ORDER_STATUS.NOT_DELIVERED, ORDER_STATUS.POSTPONED, ORDER_STATUS.REJECTED].includes(stop.status)) return false;
+    if (!search) return true;
+    return normalizeSearchText(`${stop.orderCode} ${stop.client} ${stop.address || ""}`).includes(search);
+  });
+  const countNode = byId("deliveryStopCount");
+  if (countNode) countNode.textContent = `${filtered.length} de ${stops.length} paradas`;
+  if (byId("deliveryStopSearch").value !== deliveryStopSearchTerm) byId("deliveryStopSearch").value = deliveryStopSearchTerm;
+  document.querySelectorAll("[data-delivery-stop-filter]").forEach((button) => {
+    const active = button.dataset.deliveryStopFilter === deliveryStopFilter;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+    const count = button.dataset.deliveryStopFilter === "pending" ? pendingCount : button.dataset.deliveryStopFilter === "issues" ? issueCount : stops.length;
+    button.textContent = `${button.dataset.deliveryStopFilter === "pending" ? "Pendientes" : button.dataset.deliveryStopFilter === "issues" ? "Incidencias" : "Todas"} ${count}`;
+  });
+  if (!filtered.length) {
+    list.innerHTML = closureNote + `<div class="empty-note">${search ? "No hay paradas para esa busqueda." : deliveryStopFilter === "pending" ? "No quedan paradas pendientes." : "No hay paradas en este filtro."}</div>`;
+    return;
+  }
+  const rows = filtered.slice(0, deliveryStopPageSize).map((stop) => {
+    const order = orderByCode.get(stop.orderCode);
+    const client = orderClient(order || {}) || routeClientByName(stop.client) || {};
+    const isCurrent = current?.orderCode === stop.orderCode;
+    const canOperate = ownsRoute && isCurrent && !isDeliveryRouteClosed(route) && route.status !== "Planificada";
+    const assembly = orderAssemblyInfo(order || { code: stop.orderCode, assembly: stop.assembly || { bultosConfirmed: stop.packages } });
+    const hasDestination = Boolean(stop.coordinates || stop.address && stop.address !== "Sin domicilio");
+    return `<article class="delivery-driver-stop ${isCurrent ? "current" : ""}">
+      <div class="delivery-driver-stop-main">
+        <span class="delivery-driver-sequence">${escapeHtml(String(stop.sequence || "-"))}</span>
+        <div class="delivery-driver-stop-info">
+          <strong>${escapeHtml(stop.client || "Cliente")}</strong>
+          <span>${escapeHtml(formatAssemblyPedidoNumber(stop.orderCode))} · ${escapeHtml(stop.address || "Domicilio pendiente")}</span>
+          ${client.referencia ? `<span>Ref: ${escapeHtml(client.referencia)}</span>` : ""}
+          <small>${escapeHtml(stop.hours || "Sin horario")} · ${escapeHtml(String(assembly.bultos || stop.packages || 0))} bultos · ${money.format(stop.amount || 0)}</small>
+        </div>
+        <div class="delivery-driver-stop-meta">
+          <span class="tag ${deliveryTone(stop.status)}">${escapeHtml(stop.status || "Pendiente")}</span>
+          ${!isCurrent && hasDestination ? `<button class="secondary-btn" type="button" data-delivery-map="${escapeHtml(stop.orderCode)}">Ir</button>` : ""}
+        </div>
+      </div>
+      ${isCurrent ? `<div class="delivery-driver-stop-actions">
+        ${hasDestination ? `<button class="secondary-btn" type="button" data-delivery-map="${escapeHtml(stop.orderCode)}">Ir al cliente</button>` : ""}
+        ${canOperate && [ORDER_STATUS.DISPATCHED, ORDER_STATUS.IN_ROUTE].includes(order?.status) ? `<button class="primary-btn" type="button" data-delivery-collect="${escapeHtml(stop.orderCode)}">Cobrar y entregar</button><button class="secondary-btn" type="button" data-delivery-exception="${escapeHtml(stop.orderCode)}" data-exception-status="${ORDER_STATUS.NOT_DELIVERED}">No entregado</button><button class="secondary-btn" type="button" data-delivery-exception="${escapeHtml(stop.orderCode)}" data-exception-status="${ORDER_STATUS.POSTPONED}">Postergar</button>` : ""}
+        ${canOperate && order?.status === ORDER_STATUS.DISPATCHED ? `<button class="secondary-btn" type="button" data-delivery-status="${escapeHtml(stop.orderCode)}" data-status="${ORDER_STATUS.IN_ROUTE}">Iniciar visita</button>` : ""}
+      </div>` : ""}
+    </article>`;
+  }).join("");
+  const remaining = filtered.length - deliveryStopPageSize;
+  list.innerHTML = closureNote + `<div class="delivery-driver-stops">${rows}</div>${remaining > 0 ? `<button class="secondary-btn delivery-show-more" type="button" data-delivery-stops-more>Mostrar ${Math.min(15, remaining)} mas</button>` : ""}`;
 }
 
 async function applyDeliverySequenceChange(input, focusNext = false) {
@@ -11341,12 +11431,22 @@ function printActiveAccountStatement() {
 }
 
 function openAccountPaymentChooser() {
-  const candidates = (state.clients || []).filter((client) => numeric(client.balance, 0) > 0);
-  if (!candidates.length) return showCompactNotice("No hay clientes con saldo pendiente.", "ok");
-  const requested = String(window.prompt(`Cliente con saldo pendiente:\n${candidates.slice(0, 20).map((client) => `- ${client.name}`).join("\n")}`, candidates[0].name) || "").trim();
-  const client = candidates.find((item) => sameText(item.name, requested) || sameText(item.codigo_cliente, requested));
-  if (!client) return showCompactNotice("Cliente no encontrado entre las cuentas pendientes.", "warn");
-  openAccountStatement("client", client.codigo_cliente || client.name);
+  if (!isAdminUser()) return;
+  byId("accountPaymentChooserSearch").value = "";
+  renderAccountPaymentChoices();
+  byId("accountPaymentChooserDialog").showModal();
+  byId("accountPaymentChooserSearch").focus();
+}
+
+function renderAccountPaymentChoices() {
+  const terms = searchTerms(byId("accountPaymentChooserSearch").value);
+  const candidates = (state.clients || [])
+    .filter((client) => numeric(client.balance, 0) > 0)
+    .filter((client) => !terms.length || matchesSearch([client.name, client.codigo_cliente, client.telefono].join(" "), terms))
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "es"));
+  byId("accountPaymentChooserResults").innerHTML = candidates.length
+    ? candidates.slice(0, 12).map((client) => `<button class="account-payment-choice" type="button" data-payment-client="${escapeHtml(client.codigo_cliente || client.name)}"><strong>${escapeHtml(client.name)}</strong><span>${escapeHtml(client.codigo_cliente || "Sin codigo")} - Saldo ${money.format(client.balance)}</span></button>`).join("")
+    : '<p class="empty-note">No hay clientes con saldo pendiente para esta busqueda.</p>';
 }
 
 function renderAccounts() {
@@ -12137,9 +12237,10 @@ function renderPriceListProductsTable() {
   table.innerHTML = products.length ? visibleProducts.map((product) => {
     const price = currentProductPrice(product);
     const margin = product.cost > 0 ? ((price - product.cost) / product.cost) * 100 : 0;
-    const listPrices = SYSTEM_PRICE_LISTS.map((number) => `
-      <span class="price-list-chip ${number === 4 ? "highlight" : ""}">L${number} ${money.format(productPriceForListNumber(product, number))}</span>
-    `).join("");
+    const listPrices = SYSTEM_PRICE_LISTS.map((number) => isAdminUser()
+      ? `<button class="price-list-chip ${number === 4 ? "highlight" : ""}" type="button" data-edit-product-list="${escapeHtml(priceProductKey(product))}" data-list-number="${number}" title="Editar lista ${number}" aria-label="Editar lista ${number} de ${escapeHtml(product.name)}">L${number} ${money.format(productPriceForListNumber(product, number))}</button>`
+      : `<span class="price-list-chip ${number === 4 ? "highlight" : ""}">L${number} ${money.format(productPriceForListNumber(product, number))}</span>`
+    ).join("");
     return `
       <tr>
         <td>
@@ -14128,7 +14229,22 @@ function openStockEditDialog(productName) {
   form.elements.bonificacion.value = product.bonificacion || "";
   form.elements.activo.value = product.activo || "SI";
   setStockEditMessage("");
+  renderStockPriceSimulation();
   dialog.showModal();
+}
+
+function renderStockPriceSimulation() {
+  const preview = byId("stockPriceSimulation");
+  const form = byId("stockEditForm");
+  const product = state.products.find((item) => item.name === stockEditTargetName);
+  if (!preview || !form || !product) return;
+  const cost = Math.max(0, numeric(form.elements.costo.value, 0));
+  preview.innerHTML = SYSTEM_PRICE_LISTS.map((number) => {
+    const previous = productPriceForListNumber(product, number);
+    const next = Math.max(0, numeric(form.elements[`precio_lista_${number}`].value, 0));
+    const changed = Math.abs(previous - next) > 0.005;
+    return `<span class="stock-price-preview-item ${changed ? "changed" : ""}">L${number}: ${money.format(previous)} → <strong>${money.format(next)}</strong> <small>Margen ${cost > 0 ? formatDecimalInput(priceMarginFromCost(next, cost)) : "0"}%</small></span>`;
+  }).join("");
 }
 
 async function reauthAdminPassword(password) {
@@ -14358,6 +14474,7 @@ function renderSuppliers() {
       supplier.whatsapp,
       supplier.localidad,
       supplier.provincia,
+      supplier.codigo_proveedor,
       supplier.condicion_pago,
       supplier.estado_operativo,
       supplier.sector,
@@ -14398,7 +14515,7 @@ function renderSuppliers() {
     const mixedEntity = mixedEntityForSupplier(supplier);
     return `
     <tr data-account-entity-type="supplier" data-account-entity-id="${escapeHtml(supplier.name)}" title="Doble clic para abrir el estado de cuenta">
-      <td><strong>${escapeHtml(supplier.name)}</strong><small>${escapeHtml(supplier.nombre_comercial || "")}</small><small><span class="tag ${normalizeSearchText(supplier.estado_operativo).includes("inactiv") ? "danger" : "ok"}">${escapeHtml(supplier.estado_operativo || "Activo")}</span></small>${mixedEntity ? '<small><span class="tag info">Tambien cliente</span></small>' : ""}</td>
+      <td><strong>${escapeHtml(supplier.name)}</strong><small>${escapeHtml(supplier.codigo_proveedor || "Sin codigo")} - ${escapeHtml(supplier.nombre_comercial || "")}</small><small><span class="tag ${normalizeSearchText(supplier.estado_operativo).includes("inactiv") ? "danger" : "ok"}">${escapeHtml(supplier.estado_operativo || "Activo")}</span></small>${mixedEntity ? '<small><span class="tag info">Tambien cliente</span></small>' : ""}</td>
       <td><strong>${escapeHtml(supplier.cuit || "Sin CUIT")}</strong><small>${escapeHtml(supplier.condicion_pago || "Sin condicion")}</small></td>
       <td>${escapeHtml(supplier.contact)}</td>
       <td>${escapeHtml(supplier.sector)}</td>
@@ -14546,7 +14663,7 @@ function openSupplierDialog(supplier = null) {
   byId("supplierPaymentCondition").value = "Cuenta corriente";
   byId("supplierOperationalStatus").value = "Activo";
   if (supplier) {
-    ["razon_social", "nombre_comercial", "cuit", "estado_operativo", "sector", "direccion", "localidad", "provincia", "condicion_pago", "telefono", "whatsapp", "email", "contacto_principal", "datos_bancarios", "observaciones"].forEach((name) => setFormValue(form, name, supplier[name] || ""));
+    ["codigo_proveedor", "razon_social", "nombre_comercial", "cuit", "estado_operativo", "sector", "direccion", "localidad", "provincia", "condicion_pago", "telefono", "whatsapp", "email", "contacto_principal", "datos_bancarios", "observaciones"].forEach((name) => setFormValue(form, name, supplier[name] || ""));
   }
   setSupplierMessage("");
   byId("supplierDialog").showModal();
@@ -17682,6 +17799,7 @@ function addClientFromForm(form) {
     });
   }
   state.activity.unshift({ type: "Clientes", title: `${client.name} cargado`, text: `Alta manual asignada a ${client.seller || "sin vendedor"}.` });
+  clearMobileOrderDraft();
   mobileClient = client.name;
   if (client.seller) mobileSeller = client.seller;
   saveState();
@@ -18093,6 +18211,7 @@ async function addMobileClientFromQuickForm() {
       syncVersion = Math.max(Number(syncVersion || 0), Number(payload.version || 0));
       window.setTimeout(() => pullStateFromServer(), 250);
     }
+    clearMobileOrderDraft();
     mobileClient = client ? client.name : name;
     clearMobileClientForm();
     setMobileClientFormOpen(false);
@@ -18127,9 +18246,8 @@ function addSelectedMobileProduct() {
   renderMobileProductInfo();
 }
 
-function resetMobileOrderForm() {
+function clearMobileOrderDraft() {
   mobileCart = {};
-  mobileClient = "";
   mobileProduct = "";
   ["mobileProductSearch", "mobileClientSearch"].forEach((id) => {
     const field = byId(id);
@@ -18138,6 +18256,21 @@ function resetMobileOrderForm() {
   const qtyInput = byId("mobileProductQty");
   if (qtyInput) qtyInput.value = "1";
   clearMobileCommercialRequest();
+}
+
+function selectMobileClient(name) {
+  if (name !== mobileClient) {
+    clearMobileOrderDraft();
+    mobileClient = name;
+    mobileClientHistoryOpen = false;
+    resetMobileClientHistoryState();
+  }
+  renderMobileSeller();
+}
+
+function resetMobileOrderForm() {
+  clearMobileOrderDraft();
+  mobileClient = "";
   setMobilePickerOpen("client", false);
   setMobilePickerOpen("product", false);
   cleanupOperationalLocalData("pedido movil confirmado");
@@ -18885,6 +19018,18 @@ document.querySelectorAll("[data-maintenance-cleanup]").forEach((button) => {
   button.addEventListener("click", () => runMaintenanceCleanup(button.dataset.maintenanceCleanup));
 });
 byId("priceListProductsTable").addEventListener("click", (event) => {
+  const listButton = event.target.closest("[data-edit-product-list]");
+  if (listButton) {
+    const product = state.products.find((item) => priceProductKey(item) === listButton.dataset.editProductList);
+    if (!product) return;
+    openStockEditDialog(product.name);
+    const target = byId("stockEditForm").elements[`precio_lista_${listButton.dataset.listNumber}`];
+    if (target) {
+      target.scrollIntoView({ block: "center" });
+      target.focus();
+    }
+    return;
+  }
   const button = event.target.closest("[data-price-product]");
   if (!button) return;
   const form = byId("priceListForm");
@@ -19771,25 +19916,22 @@ if (byId("printGpsDailyRoutesBtn")) {
 byId("sellerSelect").addEventListener("change", (event) => {
   if (currentUser && currentUser.role === "seller" && currentUser.sellerName) mobileSeller = currentUser.sellerName;
   else mobileSeller = event.target.value || mobileSeller;
-  const firstClient = getMobileClientOptions(state.sellers.find((seller) => seller.name === mobileSeller) || {}).find(Boolean);
-  if (firstClient) mobileClient = firstClient.name;
-  mobileCart = {};
+  clearMobileOrderDraft();
+  mobileClient = "";
   renderMobileSeller();
   startSellerLocationAutoRefresh();
 });
 byId("sellerWorkdaySelect").addEventListener("change", (event) => {
   mobileWorkday = event.target.value === "Fuera de Ruta" ? "Fuera de Ruta" : defaultMobileWorkday();
-  const firstClient = getMobileClientOptions(state.sellers.find((seller) => seller.name === mobileSeller) || {}).find(Boolean);
-  mobileClient = firstClient ? firstClient.name : "";
-  mobileCart = {};
+  clearMobileOrderDraft();
+  mobileClient = "";
   renderMobileSeller();
 });
 byId("outsideRouteToggle").addEventListener("change", (event) => {
   mobileClientScope = event.target.checked ? "outside" : "today";
   mobileWorkday = event.target.checked ? "Fuera de Ruta" : defaultMobileWorkday();
-  const firstClient = getMobileClientOptions(state.sellers.find((seller) => seller.name === mobileSeller) || {}).find(Boolean);
-  mobileClient = firstClient ? firstClient.name : "";
-  mobileCart = {};
+  clearMobileOrderDraft();
+  mobileClient = "";
   renderMobileSeller();
 });
 document.querySelectorAll("[data-mobile-client-scope]").forEach((button) => {
@@ -19798,20 +19940,15 @@ document.querySelectorAll("[data-mobile-client-scope]").forEach((button) => {
     if (!["today", "portfolio", "outside"].includes(nextScope) || nextScope === mobileClientScope) return;
     mobileClientScope = nextScope;
     mobileWorkday = nextScope === "outside" ? "Fuera de Ruta" : defaultMobileWorkday();
-    const seller = state.sellers.find((item) => item.name === mobileSeller) || state.sellers[0] || {};
-    const firstClient = getMobileClientOptions(seller)[0];
-    mobileClient = firstClient ? firstClient.name : "";
-    mobileCart = {};
+    clearMobileOrderDraft();
+    mobileClient = "";
     const search = byId("mobileClientSearch");
     if (search) search.value = "";
     renderMobileSeller();
   });
 });
 byId("mobileClientSelect").addEventListener("change", (event) => {
-  mobileClient = event.target.value;
-  mobileClientHistoryOpen = false;
-  resetMobileClientHistoryState();
-  renderMobileSeller();
+  selectMobileClient(event.target.value);
 });
 byId("mobileClientPickerBtn").addEventListener("click", () => {
   const panel = byId("mobileClientPickerPanel");
@@ -19831,13 +19968,11 @@ byId("mobileClientOptions").addEventListener("click", (event) => {
   }
   const button = event.target.closest("[data-mobile-client-option]");
   if (!button) return;
-  mobileClient = button.dataset.mobileClientOption;
-  byId("mobileClientSelect").value = mobileClient;
+  const selectedName = button.dataset.mobileClientOption;
+  byId("mobileClientSelect").value = selectedName;
   byId("mobileClientSearch").value = "";
   setMobilePickerOpen("client", false);
-  mobileClientHistoryOpen = false;
-  resetMobileClientHistoryState();
-  renderMobileSeller();
+  selectMobileClient(selectedName);
 });
 document.querySelectorAll("[data-mobile-preventa-tab]").forEach((button) => {
   button.addEventListener("click", () => setMobilePreventaTab(button.dataset.mobilePreventaTab));
@@ -20046,6 +20181,7 @@ byId("productForm").addEventListener("submit", (event) => {
     const name = event.target && event.target.name || "";
     if (name === "costo" || /^precio_lista_[1-5](_pct)?$/.test(name)) {
       syncPriceListEditor(form, name);
+      if (formId === "stockEditForm") renderStockPriceSimulation();
     }
   });
 });
@@ -20102,6 +20238,18 @@ byId("loadPurchaseBtn").addEventListener("click", async () => {
 });
 
 byId("registerPaymentBtn").addEventListener("click", openAccountPaymentChooser);
+byId("accountPaymentChooserSearch").addEventListener("input", renderAccountPaymentChoices);
+byId("accountPaymentChooserResults").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-payment-client]");
+  if (!button) return;
+  const id = button.dataset.paymentClient;
+  byId("accountPaymentChooserDialog").close("selected");
+  await loadAccountStatement("client", id);
+  if (activeAccountStatement?.type === "client" && numeric(activeAccountStatement.summary?.balance, 0) > 0) {
+    byId("accountStatementPaymentPanel").hidden = false;
+    byId("accountStatementPaymentAmount").focus();
+  }
+});
 byId("exportClientPortfolioCsvBtn").addEventListener("click", exportFullClientPortfolioCsv);
 byId("exportClientPortfolioPdfBtn").addEventListener("click", exportFullClientPortfolioPdf);
 byId("exportProductPortfolioCsvBtn").addEventListener("click", exportFullProductPortfolioCsv);
@@ -20725,7 +20873,7 @@ function setDeliveryClosureMessage(text, tone = "danger") {
 
 let deliveryRecoveryRetry = null;
 
-function showDeliveryRecovery({ title, message, error, retry, url, action }) {
+function showDeliveryRecovery({ title, message, error, retry, retryLabel, url, action }) {
   const dialog = byId("deliveryRecoveryDialog");
   if (!dialog) {
     showCompactNotice(message || "No se pudo completar la accion de reparto.", "warn");
@@ -20748,6 +20896,7 @@ function showDeliveryRecovery({ title, message, error, retry, url, action }) {
   technical.value = JSON.stringify(detail, null, 2);
   technical.hidden = false;
   byId("deliveryRecoveryRetryBtn").hidden = !deliveryRecoveryRetry;
+  byId("deliveryRecoveryRetryBtn").textContent = retryLabel || "Reintentar";
   if (!dialog.open) dialog.showModal();
 }
 
@@ -20996,6 +21145,22 @@ function initializeDeliveryExceptionSignature() {
   canvas.addEventListener("pointercancel", stop);
 }
 
+function updateDeliveryPaymentPresetSelection() {
+  const presets = {
+    Efectivo: "cash",
+    Transferencia: "transfer",
+    "Transferencia Pendiente": "pending-transfer",
+    "Cuenta corriente": "credit",
+    Mixto: "mixed"
+  };
+  const selected = presets[byId("deliveryPaymentMethod").value];
+  document.querySelectorAll("[data-delivery-payment-preset]").forEach((button) => {
+    const active = button.dataset.deliveryPaymentPreset === selected;
+    button.classList.toggle("is-selected", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+}
+
 function updateDeliveryPaymentDefaults() {
   const method = byId("deliveryPaymentMethod").value;
   const order = state.orders.find((item) => item.code === byId("deliveryCollectionOrderCode").value);
@@ -21091,6 +21256,7 @@ function updateDeliveryPendingAmount() {
     balance.dataset.tone = diff === 0 ? "ok" : "danger";
   }
   const hasTransfer = transfer > 0;
+  updateDeliveryPaymentPresetSelection();
   const showTransferBox = byId("deliveryPaymentMethod").value === "Mixto" || hasTransfer;
   byId("deliveryBankAliasBox").hidden = !hasTransfer;
   byId("deliveryTransferProofBox").hidden = !showTransferBox;
@@ -21377,13 +21543,23 @@ async function submitDeliveryCollection(event) {
     byId("deliveryCollectionDialog").close("default");
     showCompactNotice(payload.nextStop ? `Entrega registrada. Sigue: ${payload.nextStop.client}.` : "Ruta completada.", "ok");
   } catch (error) {
-    setDeliveryCollectionMessage("No se pudo registrar la entrega. Reintentar o volver al reparto.");
+    const uncertain = !error.status || error.status >= 500;
+    setDeliveryCollectionMessage(uncertain
+      ? "No se pudo confirmar el resultado. Consultar el pedido antes de enviarlo de nuevo."
+      : error.message || "No se pudo registrar la entrega.");
     showDeliveryRecovery({
-      title: "No se pudo registrar la entrega",
-      message: "La entrega no se guardo. Podes reintentar cuando vuelva la conexion.",
+      title: uncertain ? "Resultado de entrega sin confirmar" : "No se pudo registrar la entrega",
+      message: uncertain
+        ? "La entrega puede haberse guardado. Consultar el estado antes de volver a cobrar."
+        : "Corregir el dato indicado y volver a confirmar la entrega.",
       error,
       action: "registrar_entrega",
-      retry: () => byId("deliveryCollectionForm").requestSubmit()
+      retryLabel: uncertain ? "Consultar estado" : "Reintentar",
+      retry: uncertain ? () => {
+        byId("deliveryCollectionDialog").close("default");
+        switchView("reparto");
+        pullStateFromServer();
+      } : () => byId("deliveryCollectionForm").requestSubmit()
     });
   } finally {
     submit.disabled = false;
@@ -21461,6 +21637,12 @@ async function submitDeliveryException(event) {
 byId("deliveryDeviceLabel").addEventListener("change", (event) => {
   saveDeliveryDevice(event.target.value);
   renderDelivery();
+});
+
+byId("deliveryStopSearch").addEventListener("input", (event) => {
+  deliveryStopSearchTerm = event.target.value;
+  deliveryStopPageSize = 15;
+  renderDeliveryStops(activeRouteForDelivery(visibleDeliveryRoutes()));
 });
 
 byId("clearDeliveryPlannerBtn").addEventListener("click", () => {
@@ -21674,9 +21856,22 @@ document.addEventListener("dragend", () => {
 });
 
 document.addEventListener("click", async (event) => {
+  const stopFilter = event.target.closest("[data-delivery-stop-filter]");
+  if (stopFilter) {
+    deliveryStopFilter = stopFilter.dataset.deliveryStopFilter;
+    deliveryStopPageSize = 15;
+    renderDeliveryStops(activeRouteForDelivery(visibleDeliveryRoutes()));
+    return;
+  }
+  if (event.target.closest("[data-delivery-stops-more]")) {
+    deliveryStopPageSize += 15;
+    renderDeliveryStops(activeRouteForDelivery(visibleDeliveryRoutes()));
+    return;
+  }
   const mapMode = event.target.closest("[data-delivery-map-mode]");
   if (mapMode) {
     deliveryMapVisible = mapMode.dataset.deliveryMapMode === "map";
+    if (deliveryMapVisible) deliveryRouteMapSignature = "";
     renderDelivery();
     return;
   }
@@ -21745,6 +21940,9 @@ document.addEventListener("click", async (event) => {
   const selectRoute = event.target.closest("[data-delivery-route]");
   if (selectRoute) {
     activeDeliveryRouteId = selectRoute.dataset.deliveryRoute;
+    deliveryStopSearchTerm = "";
+    deliveryStopFilter = "pending";
+    deliveryStopPageSize = 15;
     renderDelivery();
     return;
   }
@@ -22032,7 +22230,7 @@ async function pullStateFromServer() {
       if (now - lastPresenceRenderAt > 5000) {
         applyPresenceToState();
         lastPresenceRenderAt = now;
-        if (isOperationalMobileUser()) renderOperationalRole();
+        if (isOperationalMobileUser() && currentUser?.role !== "driver") renderOperationalRole();
         else if (activeViewId() === "admin") renderSessionMonitor();
         else if (activeViewId() === "estadisticas") renderRoutes();
       }

@@ -571,14 +571,15 @@
     });
   }
 
-  function refreshSellerMetrics(state) {
+  function refreshSellerMetrics(state, sellerNameFilter = "") {
     const sellers = Array.isArray(state.sellers) ? state.sellers : [];
-    sellers.forEach((seller) => {
+    const orders = historicalOrders(state);
+    sellers.filter((seller) => !sellerNameFilter || seller.name === sellerNameFilter).forEach((seller) => {
       const sellerName = String(seller.name || "");
-      const orders = historicalOrders(state).filter((order) => order.seller === sellerName && !CANCELLED_COMMISSION_STATUSES.has(order.status));
-      seller.orders = orders.length;
-      seller.sales = orders.reduce((sum, order) => sum + positive(order.amount), 0);
-      seller.commission = orders.reduce((sum, order) => {
+      const sellerOrders = orders.filter((order) => order.seller === sellerName && !CANCELLED_COMMISSION_STATUSES.has(order.status));
+      seller.orders = sellerOrders.length;
+      seller.sales = sellerOrders.reduce((sum, order) => sum + positive(order.amount), 0);
+      seller.commission = sellerOrders.reduce((sum, order) => {
         const accrued = positive(order.commissions && order.commissions.seller && order.commissions.seller.total);
         const paid = order.commissionPaidAmount === undefined
           ? (order.commissionLiquidated === true ? accrued : 0)

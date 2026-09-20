@@ -85,6 +85,17 @@ async function post(cookie, endpoint, body, expectedStatus = 200) {
   assert.equal(health.version, "8790-115");
   const cookie = await login();
 
+  const createdSupplier = await post(cookie, "api/suppliers", { razon_social: "Proveedor Codigo Uno" });
+  assert.match(createdSupplier.supplier.codigo_proveedor, /^PRV-[A-F0-9]{10}$/);
+  const editedSupplier = await post(cookie, "api/suppliers", {
+    originalName: "Proveedor Codigo Uno", razon_social: "Proveedor Codigo Uno", codigo_proveedor: "PRV-000077"
+  });
+  assert.equal(editedSupplier.supplier.codigo_proveedor, "PRV-000077");
+  const duplicateCode = await post(cookie, "api/suppliers", {
+    razon_social: "Proveedor Codigo Dos", codigo_proveedor: "PRV-000077"
+  }, 400);
+  assert.match(duplicateCode.error, /codigo/);
+
   const simulation = await post(cookie, "api/price-lists/simulate", {
     operation: "proveedor",
     proveedor: "Proveedor Legal SA",
@@ -139,6 +150,7 @@ async function post(cookie, endpoint, body, expectedStatus = 200) {
   assert.equal(persisted.suppliers.find((item) => item.name === "Proveedor Legal SA").estado_operativo, "Inactivo");
   assert.equal(persisted.suppliers.some((item) => item.name === "Proveedor Limpio"), false);
   assert.equal(persisted.supplierMovements.length, 1);
+  assert.equal(persisted.suppliers.find((item) => item.name === "Proveedor Codigo Uno").codigo_proveedor, "PRV-000077");
 
   console.log(JSON.stringify({
     ok: true,

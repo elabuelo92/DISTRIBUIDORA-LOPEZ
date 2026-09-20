@@ -16,6 +16,7 @@ const sellerCount = Number(process.env.DL_SIM_SELLERS || 10);
 const adminCount = Number(process.env.DL_SIM_ADMINS || 4);
 const publicHealthUrl = String(process.env.DL_SIM_PUBLIC_HEALTH_URL || "");
 const connectionClose = process.env.DL_SIM_CONNECTION_CLOSE === "1";
+const deliverAll = process.env.DL_SIM_DELIVER_ALL === "1";
 assert.ok(durationMs >= 10000 && durationMs <= 900000);
 assert.ok(targetOrders >= 1 && targetOrders <= 200);
 assert.ok(targetBytes >= 1000000 && targetBytes <= 60000000);
@@ -33,6 +34,7 @@ const report = {
   startedAt,
   durationMs,
   targetOrders,
+  deliverAll,
   actors: { sellers: sellerCount, admins: adminCount, drivers: 1 },
   syntheticStateBytes: 0,
   transport: connectionClose ? "new-connection" : "pooled-connection",
@@ -304,7 +306,23 @@ async function main() {
       const claimed = await request("route.claim", `api/delivery/routes/${encodeURIComponent(routeId)}/claim`, {
         actor: "simdriver", method: "POST", body: { deviceId: "SIM-DRIVER", deviceLabel: "Reparto Sim" }
       });
-      if (claimed.status === 200 && routes.length === 1) {
+      if (claimed.status === 200 && deliverAll) {
+        const orderByCode = new Map((published.payload.orders || []).map((order) => [order.code, order]));
+        const gps = { lat: -31.4, lng: -64.18, accuracy: 10, source: "simulation" };
+        for (const stop of claimed.payload.route.stops || []) {
+          const order = orderByCode.get(stop.orderCode);
+          if (!order) {
+            report.failures.push({ operation: "delivery.collect", error: `Missing order ${stop.orderCode}` });
+            break;
+          }
+          const result = await request("delivery.collect", `api/delivery/orders/${encodeURIComponent(order.code)}/collect`, {
+            actor: "simdriver", method: "POST", body: {
+              method: "Efectivo", amountPaid: order.amount, deviceId: "SIM-DRIVER", gps
+            }
+          });
+          if (result.status !== 200) break;
+        }
+      } else if (claimed.status === 200 && routes.length === 1) {
         const first = codes.at(-1);
         const gps = { lat: -31.4, lng: -64.18, accuracy: 10, source: "simulation" };
         const status = await request("delivery.status", `api/delivery/orders/${encodeURIComponent(first)}/status`, {
@@ -406,7 +424,7 @@ async function main() {
     report.ok = !report.abortedForProductionHealth && !report.abortedForHostPressure && report.failures.length === 0 &&
       report.created === targetOrders && report.ready === targetOrders &&
       report.planned === targetOrders && report.finalLabeled === targetOrders &&
-      (targetOrders < 5 || report.finalDelivered >= 1);
+      (deliverAll ? report.finalDelivered === targetOrders : (targetOrders < 5 || report.finalDelivered >= 1));
     console.log(JSON.stringify(report, null, 2));
     if (!report.ok) process.exitCode = 1;
   } finally {
