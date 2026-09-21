@@ -95,6 +95,8 @@ disable_maintenance() {{
 }}
 
 git fetch origin main
+if ! git merge-base --is-ancestor "$OLD_COMMIT" origin/main; then echo 'ERROR: REMOTE_BRANCH_NOT_FAST_FORWARD'; exit 35; fi
+if ! git diff --quiet "$OLD_COMMIT" origin/main -- package.json package-lock.json; then echo 'ERROR: DEPENDENCIES_CHANGED_REQUIRE_SEPARATE_REVIEW'; exit 36; fi
 git show origin/main:scripts/order-dispatch-snapshot.js > /tmp/dl-order-dispatch-snapshot.js
 node --check /tmp/dl-order-dispatch-snapshot.js
 DESTRUCTIVE_DIFF="$(git diff "$OLD_COMMIT" origin/main -- server.js order-engine.js delivery-engine.js scripts ':!scripts/smoke-*' ':!scripts/support-maintenance.js' ':!scripts/deploy/safe-production-deploy.py' | grep -E '^\+.*(DELETE[[:space:]]+FROM|TRUNCATE|DROP[[:space:]]+TABLE|state\.orders[[:space:]]*=[[:space:]]*\[\])' || true)"
@@ -131,7 +133,9 @@ rollback_deploy() {{
   ROLLBACK_REASON="$2"
   echo "ROLLBACK=$ROLLBACK_REASON"
   sudo systemctl stop {SERVICE} || true
-  git reset --hard "$OLD_COMMIT"
+  CURRENT_COMMIT="$(git rev-parse HEAD)"
+  git restore --source="$OLD_COMMIT" --staged --worktree .
+  git update-ref refs/heads/main "$OLD_COMMIT" "$CURRENT_COMMIT"
   sudo cp "$BACKUP_DIR/distribuidora-lopez.env" /etc/distribuidora-lopez.env
   if [ -d {DATA_DIR} ]; then sudo mv {DATA_DIR} "$BACKUP_DIR/data-failed"; fi
   sudo tar -C /opt/distribuidora-lopez -xzf "$BACKUP_DIR/data.tar.gz"
@@ -145,9 +149,8 @@ rollback_deploy() {{
   exit "$ROLLBACK_CODE"
 }}
 
-git checkout main
-git reset --hard origin/main
-npm install --omit=dev --no-audit --no-fund
+git switch main
+git merge --ff-only origin/main
 node --check server.js
 node --check app.js
 node --check order-engine.js
