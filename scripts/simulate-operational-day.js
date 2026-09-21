@@ -406,6 +406,11 @@ async function main() {
     }
     const performanceResult = await request("performance", "api/admin/performance", { actor: "simadmin1" });
     report.serverPerformance = performanceResult.payload;
+    const writeMetrics = report.serverPerformance && report.serverPerformance.stateWrites;
+    assert.ok(writeMetrics && writeMetrics.sampleCount > 0, "Faltan muestras de persistencia.");
+    for (const field of ["p95Ms", "p95SerializationMs", "p95DiskMs"]) {
+      assert.ok(Number.isFinite(writeMetrics[field]) && writeMetrics[field] >= 0, `Metrica invalida: ${field}`);
+    }
     const finalState = JSON.parse(fs.readFileSync(stateFile, "utf8")).state;
     report.created = created.length;
     report.ready = ready.length;

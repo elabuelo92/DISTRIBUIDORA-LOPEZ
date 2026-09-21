@@ -781,6 +781,8 @@ function renderSystemMonitor() {
   const host = data.host || {};
   const stateInfo = data.state || {};
   const sessionInfo = data.sessions || {};
+  const stateWrites = data.httpPerformance && data.httpPerformance.stateWrites || {};
+  const writeSamples = Number(stateWrites.sampleCount || 0);
   const monitor = data.monitor || {};
   const thresholds = monitor.thresholds || {};
   const rssTone = monitorTone(processInfo.rssBytes, Number(thresholds.memoryHighBytes || 0) * 0.7, thresholds.memoryHighBytes);
@@ -813,7 +815,10 @@ function renderSystemMonitor() {
   hostBox.innerHTML = [
     monitorBar("RAM del servidor", Number(host.totalMemoryBytes || 0) - Number(host.freeMemoryBytes || 0), host.totalMemoryBytes || 1, Number(host.freeMemoryBytes || 0) > 1024 ** 3 ? "ok" : "warn"),
     `<article class="diagnostic-detail"><strong>Archivo operativo</strong><span>${escapeHtml(`${monitorBytes(stateInfo.bytes)} - ${stateInfo.modifiedAt ? new Date(stateInfo.modifiedAt).toLocaleString("es-AR") : "sin fecha"}`)}</span></article>`,
-    `<article class="diagnostic-detail"><strong>Carga del servidor</strong><span>${escapeHtml((host.loadAverage || []).map((value) => Number(value).toFixed(2)).join(" / ") || "-")}</span></article>`
+    `<article class="diagnostic-detail"><strong>Carga del servidor</strong><span>${escapeHtml((host.loadAverage || []).map((value) => Number(value).toFixed(2)).join(" / ") || "-")}</span></article>`,
+    `<article class="diagnostic-detail"><strong>Guardado p95</strong><span>${writeSamples ? `${Math.round(Number(stateWrites.p95Ms || 0))} ms (${writeSamples} muestras)` : "Sin muestras"}</span></article>`,
+    `<article class="diagnostic-detail"><strong>Serializacion p95</strong><span>${writeSamples ? `${Math.round(Number(stateWrites.p95SerializationMs || 0))} ms` : "Sin muestras"}</span></article>`,
+    `<article class="diagnostic-detail"><strong>Disco p95</strong><span>${writeSamples ? `${Math.round(Number(stateWrites.p95DiskMs || 0))} ms` : "Sin muestras"}</span></article>`
   ].join("");
 
   const lastRestart = Number(monitor.lastRestartEpoch || 0);

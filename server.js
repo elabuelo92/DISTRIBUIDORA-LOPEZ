@@ -22,7 +22,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-151";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-152";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -90,6 +90,24 @@ const stateWritePerformance = {
   lastBytes: 0,
   lastAt: ""
 };
+const stateWriteSamples = [];
+
+function stateWritePerformanceSnapshot() {
+  const percentile = (field, fraction) => {
+    const values = stateWriteSamples.map((sample) => sample[field]).sort((a, b) => a - b);
+    return values.length ? Math.round(values[Math.ceil(values.length * fraction) - 1]) : 0;
+  };
+  return {
+    ...stateWritePerformance,
+    averageMs: stateWritePerformance.count
+      ? Math.round(stateWritePerformance.totalMs / stateWritePerformance.count)
+      : 0,
+    sampleCount: stateWriteSamples.length,
+    p95Ms: percentile("totalMs", 0.95),
+    p95SerializationMs: percentile("serializationMs", 0.95),
+    p95DiskMs: percentile("diskMs", 0.95)
+  };
+}
 const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
 eventLoopDelay.enable();
 const securityEngine = licenseEngine.createEngine({
@@ -1836,10 +1854,7 @@ function systemMonitorPayload() {
       slowThresholdMs: SLOW_REQUEST_THRESHOLD_MS,
       slowest: requestPerformanceSnapshot(20),
       stateWrites: {
-        ...stateWritePerformance,
-        averageMs: stateWritePerformance.count
-          ? Math.round(stateWritePerformance.totalMs / stateWritePerformance.count)
-          : 0,
+        ...stateWritePerformanceSnapshot(),
         maxMs: Math.round(stateWritePerformance.maxMs),
         lastMs: Math.round(stateWritePerformance.lastMs),
         lastMigrationMs: Math.round(stateWritePerformance.lastMigrationMs),
@@ -2035,6 +2050,8 @@ function writeState(state, options = {}) {
   stateWritePerformance.lastDiskMs = diskMs;
   stateWritePerformance.lastBytes = Buffer.byteLength(serialized);
   stateWritePerformance.lastAt = new Date().toISOString();
+  stateWriteSamples.push({ totalMs, serializationMs, diskMs });
+  if (stateWriteSamples.length > 64) stateWriteSamples.shift();
   return payload.version;
 }
 
@@ -9603,10 +9620,7 @@ const server = http.createServer(async (req, res) => {
         eventLoopDelayP95Ms: Math.round(eventLoopDelay.percentile(95) / 1e6),
         eventLoopDelayMaxMs: Math.round(eventLoopDelay.max / 1e6),
         stateWrites: {
-          ...stateWritePerformance,
-          averageMs: stateWritePerformance.count
-            ? Math.round(stateWritePerformance.totalMs / stateWritePerformance.count)
-            : 0
+          ...stateWritePerformanceSnapshot()
         },
         stateSync: {
           inFlight: fullStateResponsesInFlight,
