@@ -559,6 +559,7 @@ let deliveryMapVisible = false;
 let deliveryStopFilter = "pending";
 let deliveryStopSearchTerm = "";
 let deliveryStopPageSize = 15;
+let deliverySelectedStopCode = "";
 let assemblyFastScanBuffer = "";
 let assemblyFastScanLastKeyAt = 0;
 let assemblyFastScanCounts = new Map();
@@ -572,6 +573,8 @@ let clientEditTargetId = "";
 let supplierRemitItems = [];
 let supplierNewProductPhotoDataUrl = "";
 let supplierRemitValidationCurrent = null;
+let supplierRemitValidationAddedLines = [];
+let supplierRemitValidationOperationId = "";
 let connectionDiagnostics = {
   status: "Pendiente",
   server: CONNECTION_CONFIG.SERVER_NAME || "SERVIDOR_UNICO_8790",
@@ -1044,6 +1047,7 @@ function closeTopDialogForBack() {
 
 function canUseView(viewId) {
   if (!viewId) return false;
+  if (currentUser?.role === "depot" && viewId !== "armado") return false;
   if (viewId === "monitor" && !isSuperAdminUser()) return false;
   const view = byId(viewId);
   if (!view) return false;
@@ -3215,7 +3219,7 @@ function applyCurrentUserRole() {
         : isReceiver
           ? item.dataset.view === "proveedores" || commonViews.has(item.dataset.view)
           : isDepot
-            ? item.dataset.view === "armado" || commonViews.has(item.dataset.view)
+            ? item.dataset.view === "armado"
             : true;
     item.hidden = !allowed;
   });
@@ -6300,7 +6304,7 @@ function renderDashboardDailyRoutes() {
   const routes = Array.isArray(payload.routes) ? payload.routes : [];
   const totalKm = Math.round(Number(payload.totals && payload.totals.distanceMeters || 0) / 10) / 100;
   summary.innerHTML = [
-    { label: "Dispositivos", value: routes.length, tone: routes.length ? "ok" : "warn" },
+    { label: "Equipos", value: routes.length, tone: routes.length ? "ok" : "warn" },
     { label: "Puntos GPS", value: payload.totals && payload.totals.points || 0, tone: "ok" },
     { label: "Km estimados", value: totalKm, tone: "info" },
     { label: "Jornada", value: `${payload.startHour}:00-${payload.endHour}:00`, tone: "info" }
@@ -6320,7 +6324,7 @@ function renderDashboardDailyRoutes() {
         <div class="gps-route-card-head">
           <div>
             <strong>${escapeHtml(route.user || route.username || "Usuario")}</strong>
-            <span>${escapeHtml(route.deviceLabel || route.deviceId || "Dispositivo sin etiqueta")}</span>
+            <span>${escapeHtml(route.deviceLabel || route.deviceId || "Dispositivo sin etiqueta")}${(route.deviceIds || []).length > 1 ? ` · ${(route.deviceIds || []).length} fuentes GPS` : ""}</span>
           </div>
           <span class="tag ${roleTone}">${escapeHtml(roleLabel(route.role))}</span>
         </div>
@@ -9975,7 +9979,7 @@ function renderDeliveryStops(route) {
     const assembly = orderAssemblyInfo(order || { code: stop.orderCode, assembly: stop.assembly || { orderNumber: stop.assemblyOrderNumber, bultosConfirmed: stop.packages } });
     const client = orderClient(order || {}) || routeClientByName(stop.client) || {};
     const isCurrent = current && current.orderCode === stop.orderCode;
-    const canOperate = ownsRoute && isCurrent && !isDeliveryRouteClosed(route) && route.status !== "Planificada";
+    const canOperate = ownsRoute && !isDeliveryStopClosed(stop.status) && !isDeliveryRouteClosed(route) && route.status !== "Planificada";
     const canReorder = canPlanDeliveryRoutes() && !route.closure && !isDeliveryRouteClosed(route) && route.status !== "Completada";
     const mapsUrl = DeliveryEngine.navigationUrl(state, stop.orderCode);
     const collection = stop.collection;
@@ -10041,11 +10045,12 @@ function renderDeliveryDriverStops(route, current, ownsRoute, closureNote = "") 
   const rows = filtered.slice(0, deliveryStopPageSize).map((stop) => {
     const order = orderByCode.get(stop.orderCode);
     const client = orderClient(order || {}) || routeClientByName(stop.client) || {};
-    const isCurrent = current?.orderCode === stop.orderCode;
-    const canOperate = ownsRoute && isCurrent && !isDeliveryRouteClosed(route) && route.status !== "Planificada";
+    const isSelected = (deliverySelectedStopCode || current?.orderCode) === stop.orderCode;
+    const canOperate = ownsRoute && route.deviceId === deliveryDevice.id && isSelected
+      && !isDeliveryStopClosed(stop.status) && !isDeliveryRouteClosed(route) && route.status !== "Planificada";
     const assembly = orderAssemblyInfo(order || { code: stop.orderCode, assembly: stop.assembly || { bultosConfirmed: stop.packages } });
     const hasDestination = Boolean(stop.coordinates || stop.address && stop.address !== "Sin domicilio");
-    return `<article class="delivery-driver-stop ${isCurrent ? "current" : ""}">
+    return `<article class="delivery-driver-stop ${isSelected ? "current" : ""}">
       <div class="delivery-driver-stop-main">
         <span class="delivery-driver-sequence">${escapeHtml(String(stop.sequence || "-"))}</span>
         <div class="delivery-driver-stop-info">
@@ -10056,10 +10061,11 @@ function renderDeliveryDriverStops(route, current, ownsRoute, closureNote = "") 
         </div>
         <div class="delivery-driver-stop-meta">
           <span class="tag ${deliveryTone(stop.status)}">${escapeHtml(stop.status || "Pendiente")}</span>
-          ${!isCurrent && hasDestination ? `<button class="secondary-btn" type="button" data-delivery-map="${escapeHtml(stop.orderCode)}">Ir</button>` : ""}
+          ${!isSelected && !isDeliveryStopClosed(stop.status) && ownsRoute && route.deviceId === deliveryDevice.id ? `<button class="secondary-btn" type="button" data-delivery-select-stop="${escapeHtml(stop.orderCode)}">Elegir</button>` : ""}
+          ${!isSelected && hasDestination ? `<button class="secondary-btn" type="button" data-delivery-map="${escapeHtml(stop.orderCode)}">Ir</button>` : ""}
         </div>
       </div>
-      ${isCurrent ? `<div class="delivery-driver-stop-actions">
+      ${isSelected ? `<div class="delivery-driver-stop-actions">
         ${hasDestination ? `<button class="secondary-btn" type="button" data-delivery-map="${escapeHtml(stop.orderCode)}">Ir al cliente</button>` : ""}
         ${canOperate && [ORDER_STATUS.DISPATCHED, ORDER_STATUS.IN_ROUTE].includes(order?.status) ? `<button class="primary-btn" type="button" data-delivery-collect="${escapeHtml(stop.orderCode)}">Cobrar y entregar</button><button class="secondary-btn" type="button" data-delivery-exception="${escapeHtml(stop.orderCode)}" data-exception-status="${ORDER_STATUS.NOT_DELIVERED}">No entregado</button><button class="secondary-btn" type="button" data-delivery-exception="${escapeHtml(stop.orderCode)}" data-exception-status="${ORDER_STATUS.POSTPONED}">Postergar</button>` : ""}
         ${canOperate && order?.status === ORDER_STATUS.DISPATCHED ? `<button class="secondary-btn" type="button" data-delivery-status="${escapeHtml(stop.orderCode)}" data-status="${ORDER_STATUS.IN_ROUTE}">Iniciar visita</button>` : ""}
@@ -15211,6 +15217,76 @@ function productForSupplierRemitLine(line) {
     || null;
 }
 
+function supplierValidationCatalogProduct(code) {
+  const key = normalizeSearchText(code);
+  if (!key) return null;
+  return (state.products || []).find((product) =>
+    normalizeSearchText(product.codigo_producto || product.code) === key
+      || normalizeSearchText(product.codigo_barras) === key) || null;
+}
+
+function renderSupplierValidationAddedLines() {
+  const container = byId("supplierValidationAddedLines");
+  if (!container) return;
+  container.innerHTML = supplierRemitValidationAddedLines.map((line, index) => {
+    const product = supplierValidationCatalogProduct(line.productCode) || {};
+    return `<div class="remit-item"><strong>${escapeHtml(product.name || product.descripcion || line.productCode)}</strong><span>${escapeHtml(String(line.stockQty))} unidades</span><button class="mini-btn danger-btn" type="button" data-validation-remove-added="${index}">Quitar</button></div>`;
+  }).join("");
+}
+
+function addSupplierValidationLine() {
+  const code = byId("supplierValidationAddProduct").value.trim();
+  const product = supplierValidationCatalogProduct(code);
+  const quantity = Number(byId("supplierValidationAddQty").value);
+  if (!product || (product.pendingValidation && product.pendingRemitId !== supplierRemitValidationCurrent?.id)) {
+    setSupplierRemitValidationMessage("Seleccionar un producto disponible del catalogo.");
+    return;
+  }
+  if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 100000) {
+    setSupplierRemitValidationMessage("Indicar una cantidad valida de unidades.");
+    return;
+  }
+  const productCode = product.codigo_producto || product.code || product.codigo_barras;
+  const existing = Array.from(document.querySelectorAll(".supplier-validation-product [data-validation-product-code]"))
+    .some((input) => normalizeSearchText(input.value) === normalizeSearchText(productCode));
+  const alreadyAdded = supplierRemitValidationAddedLines.some((line) => normalizeSearchText(line.productCode) === normalizeSearchText(productCode));
+  if (existing || alreadyAdded) {
+    setSupplierRemitValidationMessage("El producto ya figura en el remito. Corregir su cantidad en el renglon existente.");
+    return;
+  }
+  supplierRemitValidationAddedLines.push({ productCode, stockQty: Math.round(quantity * 100) / 100 });
+  byId("supplierValidationAddProduct").value = "";
+  byId("supplierValidationAddQty").value = "1";
+  setSupplierRemitValidationMessage("");
+  renderSupplierValidationAddedLines();
+}
+
+function changeSupplierValidationProduct(card) {
+  const input = card.querySelector("[data-validation-product-code]");
+  const product = supplierValidationCatalogProduct(input?.value);
+  if (!product || (product.pendingValidation && product.pendingRemitId !== supplierRemitValidationCurrent?.id)) {
+    setSupplierRemitValidationMessage("Seleccionar un producto disponible del catalogo.");
+    input.value = card.dataset.productCode || card.dataset.originalProductCode || "";
+    return;
+  }
+  const code = product.codigo_producto || product.code || product.codigo_barras;
+  input.value = code;
+  card.dataset.productCode = code;
+  card.dataset.barcode = product.codigo_barras || "";
+  card.dataset.productName = product.name || product.descripcion || "";
+  card.querySelector("[data-validation-product-name]").textContent = card.dataset.productName;
+  if (normalizeSearchText(code) === normalizeSearchText(card.dataset.originalProductCode)) return;
+  card.querySelector("[data-validation-update-pricing]").checked = false;
+  const cost = Math.max(0, numeric(product.costo ?? product.cost, 0));
+  card.querySelector("[data-validation-cost]").value = formatDecimalInput(cost);
+  SYSTEM_PRICE_LISTS.forEach((number) => {
+    const price = Math.max(0, numeric(product[`precio_lista_${number}`], cost));
+    card.querySelector(`[data-validation-field="price"][data-list-number="${number}"]`).value = formatDecimalInput(price);
+    card.querySelector(`[data-validation-field="pct"][data-list-number="${number}"]`).value = formatDecimalInput(priceMarginFromCost(price, cost));
+  });
+  setSupplierRemitValidationMessage("");
+}
+
 function renderSupplierRemitValidationProducts(remit) {
   const container = byId("supplierRemitValidationProducts");
   if (!container) return;
@@ -15230,11 +15306,12 @@ function renderSupplierRemitValidationProducts(remit) {
       const product = productForSupplierRemitLine(line) || {};
       const requiresPricing = Boolean(line.isNewProduct || product.pendingValidation || normalizeSearchText(product.estado).includes("pendiente"));
       const cost = Math.max(0, numeric(line.unitPrice || product.costo || product.cost, 0));
+      const code = line.productCode || product.codigo_producto || line.barcode || product.codigo_barras || "";
       return `
-        <article class="supplier-validation-product" data-validation-index="${index}" data-requires-pricing="${requiresPricing ? "true" : "false"}" data-product-code="${escapeHtml(line.productCode || product.codigo_producto || "")}" data-barcode="${escapeHtml(line.barcode || product.codigo_barras || "")}" data-product-name="${escapeHtml(line.name || line.product || product.name || "")}">
+        <article class="supplier-validation-product" data-validation-index="${index}" data-requires-pricing="${requiresPricing ? "true" : "false"}" data-original-product-code="${escapeHtml(code)}" data-product-code="${escapeHtml(code)}" data-barcode="${escapeHtml(line.barcode || product.codigo_barras || "")}" data-product-name="${escapeHtml(line.name || line.product || product.name || "")}">
           <div class="supplier-validation-product-head">
             <div>
-              <strong>${escapeHtml(line.name || line.product || "Producto")}</strong>
+              <strong data-validation-product-name>${escapeHtml(line.name || line.product || "Producto")}</strong>
               <small>${escapeHtml(line.productCode || product.codigo_producto || "Sin codigo")} - ${escapeHtml(line.barcode || product.codigo_barras || "Sin barras")} - stock +${numeric(line.stockQty, line.qty)}</small>
               ${line.unitsPerBox ? `<small>${line.unitsPerBlister} x ${line.blistersPerBox} x ${line.boxesReceived} = ${line.stockQty} unidades</small>` : ""}
             </div>
@@ -15246,12 +15323,16 @@ function renderSupplierRemitValidationProducts(remit) {
           </label>
           <div class="form-grid">
             <label>
+              Producto
+              <input data-validation-product-code list="supplierValidationCatalog" autocomplete="off" value="${escapeHtml(code)}" ${line.isNewProduct ? "readonly" : ""}>
+            </label>
+            <label>
               Costo
               <input data-validation-cost type="number" min="0" step="0.01" value="${formatDecimalInput(cost)}">
             </label>
             <label>
               Unidades a ingresar
-              <input readonly value="${numeric(line.stockQty, line.qty)}">
+              <input data-validation-stock-qty type="number" min="0.01" max="100000" step="0.01" inputmode="decimal" value="${numeric(line.stockQty, line.qty)}">
             </label>
             <label>
               Estado stock
@@ -15305,12 +15386,15 @@ function collectSupplierRemitLineValidations() {
   return Array.from(document.querySelectorAll(".supplier-validation-product")).map((card) => {
     const requiresPricing = card.dataset.requiresPricing === "true";
     const updatePricingInput = card.querySelector("[data-validation-update-pricing]");
+    const productCode = card.querySelector("[data-validation-product-code]")?.value.trim() || "";
+    const changedProduct = normalizeSearchText(productCode) !== normalizeSearchText(card.dataset.originalProductCode);
     return {
       index: Number(card.dataset.validationIndex || 0),
-      productCode: card.dataset.productCode || "",
+      productCode,
       barcode: card.dataset.barcode || "",
       name: card.dataset.productName || "",
-      updatePricing: requiresPricing || Boolean(updatePricingInput && updatePricingInput.checked),
+      stockQty: numeric(card.querySelector("[data-validation-stock-qty]")?.value, 0),
+      updatePricing: requiresPricing || (!changedProduct && Boolean(updatePricingInput && updatePricingInput.checked)),
       cost: numeric(card.querySelector("[data-validation-cost]")?.value, 0),
       priceLists: SYSTEM_PRICE_LISTS.map((number) => ({
         listNumber: number,
@@ -15325,6 +15409,16 @@ function openSupplierRemitValidationDialog(remitId) {
   const remit = (state.supplierMovements || []).find((item) => item.id === remitId);
   if (!remit) return;
   supplierRemitValidationCurrent = remit;
+  supplierRemitValidationAddedLines = [];
+  supplierRemitValidationOperationId = globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
+    ? globalThis.crypto.randomUUID() : `REM-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  byId("supplierValidationCatalog").innerHTML = (state.products || []).map((product) => {
+    const code = product.codigo_producto || product.code || product.codigo_barras || "";
+    return code ? `<option value="${escapeHtml(code)}" label="${escapeHtml(product.name || product.descripcion || code)}"></option>` : "";
+  }).join("");
+  byId("supplierValidationAddProduct").value = "";
+  byId("supplierValidationAddQty").value = "1";
+  renderSupplierValidationAddedLines();
   byId("supplierRemitValidationId").value = remit.id;
   byId("supplierRemitValidationTitle").textContent = `Validar remito ${remit.remitNumber || remit.id}`;
   byId("supplierRemitValidationAmount").value = String(remit.declaredAmount || remit.amount || 0);
@@ -15354,6 +15448,17 @@ async function submitSupplierRemitValidation(event) {
   submit.textContent = "Validando...";
   setSupplierRemitValidationMessage("Validando remito, factura, costos y diferencias...", "info");
   try {
+    const lineValidations = collectSupplierRemitLineValidations();
+    if (lineValidations.some((line) => !line.productCode || line.stockQty <= 0)) {
+      throw new Error("Revisar producto y unidades a ingresar en cada renglon.");
+    }
+    const lineEdits = lineValidations.filter((line) => {
+      const original = supplierRemitValidationCurrent?.products?.[line.index];
+      if (!original) return false;
+      const originalCode = original.productCode || original.barcode || "";
+      return normalizeSearchText(line.productCode) !== normalizeSearchText(originalCode)
+        || Math.abs(line.stockQty - numeric(original.stockQty, original.qty)) > 0.001;
+    }).map(({ index, productCode, stockQty }) => ({ index, productCode, stockQty }));
     const invoiceFile = supplierInvoiceAttachmentFile();
     const invoiceFileDataUrl = invoiceFile ? await fileToEvidenceDataUrl(invoiceFile) : "";
     const result = await postOperationalAction(`api/suppliers/remits/${encodeURIComponent(remitId)}/validate`, {
@@ -15362,7 +15467,10 @@ async function submitSupplierRemitValidation(event) {
       invoiceDate: byId("supplierRemitValidationInvoiceDate").value,
       invoiceFileDataUrl,
       costsValidated: byId("supplierRemitValidationCosts").checked,
-      lineValidations: collectSupplierRemitLineValidations(),
+      lineValidations,
+      lineEdits,
+      addedLines: supplierRemitValidationAddedLines,
+      validationOperationId: supplierRemitValidationOperationId,
       differences: byId("supplierRemitValidationDifferences").value,
       differenceAmount: numeric(byId("supplierRemitValidationDifferenceAmount").value, 0),
       observations: byId("supplierRemitValidationObservations").value
@@ -19801,6 +19909,17 @@ byId("supplierRemitValidationProducts").addEventListener("input", (event) => {
   if (!input) return;
   syncSupplierValidationPriceCard(input.closest(".supplier-validation-product"), input);
 });
+byId("supplierRemitValidationProducts").addEventListener("change", (event) => {
+  const input = event.target.closest("[data-validation-product-code]");
+  if (input) changeSupplierValidationProduct(input.closest(".supplier-validation-product"));
+});
+byId("supplierValidationAddBtn").addEventListener("click", addSupplierValidationLine);
+byId("supplierValidationAddedLines").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-validation-remove-added]");
+  if (!button) return;
+  supplierRemitValidationAddedLines.splice(Number(button.dataset.validationRemoveAdded), 1);
+  renderSupplierValidationAddedLines();
+});
 ["supplierPaymentCamera", "supplierPaymentGallery", "supplierPaymentFile"].forEach((id) => {
   byId(id).addEventListener("change", () => {
     keepOnlySelectedFileInput(id, ["supplierPaymentCamera", "supplierPaymentGallery", "supplierPaymentFile"]);
@@ -21554,7 +21673,9 @@ async function submitDeliveryCollection(event) {
       observations: byId("deliveryCollectionObservations").value.trim()
     }));
     byId("deliveryCollectionDialog").close("default");
-    showCompactNotice(payload.nextStop ? `Entrega registrada. Sigue: ${payload.nextStop.client}.` : "Ruta completada.", "ok");
+    deliverySelectedStopCode = "";
+    renderDeliveryStops(activeRouteForDelivery(visibleDeliveryRoutes()));
+    showCompactNotice(payload.nextStop ? `Entrega registrada. Sugerida: ${payload.nextStop.client}.` : "Ruta completada.", "ok");
   } catch (error) {
     const uncertain = !error.status || error.status >= 500;
     setDeliveryCollectionMessage(uncertain
@@ -21638,7 +21759,9 @@ async function submitDeliveryException(event) {
     }));
     cleanupOperationalLocalData("incidencia reparto");
     byId("deliveryExceptionDialog").close("default");
-    showCompactNotice(payload.nextStop ? `Incidencia registrada. Sigue: ${payload.nextStop.client}.` : "Incidencia registrada. Ruta sin mas paradas.", "warn");
+    deliverySelectedStopCode = "";
+    renderDeliveryStops(activeRouteForDelivery(visibleDeliveryRoutes()));
+    showCompactNotice(payload.nextStop ? `Incidencia registrada. Sugerida: ${payload.nextStop.client}.` : "Incidencia registrada. Ruta sin mas paradas.", "warn");
   } catch (error) {
     setDeliveryExceptionMessage(error.message || "No se pudo registrar la incidencia.");
   } finally {
@@ -21869,6 +21992,12 @@ document.addEventListener("dragend", () => {
 });
 
 document.addEventListener("click", async (event) => {
+  const selectedStop = event.target.closest("[data-delivery-select-stop]");
+  if (selectedStop) {
+    deliverySelectedStopCode = selectedStop.dataset.deliverySelectStop;
+    renderDeliveryStops(activeRouteForDelivery(visibleDeliveryRoutes()));
+    return;
+  }
   const stopFilter = event.target.closest("[data-delivery-stop-filter]");
   if (stopFilter) {
     deliveryStopFilter = stopFilter.dataset.deliveryStopFilter;
@@ -21953,6 +22082,7 @@ document.addEventListener("click", async (event) => {
   const selectRoute = event.target.closest("[data-delivery-route]");
   if (selectRoute) {
     activeDeliveryRouteId = selectRoute.dataset.deliveryRoute;
+    deliverySelectedStopCode = "";
     deliveryStopSearchTerm = "";
     deliveryStopFilter = "pending";
     deliveryStopPageSize = 15;

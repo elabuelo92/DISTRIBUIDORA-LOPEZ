@@ -663,10 +663,9 @@
     if (!order || !route) throw new Error("Pedido o ruta no encontrados.");
     assertDevice(route, context);
     const gps = assertGps(context.gps);
-    const active = nextStop(route);
-    if (!active || active.orderCode !== orderCode) throw new Error("Primero debe finalizarse la parada anterior.");
-    if (order.status !== STATUS.DISPATCHED) throw new Error(`Para pasar a ${targetStatus}, el pedido debe estar en ${STATUS.DISPATCHED}.`);
     const stop = route.stops.find((item) => item.orderCode === orderCode);
+    if (!stop || FINAL_STOP_STATUSES.has(stop.status)) throw new Error("La parada ya fue cerrada o no pertenece a esta ruta.");
+    if (order.status !== STATUS.DISPATCHED) throw new Error(`Para pasar a ${targetStatus}, el pedido debe estar en ${STATUS.DISPATCHED}.`);
     stop.status = targetStatus;
     stop.updatedAt = nowIso();
     stop.visitStartedAt = stop.visitStartedAt || stop.updatedAt;
@@ -691,8 +690,8 @@
     if (!order || !route) throw new Error("Pedido o ruta no encontrados.");
     assertDevice(route, context);
     const gps = assertGps(context.gps);
-    const active = nextStop(route);
-    if (!active || active.orderCode !== orderCode) throw new Error("Primero debe finalizarse la parada anterior.");
+    const stop = route.stops.find((item) => item.orderCode === orderCode);
+    if (!stop || FINAL_STOP_STATUSES.has(stop.status)) throw new Error("La parada ya fue cerrada o no pertenece a esta ruta.");
     if (![STATUS.DISPATCHED, STATUS.IN_ROUTE, STATUS.CHECKED].includes(order.status)) throw new Error("El pedido debe estar despachado o EN REPARTO antes de registrar la incidencia.");
 
     const targetStatus = normalizeExceptionStatus(input.status || input.type);
@@ -700,7 +699,6 @@
     const observations = String(input.observations || input.observacion || input.note || "").trim();
     if (!reason) throw new Error("Indicar motivo de la incidencia.");
     if (!observations) throw new Error("Registrar una observacion para la incidencia.");
-    const stop = route.stops.find((item) => item.orderCode === orderCode);
     if (order.status === STATUS.DISPATCHED) {
       stop.visitStartedAt = stop.visitStartedAt || nowIso();
       updateOrderTrace(order, STATUS.IN_ROUTE, { ...context, gps }, "Visita iniciada al registrar la incidencia");
@@ -964,8 +962,8 @@
     if (!order || !route) throw new Error("Pedido o ruta no encontrados.");
     assertDevice(route, context);
     const gps = assertGps(context.gps);
-    const active = nextStop(route);
-    if (!active || active.orderCode !== orderCode) throw new Error("Primero debe finalizarse la parada anterior.");
+    const stop = route.stops.find((item) => item.orderCode === orderCode);
+    if (!stop || FINAL_STOP_STATUSES.has(stop.status)) throw new Error("La parada ya fue cerrada o no pertenece a esta ruta.");
     if (![STATUS.DISPATCHED, STATUS.IN_ROUTE, STATUS.CHECKED].includes(order.status)) throw new Error("El pedido debe estar despachado o EN REPARTO antes de cobrar.");
     let method = String(input.method || "");
     if (!PAYMENT_METHODS.has(method)) throw new Error("Forma de cobro invalida.");
@@ -1020,7 +1018,6 @@
     const transferReceipt = transferAmount > 0
       ? normalizeTransferReceipt(input, transferAmount, state.deliverySettings)
       : null;
-    const stop = route.stops.find((item) => item.orderCode === orderCode);
     if (order.status === STATUS.DISPATCHED) {
       stop.visitStartedAt = stop.visitStartedAt || nowIso();
       updateOrderTrace(order, STATUS.IN_ROUTE, { ...context, gps }, "Visita iniciada al confirmar la entrega");

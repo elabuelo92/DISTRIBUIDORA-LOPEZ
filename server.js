@@ -22,7 +22,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-152";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-153";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -887,7 +887,7 @@ function appendGpsHistory(session, gps, input = {}) {
     role: session.user.role,
     sellerName: session.user.sellerName || "",
     deviceId: session.device && session.device.id || "",
-    deviceLabel: session.device && session.device.label || "",
+    deviceLabel: session.device && (session.device.physicalLabel || session.device.label) || "",
     ip: session.ip || "",
     status: session.presenceStatus || sessionStatus(session),
     route: String(input.route || input.routeId || input.context || "").trim(),
@@ -914,13 +914,19 @@ function pad2(value) {
 function localDateKey(value = new Date()) {
   const date = value instanceof Date ? value : new Date(value || Date.now());
   if (Number.isNaN(date.getTime())) return "";
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit"
+  }).formatToParts(date).map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
 function localHourFraction(value = new Date()) {
   const date = value instanceof Date ? value : new Date(value || Date.now());
   if (Number.isNaN(date.getTime())) return NaN;
-  return date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Argentina/Buenos_Aires", hourCycle: "h23", hour: "2-digit", minute: "2-digit", second: "2-digit"
+  }).formatToParts(date).map((part) => [part.type, part.value]));
+  return Number(parts.hour) + Number(parts.minute) / 60 + Number(parts.second) / 3600;
 }
 
 function gpsEntryTime(entry) {
@@ -1011,8 +1017,10 @@ function googleMapsRouteUrl(points) {
 function buildDailyGpsRoutes(filters = {}) {
   const config = readSessionConfig();
   const date = String(filters.date || localDateKey()).trim();
-  const startHour = Number.isFinite(Number(filters.startHour)) ? Number(filters.startHour) : Number(config.workdayStartHour || 7);
-  const endHour = Number.isFinite(Number(filters.endHour)) ? Number(filters.endHour) : Number(config.workdayEndHour || 22);
+  const startHour = String(filters.startHour ?? "").trim() !== "" && Number.isFinite(Number(filters.startHour))
+    ? Number(filters.startHour) : Number(config.workdayStartHour || 7);
+  const endHour = String(filters.endHour ?? "").trim() !== "" && Number.isFinite(Number(filters.endHour))
+    ? Number(filters.endHour) : Number(config.workdayEndHour || 22);
   const includePoints = filters.includePoints === true;
   const history = readGpsHistory(100000, {
     username: filters.username || "",
@@ -1022,11 +1030,29 @@ function buildDailyGpsRoutes(filters = {}) {
     startHour,
     endHour
   }).reverse();
+  const aliases = new Map();
+  const firstDeviceBySession = new Map();
+  function rootFor(key) {
+    const parent = aliases.get(key) || key;
+    if (parent === key) return key;
+    const root = rootFor(parent);
+    aliases.set(key, root);
+    return root;
+  }
+  history.forEach((entry) => {
+    const deviceKey = `${entry.username || "sin-usuario"}|${entry.deviceId || "sin-dispositivo"}`;
+    if (!aliases.has(deviceKey)) aliases.set(deviceKey, deviceKey);
+    if (!entry.sessionId) return;
+    const sessionKey = `${entry.username || "sin-usuario"}|${entry.sessionId}`;
+    const prior = firstDeviceBySession.get(sessionKey);
+    if (prior) aliases.set(rootFor(deviceKey), rootFor(prior));
+    else firstDeviceBySession.set(sessionKey, deviceKey);
+  });
   const grouped = new Map();
   history.forEach((entry) => {
     const role = String(entry.role || "").toLowerCase();
     if (!filters.role && !["seller", "driver"].includes(role)) return;
-    const key = `${entry.username || "sin-usuario"}|${entry.deviceId || "sin-dispositivo"}`;
+    const key = rootFor(`${entry.username || "sin-usuario"}|${entry.deviceId || "sin-dispositivo"}`);
     if (!grouped.has(key)) {
       grouped.set(key, {
         key,
@@ -1038,10 +1064,16 @@ function buildDailyGpsRoutes(filters = {}) {
         deviceLabel: entry.deviceLabel || "",
         ip: entry.ip || "",
         route: entry.route || "",
-        points: []
+        points: [],
+        deviceIds: new Set(),
+        deviceLabels: new Set()
       });
     }
-    grouped.get(key).points.push({
+    const route = grouped.get(key);
+    route.deviceIds.add(entry.deviceId || "");
+    if (entry.deviceLabel) route.deviceLabels.add(entry.deviceLabel);
+    if (entry.source === "native-background" && entry.deviceLabel) route.deviceLabel = entry.deviceLabel;
+    route.points.push({
       at: entry.at || "",
       deviceAt: entry.deviceAt || "",
       serverAt: entry.serverAt || entry.at || "",
@@ -1065,6 +1097,8 @@ function buildDailyGpsRoutes(filters = {}) {
     const last = points[points.length - 1] || null;
     return {
       ...route,
+      deviceIds: [...route.deviceIds].filter(Boolean),
+      deviceLabels: [...route.deviceLabels],
       points: includePoints ? points : sampleRoutePoints(points, 160),
       totalPoints: points.length,
       startedAt: first && (first.deviceAt || first.serverAt || first.at) || "",
@@ -2455,6 +2489,108 @@ function validationForRemitLine(lineValidations, line, index) {
       || (barcode && itemBarcode === barcode)
       || (name && itemName === name);
   }) || {};
+}
+
+function reconcileRemitLines(state, remit, input) {
+  const originals = Array.isArray(remit.products) ? remit.products : [];
+  const edits = Array.isArray(input.lineEdits) ? input.lineEdits : [];
+  const added = Array.isArray(input.addedLines) ? input.addedLines : [];
+  if (edits.length > originals.length || added.length > 100) throw new Error("Demasiadas correcciones de remito.");
+  const editsByIndex = new Map();
+  edits.forEach((edit) => {
+    const index = Number(edit.index);
+    if (!Number.isInteger(index) || index < 0 || index >= originals.length || editsByIndex.has(index)) {
+      throw new Error("Linea de remito duplicada o inexistente.");
+    }
+    editsByIndex.set(index, edit);
+  });
+  const corrections = [];
+  const validQuantity = (value) => {
+    const quantity = Number(value);
+    if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 100000) throw new Error("Indicar una cantidad valida de unidades a ingresar.");
+    return Math.round(quantity * 100) / 100;
+  };
+  const resolveCatalogProduct = (code) => {
+    const key = String(code || "").trim();
+    const product = (state.products || []).find((item) =>
+      sameText(item.codigo_producto || item.code, key) || sameText(item.codigo_barras, key));
+    if (!key || !product) throw new Error(`Producto no encontrado en el catalogo: ${key || "sin codigo"}.`);
+    if (product.pendingValidation && product.pendingRemitId !== remit.id) {
+      throw new Error(`El producto ${product.name || key} esta pendiente de validacion en otro remito.`);
+    }
+    return product;
+  };
+  const lines = originals.map((line, index) => {
+    const edit = editsByIndex.get(index);
+    if (!edit) return line;
+    const oldCode = String(line.productCode || line.barcode || "").trim();
+    const requestedCode = String(edit.productCode || oldCode).trim();
+    const changedProduct = !sameText(requestedCode, oldCode);
+    if (changedProduct && line.isNewProduct) throw new Error("Un producto nuevo pendiente no puede reemplazarse durante la validacion.");
+    const product = changedProduct ? resolveCatalogProduct(requestedCode) : findProductByRemitItem(state, line);
+    if (!product) throw new Error(`Producto no encontrado en la linea ${index + 1}.`);
+    const stockQty = validQuantity(edit.stockQty ?? line.stockQty ?? line.qty);
+    const changedQuantity = Math.abs(stockQty - numeric(line.stockQty ?? line.qty, 0)) > 0.001;
+    if (changedProduct || changedQuantity) corrections.push({
+      action: "CORREGIR",
+      index,
+      previousProductCode: oldCode,
+      productCode: product.codigo_producto || product.code || requestedCode,
+      previousStockQty: numeric(line.stockQty ?? line.qty, 0),
+      stockQty
+    });
+    const unitPrice = changedProduct ? numeric(product.costo ?? product.cost, 0) : numeric(line.unitPrice, 0);
+    return {
+      ...line,
+      ...(changedProduct ? {
+        productCode: product.codigo_producto || product.code || requestedCode,
+        barcode: product.codigo_barras || "",
+        product: product.name || product.descripcion,
+        name: product.name || product.descripcion,
+        isNewProduct: false,
+        newProduct: null,
+        correctedDuringValidation: true
+      } : {}),
+      ...(changedQuantity ? {
+        qty: stockQty,
+        unit: "unidad",
+        multiplier: 1,
+        unitsPerBlister: 0,
+        blistersPerBox: 0,
+        boxesReceived: 0,
+        unitsPerBox: 0
+      } : {}),
+      stockQty,
+      unitPrice,
+      subtotal: Math.round(stockQty * unitPrice * 100) / 100
+    };
+  });
+  const seen = new Set(lines.map((line) => normalizeSearchText(line.productCode || line.barcode || line.name)));
+  added.forEach((entry) => {
+    const product = resolveCatalogProduct(entry.productCode || entry.barcode);
+    const code = String(product.codigo_producto || product.code || entry.productCode).trim();
+    const key = normalizeSearchText(code);
+    if (seen.has(key)) throw new Error(`El producto ${product.name || code} ya figura en el remito. Corregir su cantidad en la linea existente.`);
+    seen.add(key);
+    const stockQty = validQuantity(entry.stockQty);
+    lines.push({
+      productCode: code,
+      barcode: product.codigo_barras || "",
+      product: product.name || product.descripcion,
+      name: product.name || product.descripcion,
+      qty: stockQty,
+      unit: "unidad",
+      multiplier: 1,
+      stockQty,
+      unitPrice: numeric(product.costo ?? product.cost, 0),
+      subtotal: Math.round(stockQty * numeric(product.costo ?? product.cost, 0) * 100) / 100,
+      isNewProduct: false,
+      addedDuringValidation: true,
+      stockStatus: "Pendiente de Validacion"
+    });
+    corrections.push({ action: "AGREGAR", index: lines.length - 1, productCode: code, stockQty });
+  });
+  return { lines, corrections };
 }
 
 function applyValidatedPricing(product, validation, sessionUser, at) {
@@ -5350,6 +5486,20 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    const sessionToken = requestUrl.pathname.startsWith("/api/") ? cookieValue(req, "dl_session") : "";
+    const depotSession = sessionToken ? sessions.get(sessionToken) : null;
+    if (depotSession && depotSession.expiresAt >= Date.now() && depotSession.user.role === "depot") {
+      const path = requestUrl.pathname;
+      const allowed = (req.method === "GET" && ["/api/session", "/api/state", "/api/presence/status"].includes(path))
+        || (req.method === "POST" && ["/api/logout", "/api/presence/heartbeat", "/api/presence/location", "/api/orders/bulk-workflow"].includes(path))
+        || (req.method === "GET" && /^\/api\/orders\/[^/]+\/label\/status$/.test(path))
+        || (req.method === "POST" && /^\/api\/orders\/[^/]+\/(label|scan|advance)$/.test(path));
+      if (!allowed) {
+        sendJson(res, 403, { ok: false, error: "El usuario de deposito solo puede operar Armado." });
+        return;
+      }
+    }
+
     if (requestUrl.pathname === "/api/admin/reauth" && req.method === "POST") {
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
@@ -5681,7 +5831,14 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const input = JSON.parse(await readBody(req) || "{}");
-      if (input.device) session.device = { ...session.device, ...normalizeDevice(input.device, req) };
+      if (input.device) {
+        const reportedDevice = normalizeDevice(input.device, req);
+        if (reportedDevice.id === session.device.id) {
+          session.device = { ...session.device, ...reportedDevice };
+        } else if (reportedDevice.label) {
+          session.device.physicalLabel = reportedDevice.label;
+        }
+      }
       session.presenceStatus = String(input.status || session.presenceStatus || "Disponible");
       const now = new Date().toISOString();
       session.lastHeartbeatAt = now;
@@ -5735,7 +5892,14 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       session.lastGpsAcceptedAt = now;
-      if (input.device) session.device = { ...session.device, ...normalizeDevice(input.device, req) };
+      if (input.device) {
+        const reportedDevice = normalizeDevice(input.device, req);
+        if (reportedDevice.id === session.device.id) {
+          session.device = { ...session.device, ...reportedDevice };
+        } else if (reportedDevice.label) {
+          session.device.physicalLabel = reportedDevice.label;
+        }
+      }
       session.location = gps;
       session.lastGpsAt = gps.updatedAt;
       session.lastPresenceAt = gps.updatedAt;
@@ -8354,7 +8518,9 @@ const server = http.createServer(async (req, res) => {
         if (remit.economicValidated) {
           const sameInvoice = sameText(remit.invoiceNumber, invoiceNumber);
           const sameAmount = Math.abs(numeric(remit.amount, 0) - amount) < 0.01;
-          if (!sameInvoice || !sameAmount) {
+          const sameOperation = input.validationOperationId && remit.validationOperationId === input.validationOperationId;
+          const newCorrections = (input.lineEdits || []).length || (input.addedLines || []).length;
+          if (!sameInvoice || !sameAmount || (newCorrections && !sameOperation)) {
             throw new Error(`El remito ya fue validado con factura ${remit.invoiceNumber || "sin numero"}.`);
           }
           const products = (Array.isArray(remit.products) ? remit.products : [])
@@ -8376,6 +8542,10 @@ const server = http.createServer(async (req, res) => {
         const previousRemit = cloneAuditValue(remit);
         const previousOrdersByCode = new Map((currentState.orders || []).map((order) => [order.code, cloneAuditValue(order)]));
         const lineValidations = Array.isArray(input.lineValidations) ? input.lineValidations : [];
+        const reconciliation = reconcileRemitLines(currentState, remit, input);
+        if (reconciliation.corrections.length && !String(input.observations || input.note || "").trim()) {
+          throw new Error("Explicar las correcciones del remito en Observaciones administrativas.");
+        }
         const pricingAuditEntries = [];
         const at = new Date().toISOString();
         const parts = auditLocalParts(at);
@@ -8388,12 +8558,14 @@ const server = http.createServer(async (req, res) => {
             }, sessionUser)
           : null;
         const completedSet = new Set();
-        const productResults = (Array.isArray(remit.products) ? remit.products : []).map((line, index) => {
+        const productResults = reconciliation.lines.map((line, index) => {
           const product = findProductByRemitItem(currentState, line);
           if (!product) throw new Error(`Producto no encontrado para validar remito: ${line.name || line.product || index + 1}.`);
           const validation = validationForRemitLine(lineValidations, line, index);
           const productWasPending = Boolean(line.isNewProduct || product.pendingValidation || normalizeSearchText(product.estado).includes("pendiente"));
-          const shouldUpdatePricing = input.costsValidated !== false && (productWasPending || validation.updatePricing !== false);
+          const shouldUpdatePricing = input.costsValidated !== false && (productWasPending
+            || ((line.addedDuringValidation || line.correctedDuringValidation)
+              ? validation.updatePricing === true : validation.updatePricing !== false));
           if (!String(product.proveedor || product.supplier || "").trim()) {
             product.proveedor = supplier.name;
             product.supplier = supplier.name;
@@ -8458,6 +8630,8 @@ const server = http.createServer(async (req, res) => {
         remit.differenceAmount = numeric(input.differenceAmount, 0);
         remit.adminObservations = String(input.observations || input.note || "").trim();
         remit.products = productResults;
+        remit.lineCorrections = reconciliation.corrections;
+        remit.validationOperationId = String(input.validationOperationId || "").trim();
         ensurePriceListsState(currentState);
         supplier.totalPurchased = numeric(supplier.totalPurchased, 0) + amount;
         supplier.total_comprado = supplier.totalPurchased;

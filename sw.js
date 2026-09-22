@@ -1,4 +1,4 @@
-const CACHE_NAME = "distribuidora-lopez-servidor-unico-8790-v152";
+const CACHE_NAME = "distribuidora-lopez-servidor-unico-8790-v153";
 const ASSETS = [
   "./manifest.json",
   "./maintenance.html",

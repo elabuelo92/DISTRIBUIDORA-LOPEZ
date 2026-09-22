@@ -37,6 +37,8 @@ const context = {
   deliveryStopFilter: "pending",
   deliveryStopSearchTerm: "",
   deliveryStopPageSize: 15,
+  deliverySelectedStopCode: "",
+  deliveryDevice: { id: "TEST-DRIVER" },
   byId: (id) => nodes.get(id),
   document: { querySelectorAll: () => buttons },
   numeric: (value, fallback) => Number(value) || fallback,
@@ -53,7 +55,7 @@ const context = {
 };
 vm.createContext(context);
 vm.runInContext(`${app.slice(start, end)}\nthis.renderDeliveryDriverStops = renderDeliveryDriverStops;`, context);
-const render = () => context.renderDeliveryDriverStops({ stops, status: "En curso" }, stops[0], true);
+const render = () => context.renderDeliveryDriverStops({ stops, status: "En curso", deviceId: "TEST-DRIVER" }, stops[0], true);
 
 render();
 assert.equal((nodes.get("deliveryStopList").innerHTML.match(/class="delivery-driver-stop /g) || []).length, 15);
@@ -62,6 +64,13 @@ assert.match(nodes.get("deliveryStopList").innerHTML, /Mostrar 15 mas/);
 assert.match(nodes.get("deliveryStopList").innerHTML, /Cliente &lt;Centro&gt;/);
 assert.doesNotMatch(nodes.get("deliveryStopList").innerHTML, /<table/);
 assert.equal(nodes.get("deliveryStopCount").textContent, "100 de 100 paradas");
+assert.match(nodes.get("deliveryStopList").innerHTML, /data-delivery-select-stop="PED-10"/);
+
+context.deliverySelectedStopCode = "PED-10";
+render();
+assert.match(nodes.get("deliveryStopList").innerHTML, /data-delivery-collect="PED-10"/);
+assert.doesNotMatch(nodes.get("deliveryStopList").innerHTML, /data-delivery-collect="PED-1"/);
+context.deliverySelectedStopCode = "";
 
 orders[0].status = OrderEngine.STATUS.IN_ROUTE;
 render();
