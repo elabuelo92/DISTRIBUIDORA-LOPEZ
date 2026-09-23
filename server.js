@@ -1967,6 +1967,7 @@ let stateCache = {
   mtimeMs: 0,
   payload: null
 };
+let lastReadMigratedPayload = null;
 
 function readStateFileCached() {
   try {
@@ -9884,6 +9885,7 @@ const server = http.createServer(async (req, res) => {
         const clientVersion = Number(requestUrl.searchParams.get("version") || req.headers["x-state-version"] || 0);
         let currentPayload = readStateFileCached();
         const storedVersion = currentPayload.version || readStateVersionFast();
+        const deferClients = requestUrl.searchParams.get("deferState") === "clients";
         const now = Date.now();
         const duePriceList = Array.isArray(currentPayload.state && currentPayload.state.priceLists)
           && currentPayload.state.priceLists.some((list) => list.status === "Programada"
@@ -9891,9 +9893,22 @@ const server = http.createServer(async (req, res) => {
             && new Date(list.effectiveAt).getTime() <= now);
         const skipMigration = !duePriceList && (
           (clientVersion && storedVersion && clientVersion >= storedVersion)
-          || (requestUrl.searchParams.get("deferState") === "clients" && (!clientVersion || clientVersion < storedVersion))
+          || (deferClients && (!clientVersion || clientVersion < storedVersion))
         );
-        if (currentPayload.state && !skipMigration) {
+        const needsFullState = !deferClients && (!clientVersion || clientVersion < storedVersion || duePriceList);
+        if (needsFullState && !reserveFullStateResponse(res)) {
+          sendJson(res, 503, {
+            ok: false,
+            code: "STATE_SYNC_BUSY",
+            error: "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.",
+            retryAfterSeconds: 5
+          }, {
+            "Retry-After": "5",
+            "X-State-Sync-Busy": "1"
+          });
+          return;
+        }
+        if (currentPayload.state && !skipMigration && (lastReadMigratedPayload !== currentPayload || duePriceList)) {
           ensureGlobalAudit(currentPayload.state);
           ensureNotifications(currentPayload.state);
           ensureRejectedGps(currentPayload.state);
@@ -9910,9 +9925,10 @@ const server = http.createServer(async (req, res) => {
               state: currentPayload.state
             };
           }
+          lastReadMigratedPayload = readStateFileCached();
         }
         const currentVersion = currentPayload.version || readStateVersionFast();
-        if (requestUrl.searchParams.get("deferState") === "clients" && (!clientVersion || clientVersion < currentVersion)) {
+        if (deferClients && (!clientVersion || clientVersion < currentVersion)) {
           session.lastSyncAt = new Date().toISOString();
           sendJson(res, 200, {
             ok: true,
@@ -9942,18 +9958,6 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         session.lastSyncAt = new Date().toISOString();
-        if (!reserveFullStateResponse(res)) {
-          sendJson(res, 503, {
-            ok: false,
-            code: "STATE_SYNC_BUSY",
-            error: "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.",
-            retryAfterSeconds: 5
-          }, {
-            "Retry-After": "5",
-            "X-State-Sync-Busy": "1"
-          });
-          return;
-        }
         sendProjectedStateResponse(res, currentPayload, user);
         return;
       }
