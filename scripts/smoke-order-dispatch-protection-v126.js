@@ -15,7 +15,7 @@ assert.match(deploySource, /DESTRUCTIVE_MIGRATION_REQUIRES_EXPLICIT_REVIEW/);
 assert.match(deploySource, /':!scripts\/deploy\/safe-production-deploy\.py'/);
 assert.match(deploySource, /LOCAL_HOUR=.*America\/Argentina\/Buenos_Aires/);
 assert.match(deploySource, /date -d 'yesterday'/);
-assert.match(deploySource, /sudo systemctl stop \{SERVICE\}[\s\S]*data\.tar\.gz[\s\S]*orders-today-before\.json[\s\S]*git checkout main/);
+assert.match(deploySource, /sudo systemctl stop \{SERVICE\}[\s\S]*data\.tar\.gz[\s\S]*orders-today-before\.json[\s\S]*git switch main[\s\S]*git merge --ff-only origin\/main/);
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dl-order-protection-"));
 const stateFile = path.join(tempDir, "state.json");

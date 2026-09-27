@@ -1236,8 +1236,42 @@
     if (!assembly.label.scanCode) assembly.label.scanCode = String(code || "").replace(/-/g, "");
     else assembly.label.scanCode = String(assembly.label.scanCode || "").replace(/-/g, "");
     assembly.label.packageLabels = normalizePackageLabels(assembly.label.packageLabels, code, assembly.bultosConfirmed);
+    assembly.verifiedItemKeys = Array.isArray(raw.verifiedItemKeys) ? raw.verifiedItemKeys.map(String) : [];
+    assembly.verifiedAt = raw.verifiedAt || null;
+    assembly.verifiedBy = String(raw.verifiedBy || "");
     assembly.assemblyOrderNumber = assembly.orderNumber;
     return assembly;
+  }
+
+  function assemblyLineKey(item, index) {
+    return JSON.stringify([
+      index,
+      String(item.productCode || item.codigo_producto || ""),
+      String(item.name || item.descripcion || ""),
+      Number(item.requestedQty ?? item.qty ?? item.quantity ?? 0),
+      Number(item.unitPrice ?? 0)
+    ]);
+  }
+
+  function setAssemblyItemVerification(state, code, keys, context = {}) {
+    const order = getOrder(state, code);
+    if (!order) throw new Error("Pedido no encontrado.");
+    if (![STATUS.PENDING, STATUS.READY, STATUS.ASSEMBLY, STATUS.LABELED, STATUS.READY_DISPATCH].includes(order.status)) {
+      throw new Error("El pedido ya no esta en la cola de armado.");
+    }
+    if (context.expectedUpdatedAt && context.expectedUpdatedAt !== order.updatedAt) {
+      throw new Error("El pedido cambio. Actualizar antes de verificar productos.");
+    }
+    const allowed = new Set((order.items || []).map(assemblyLineKey));
+    if (!Array.isArray(keys) || keys.some((key) => !allowed.has(String(key)))) {
+      throw new Error("La seleccion contiene productos que ya no pertenecen al pedido.");
+    }
+    order.assembly = normalizeAssembly(order);
+    order.assembly.verifiedItemKeys = [...new Set(keys.map(String))];
+    order.assembly.verifiedAt = nowIso();
+    order.assembly.verifiedBy = String(context.user || "Deposito");
+    order.updatedAt = order.assembly.verifiedAt;
+    return order;
   }
 
   function shouldHaveAssemblyOrderNumber(order) {
@@ -1442,8 +1476,10 @@
     const requested = prepareRequestedItems(state, sourceItems);
     const items = requested.map(({ product, qty, raw }) => {
       const unitPrice = positive(raw && (raw.unitPrice ?? raw.price)) || productUnitPrice(product);
-      const discountPct = Math.min(100, positive(raw && (raw.discountPct ?? raw.discount ?? raw.descuento)));
-      const grossTotal = qty * unitPrice;
+      const offer = authorizedOfferForLine(state, product, qty);
+      const finalUnitPrice = offer?.specialUnitPrice > 0 ? offer.specialUnitPrice : unitPrice;
+      const discountPct = offer?.discountPct > 0 ? offer.discountPct : Math.min(100, positive(raw && (raw.discountPct ?? raw.discount ?? raw.descuento)));
+      const grossTotal = qty * finalUnitPrice;
       const discountAmount = Math.round(grossTotal * discountPct) / 100;
       const lineTotal = Math.max(0, grossTotal - discountAmount);
       const priceList = productPriceListMeta(product);
@@ -1451,7 +1487,7 @@
         productCode: productCode(product),
         name: productName(product),
         requestedQty: qty,
-        unitPrice,
+        unitPrice: finalUnitPrice,
         originalUnitPrice: unitPrice,
         discountPct,
         discountAmount,
@@ -1499,6 +1535,16 @@
   function commercialTargetItems(items, request, type) {
     if (type === "general_discount") return Array.isArray(items) ? items : [];
     const source = Array.isArray(items) ? items : [];
+    const targetLineIds = Array.isArray(request && request.targetLineIds)
+      ? request.targetLineIds.map(String)
+      : (request && request.targetLineId ? [String(request.targetLineId)] : []);
+    if (targetLineIds.length) {
+      const matches = source.filter((line) => targetLineIds.includes(String(line.lineId || "")));
+      if (matches.length !== targetLineIds.length || new Set(targetLineIds).size !== targetLineIds.length) {
+        throw new Error("La solicitud comercial pendiente contiene renglones faltantes o duplicados.");
+      }
+      return matches;
+    }
     const targetLineKey = String(request && request.targetLineKey || "").trim();
     const requestCode = normalizeText(request && request.productCode);
     const requestName = normalizeText(request && request.productName);
@@ -1516,15 +1562,87 @@
     return matches;
   }
 
+  function authorizedOfferForLine(state, product, qty, at = nowIso()) {
+    const code = productCode(product);
+    if (!code) return null;
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(String(at))
+      ? String(at)
+      : new Date(at).toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
+    return (Array.isArray(state.commercialOffers) ? state.commercialOffers : [])
+      .filter((offer) => offer.active !== false
+        && normalizeText(offer.productCode) === normalizeText(code)
+        && positive(qty) >= positive(offer.minimumQty)
+        && String(offer.validFrom || "") <= day
+        && (!offer.validTo || String(offer.validTo) >= day))
+      .sort((left, right) => positive(right.minimumQty) - positive(left.minimumQty))[0] || null;
+  }
+
+  function saveAuthorizedOffer(state, input = {}, context = {}) {
+    const code = String(input.productCode || "").trim();
+    const product = (state.products || []).find((item) => normalizeText(productCode(item)) === normalizeText(code));
+    if (!code || !product) throw new Error("Seleccionar un producto existente por codigo.");
+    const minimumQty = Number(input.minimumQty);
+    const discountPct = Number(input.discountPct || 0);
+    const specialUnitPrice = Number(input.specialUnitPrice || 0);
+    if (!Number.isInteger(minimumQty) || minimumQty < 1) throw new Error("La cantidad minima debe ser un entero positivo.");
+    if (!Number.isFinite(discountPct) || discountPct < 0 || discountPct > 100) throw new Error("Descuento invalido.");
+    if (!Number.isFinite(specialUnitPrice) || specialUnitPrice < 0 || Boolean(discountPct > 0) === Boolean(specialUnitPrice > 0)) {
+      throw new Error("Indicar un descuento positivo o un precio especial, no ambos.");
+    }
+    const validFrom = String(input.validFrom || "");
+    const validTo = String(input.validTo || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(validFrom) || validTo && (!/^\d{4}-\d{2}-\d{2}$/.test(validTo) || validTo < validFrom)) {
+      throw new Error("Vigencia invalida.");
+    }
+    state.commercialOffers = Array.isArray(state.commercialOffers) ? state.commercialOffers : [];
+    const existing = input.id ? state.commercialOffers.find((offer) => offer.id === input.id) : null;
+    if (input.id && !existing) throw new Error("Oferta no encontrada.");
+    const active = input.active !== false;
+    if (active && state.commercialOffers.some((offer) => offer !== existing && offer.active !== false
+      && normalizeText(offer.productCode) === normalizeText(code)
+      && positive(offer.minimumQty) === minimumQty
+      && String(offer.validFrom || "") <= (validTo || "9999-12-31")
+      && validFrom <= String(offer.validTo || "9999-12-31"))) {
+      throw new Error("Ya existe una oferta activa con la misma cantidad y vigencia superpuesta.");
+    }
+    const at = nowIso();
+    const before = existing ? clone(existing) : null;
+    const offer = {
+      id: existing?.id || `OF-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+      productCode: code,
+      productName: productName(product),
+      minimumQty,
+      discountPct,
+      specialUnitPrice,
+      validFrom,
+      validTo,
+      active,
+      createdAt: existing?.createdAt || at,
+      updatedAt: at,
+      updatedBy: String(context.user || "Administracion")
+    };
+    if (existing) Object.assign(existing, offer);
+    else state.commercialOffers.push(offer);
+    state.commercialOfferAudit = Array.isArray(state.commercialOfferAudit) ? state.commercialOfferAudit : [];
+    state.commercialOfferAudit.unshift({ at, user: offer.updatedBy, before, after: clone(offer) });
+    return offer;
+  }
+
   function createOrder(state, input, actor, options = {}) {
     if (options.skipMigration !== true) migrateState(state);
     const now = nowIso();
     const requested = prepareRequestedItems(state, input.items);
+    const code = String(input.code || nextOrderCode(state));
     const commercialInput = input && input.commercialRequest && typeof input.commercialRequest === "object"
       ? input.commercialRequest
       : null;
     let commercialTarget = null;
-    if (commercialInput && commercialInput.type && commercialInput.type !== "general_discount") {
+    if (commercialInput && commercialInput.type === "multi_product_discount") {
+      const selectedCodes = new Set((Array.isArray(commercialInput.productCodes) ? commercialInput.productCodes : []).map(normalizeText));
+      if (selectedCodes.size < 2 || requested.filter(({ product }) => selectedCodes.has(normalizeText(productCode(product) || productName(product)))).length !== selectedCodes.size) {
+        throw new Error("Seleccionar al menos dos productos distintos del pedido para el descuento solicitado.");
+      }
+    } else if (commercialInput && commercialInput.type && commercialInput.type !== "general_discount") {
       const projectedItems = requested.map(({ product }) => ({
         productCode: productCode(product),
         name: productName(product)
@@ -1533,25 +1651,31 @@
       if (targetItems.length !== 1) throw new Error("El producto de la solicitud comercial no pertenece al pedido.");
       commercialTarget = targetItems[0];
     }
-    const items = requested.map(({ product, qty, raw }) => {
+    const items = requested.map(({ product, qty, raw }, index) => {
       const stock = inventory(product);
       const reservedQty = Math.min(stock.available, qty);
       product.stock_reservado += reservedQty;
       refreshProductInventory(product);
       const unitPrice = positive(raw && (raw.unitPrice ?? raw.price)) || productUnitPrice(product);
-      const discountPct = Math.min(100, positive(raw && (raw.discountPct ?? raw.discount ?? raw.descuento)));
-      const grossTotal = qty * unitPrice;
+      const offer = authorizedOfferForLine(state, product, qty, now);
+      const finalUnitPrice = offer && offer.specialUnitPrice > 0 ? offer.specialUnitPrice : unitPrice;
+      const discountPct = offer && offer.discountPct > 0
+        ? offer.discountPct
+        : Math.min(100, positive(raw && (raw.discountPct ?? raw.discount ?? raw.descuento)));
+      const grossTotal = qty * finalUnitPrice;
       const discountAmount = Math.round(grossTotal * discountPct) / 100;
       const lineTotal = Math.max(0, grossTotal - discountAmount);
       const priceList = productPriceListMeta(product);
       return {
+        lineId: `${code}-L${index + 1}`,
         productCode: productCode(product),
         name: productName(product),
         requestedQty: qty,
         reservedQty,
         missingQty: qty - reservedQty,
-        unitPrice,
+        unitPrice: finalUnitPrice,
         originalUnitPrice: unitPrice,
+        authorizedOffer: offer ? { id: offer.id, minimumQty: offer.minimumQty, discountPct: offer.discountPct, specialUnitPrice: offer.specialUnitPrice } : null,
         discountPct,
         discountAmount,
         lineTotal,
@@ -1568,6 +1692,7 @@
         type: String(input.commercialRequest.type || ""),
         productCode: String(input.commercialRequest.productCode || ""),
         productName: String(input.commercialRequest.productName || ""),
+        productCodes: Array.isArray(input.commercialRequest.productCodes) ? input.commercialRequest.productCodes.map(String) : [],
         originalPrice: positive(input.commercialRequest.originalPrice),
         proposedValue: positive(input.commercialRequest.proposedValue),
         discountPct: positive(input.commercialRequest.discountPct),
@@ -1580,13 +1705,17 @@
       : null;
     if (commercialRequest && commercialTarget) {
       commercialRequest.targetLineKey = commercialLineIdentity(commercialTarget);
+      commercialRequest.targetLineId = items.find((line) => commercialLineIdentity(line) === commercialRequest.targetLineKey)?.lineId || "";
       commercialRequest.productCode = String(commercialTarget.productCode || "");
       commercialRequest.productName = String(commercialTarget.name || "");
+    } else if (commercialRequest && commercialRequest.type === "multi_product_discount") {
+      const selectedCodes = new Set(commercialRequest.productCodes.map(normalizeText));
+      commercialRequest.targetLineIds = items.filter((line) => selectedCodes.has(normalizeText(line.productCode || line.name))).map((line) => line.lineId);
     }
     const requiresCommercialApproval = Boolean(commercialRequest && commercialRequest.type && commercialRequest.motive);
     const status = requiresCommercialApproval ? STATUS.COMMERCIAL_APPROVAL : (hasShortage ? STATUS.PENDING : STATUS.READY);
     const order = {
-      code: String(input.code || nextOrderCode(state)),
+      code,
       client: String(input.client || ""),
       seller: String(input.seller || ""),
       sellerUsername: String(input.sellerUsername || input.seller_username || ""),
@@ -2081,6 +2210,21 @@
     return order;
   }
 
+  function unusualOrderEditQuantities(previousOrder, input) {
+    const previousItems = Array.isArray(previousOrder && previousOrder.items) ? previousOrder.items : [];
+    const nextItems = Array.isArray(input && input.items) ? input.items : [];
+    const keyFor = (item) => String(item && (item.productCode || item.codigo_producto || item.code) || "").trim()
+      || normalizeText(item && (item.name || item.descripcion));
+    const previousByKey = new Map(previousItems.map((item) => [keyFor(item), item]));
+    return nextItems.flatMap((item) => {
+      const previous = previousByKey.get(keyFor(item));
+      const beforeQty = positive(previous && (previous.requestedQty ?? previous.qty ?? previous.quantity));
+      const afterQty = positive(item && (item.qty ?? item.requestedQty ?? item.quantity));
+      if (afterQty < Math.max(50, beforeQty * 5) || afterQty - beforeQty < 20) return [];
+      return [{ productCode: String(item.productCode || ""), name: String(item.name || previous && previous.name || "Producto"), beforeQty, afterQty }];
+    });
+  }
+
   function editOrder(state, code, input, context) {
     migrateState(state);
     const order = getOrder(state, code);
@@ -2108,9 +2252,13 @@
       && String(order.commercialApproval.status || "Pendiente") === "Pendiente") {
       const projectedItems = requested.map(({ product }) => ({
         productCode: productCode(product),
-        name: productName(product)
+        name: productName(product),
+        lineId: (previous.items || []).find((line) => line.productCode === productCode(product))?.lineId || ""
       }));
-      if (commercialTargetItems(projectedItems, order.commercialApproval, order.commercialApproval.type).length !== 1) {
+      const expectedLines = order.commercialApproval.type === "multi_product_discount"
+        ? order.commercialApproval.targetLineIds?.length || 0
+        : 1;
+      if (commercialTargetItems(projectedItems, order.commercialApproval, order.commercialApproval.type).length !== expectedLines) {
         throw new Error("No se puede quitar el producto que posee una solicitud comercial pendiente.");
       }
     }
@@ -2137,15 +2285,31 @@
         product.stock_reservado += reservedQty;
         refreshProductInventory(product);
       }
-      const unitPrice = positive(raw && (raw.unitPrice ?? raw.price)) || positive(previousLine.unitPrice) || productUnitPrice(product);
-      const originalUnitPrice = positive(previousLine.originalUnitPrice ?? previousLine.unitPrice) || unitPrice;
+      const baseUnitPrice = positive(previousLine.originalUnitPrice ?? previousLine.unitPrice)
+        || positive(raw && (raw.unitPrice ?? raw.price)) || productUnitPrice(product);
+      const quantityChanged = qty !== positive(previousLine.requestedQty);
+      const currentOffer = quantityChanged
+        ? authorizedOfferForLine(state, product, qty)
+        : null;
+      const offer = currentOffer || (previousLine.authorizedOffer && qty >= positive(previousLine.authorizedOffer.minimumQty)
+        ? previousLine.authorizedOffer
+        : null);
+      const unitPrice = offer
+        ? positive(offer.specialUnitPrice) || baseUnitPrice
+        : (previousLine.authorizedOffer && quantityChanged
+          ? baseUnitPrice
+          : positive(raw && (raw.unitPrice ?? raw.price)) || positive(previousLine.unitPrice) || productUnitPrice(product));
+      const originalUnitPrice = baseUnitPrice;
       const rawDiscountPct = raw ? (raw.discountPct ?? raw.discount ?? raw.descuento) : undefined;
-      const discountPct = Math.min(100, positive(rawDiscountPct ?? previousLine.discountPct));
+      const discountPct = offer
+        ? Math.min(100, positive(offer.discountPct))
+        : (previousLine.authorizedOffer && quantityChanged ? 0 : Math.min(100, positive(rawDiscountPct ?? previousLine.discountPct)));
       const grossTotal = qty * unitPrice;
       const discountAmount = Math.round(grossTotal * discountPct) / 100;
       const lineTotal = Math.max(0, grossTotal - discountAmount);
       const priceList = productPriceListMeta(product);
       return {
+        lineId: String(previousLine.lineId || raw && raw.lineId || `${order.code}-L${Date.now()}-${Math.random().toString(16).slice(2, 6)}`),
         productCode: productCode(product),
         name: productName(product),
         requestedQty: qty,
@@ -2153,6 +2317,7 @@
         missingQty: reservationMode ? qty - reservedQty : 0,
         unitPrice,
         originalUnitPrice,
+        authorizedOffer: offer ? { id: offer.id, minimumQty: offer.minimumQty, discountPct: offer.discountPct, specialUnitPrice: offer.specialUnitPrice } : null,
         discountPct,
         discountAmount,
         lineTotal,
@@ -2428,6 +2593,8 @@
     registerCommissionPayment,
     analyzeCommissionRules,
     saveCommissionRule,
+    authorizedOfferForLine,
+    saveAuthorizedOffer,
     nextOrderCode,
     quoteOrder,
     outOfStockProducts,
@@ -2437,6 +2604,8 @@
     applyStockEntry,
     nextStatus,
     assertDispatchChecklist,
+    assemblyLineKey,
+    setAssemblyItemVerification,
     markOrderReadyForDispatch,
     orderLabelData,
     generateOrderLabel,
@@ -2444,6 +2613,7 @@
     advanceOrder,
     setPriority,
     cancelOrder,
+    unusualOrderEditQuantities,
     editOrder,
     resolveCommercialApproval,
     buildShortageList

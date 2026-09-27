@@ -117,6 +117,40 @@ assert.equal(published.status, DeliveryEngine.ROUTE_STATUS.READY);
 assert.equal(state.orders.filter((order) => order.status === OrderEngine.STATUS.DISPATCHED).length, 60);
 assert.equal(state.orders.filter((order) => order.assembly.label.scanned).length, 0);
 
+const replannedState = buildState(3);
+replannedState.orders[1].status = OrderEngine.STATUS.NOT_DELIVERED;
+replannedState.orders[2].status = OrderEngine.STATUS.POSTPONED;
+replannedState.orders[1].stockSettled = true;
+replannedState.orders[2].stockSettled = true;
+replannedState.orders[1].inventoryMode = "reservation";
+replannedState.orders[2].inventoryMode = "reservation";
+const replannedRoute = DeliveryEngine.createPlannedRoute(replannedState, {
+  orderCodes: replannedState.orders.map((order) => order.code),
+  day: "2026-09-25",
+  zone: "Centro",
+  driverUser: "reparto1",
+  driverLabel: "Reparto 1"
+}, context);
+const previousStockMovements = replannedState.stockMovements.length;
+DeliveryEngine.publishRoute(replannedState, replannedRoute.id, context);
+assert.equal(replannedRoute.status, DeliveryEngine.ROUTE_STATUS.READY);
+assert.equal(replannedState.orders.filter((order) => order.status === OrderEngine.STATUS.DISPATCHED).length, 3);
+assert.equal(replannedState.stockMovements.length, previousStockMovements);
+
+const invalidState = buildState(2);
+invalidState.orders[0].status = OrderEngine.STATUS.NOT_DELIVERED;
+invalidState.orders[1].assembly.label.generated = false;
+const invalidRoute = DeliveryEngine.createPlannedRoute(invalidState, {
+  orderCodes: invalidState.orders.map((order) => order.code),
+  day: "2026-09-25",
+  zone: "Centro",
+  driverUser: "reparto1",
+  driverLabel: "Reparto 1"
+}, context);
+assert.throws(() => DeliveryEngine.publishRoute(invalidState, invalidRoute.id, context), /Generar etiqueta/);
+assert.equal(invalidState.orders[0].status, OrderEngine.STATUS.NOT_DELIVERED);
+assert.equal(invalidRoute.status, DeliveryEngine.ROUTE_STATUS.PLANNED);
+
 DeliveryEngine.claimRoute(state, route.id, context);
 const firstCode = published.stops[0].orderCode;
 DeliveryEngine.updateStopStatus(state, firstCode, OrderEngine.STATUS.IN_ROUTE, context);
@@ -174,7 +208,7 @@ assert.match(app, /currentUser\.role === "driver"[\s\S]*username[\s\S]*=== "dari
 assert.match(app, /data-route-drag/);
 assert.match(app, /persistDeliveryDragOrder/);
 assert.match(server, /function canPlanDeliveryRoutes\(user\)/);
-assert.equal((server.match(/!canPlanDeliveryRoutes\(sessionUser\)/g) || []).length, 5);
+assert.equal((server.match(/!canPlanDeliveryRoutes\(sessionUser\)/g) || []).length, 7);
 assert.match(server, /Exportar reportes requiere Administrador o Planificador de reparto/);
 assert.match(html, /delivery-planner-authorized/);
 assert.match(html, /id="deliverySignatureBox" hidden/);

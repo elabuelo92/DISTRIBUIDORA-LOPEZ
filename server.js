@@ -22,7 +22,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-153";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-157";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -46,7 +46,7 @@ const PUBLIC_DEMO = process.env.DL_PUBLIC_DEMO === "true";
 const PUBLIC_DEMO_FILES = new Set([
   "/index.html", "/maintenance.html", "/styles.css", "/manifest.json", "/sw.js",
   "/config.js", "/maps-config.js", "/order-engine.js", "/account-engine.js",
-  "/delivery-engine.js", "/legal-engine.js", "/client-portfolio-engine.js",
+  "/delivery-engine.js", "/route-optimizer.js", "/sales-commission-report.js", "/legal-engine.js", "/client-portfolio-engine.js",
   "/client-hours.js", "/share-engine.js", "/portfolio-export-engine.js",
   "/progressive-list.js", "/app.js"
 ]);
@@ -91,6 +91,16 @@ const stateWritePerformance = {
   lastAt: ""
 };
 const stateWriteSamples = [];
+const stateReadMigrationSamples = [];
+
+function stateReadMigrationSnapshot() {
+  const samples = [...stateReadMigrationSamples].sort((a, b) => a - b);
+  return {
+    count: samples.length,
+    p95Ms: samples.length ? Math.round(samples[Math.ceil(samples.length * 0.95) - 1]) : 0,
+    maxMs: samples.length ? Math.round(samples.at(-1)) : 0
+  };
+}
 
 function stateWritePerformanceSnapshot() {
   const percentile = (field, fraction) => {
@@ -1968,6 +1978,7 @@ let stateCache = {
   payload: null
 };
 let lastReadMigratedPayload = null;
+const normalizedStateObjects = new WeakSet();
 
 function readStateFileCached() {
   try {
@@ -2048,6 +2059,7 @@ function writeState(state, options = {}) {
     version: Date.now(),
     state: sanitizeState(state)
   };
+  const wasNormalized = options.migrate === true || normalizedStateObjects.has(state);
   const serialized = JSON.stringify(payload);
   const serializationMs = performance.now() - serializationStartedAt;
   const diskStartedAt = performance.now();
@@ -2074,6 +2086,12 @@ function writeState(state, options = {}) {
       mtimeMs: Date.now(),
       payload
     };
+  }
+  if (wasNormalized && payload.state && typeof payload.state === "object") {
+    normalizedStateObjects.add(payload.state);
+    lastReadMigratedPayload = payload;
+  } else {
+    lastReadMigratedPayload = null;
   }
   const totalMs = performance.now() - startedAt;
   stateWritePerformance.count += 1;
@@ -2175,6 +2193,14 @@ function deliveryContext(user, input) {
     note: input.note || "",
     skipMigration: true
   };
+}
+
+function deliveryDriverFor(username) {
+  const key = String(username || "").trim().toLowerCase();
+  const driver = readUsers().find((user) => user.role === "driver" && user.active !== false
+    && String(user.username || "").trim().toLowerCase() === key);
+  if (!driver) throw new Error("Seleccionar un usuario de reparto activo.");
+  return { username: driver.username, name: driver.name || driver.username };
 }
 
 function clientIp(req) {
@@ -2863,6 +2889,10 @@ function stateForUser(state, user) {
       : [];
     clean.priceLists = visibleLists;
     clean.priceListAudit = [];
+    clean.commercialOfferAudit = [];
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
+    clean.commercialOffers = (Array.isArray(clean.commercialOffers) ? clean.commercialOffers : [])
+      .filter((offer) => offer.active !== false && offer.validFrom <= today && (!offer.validTo || offer.validTo >= today));
     clean.commissionAudit = [];
     clean.legalAudit = [];
     clean.legalAcceptances = [];
@@ -2882,7 +2912,11 @@ function stateForUser(state, user) {
     clean.orders = (Array.isArray(clean.orders) ? clean.orders : []).filter(belongsToSeller);
     // Every seller needs the complete catalog for outside-route sales.
     // Orders and operational history remain scoped to the authenticated seller.
-    clean.clients = Array.isArray(clean.clients) ? clean.clients : [];
+    clean.clients = (Array.isArray(clean.clients) ? clean.clients : []).map((client) => ({
+      ...client,
+      gpsReview: client.gpsReview ? { status: client.gpsReview.status } : null,
+      gpsReviewHistory: []
+    }));
     clean.archivedOrders = (Array.isArray(clean.archivedOrders) ? clean.archivedOrders : [])
       .filter(belongsToSeller)
       .slice(0, 2000);
@@ -3234,6 +3268,8 @@ function clientListRecord(state, client, supplierKeys) {
     horario_observacion: String(client.horario_observacion || ""),
     latitud: client.latitud ?? client.latitude ?? null,
     longitud: client.longitud ?? client.longitude ?? null,
+    gpsReviewStatus: client.gpsReview && client.gpsReview.status || "",
+    gpsReview: client.gpsReview || null,
     status: client.status || client.estado || "Activo",
     tipo_cliente: client.tipo_cliente || "",
     condicion_comercial: client.condicion_comercial || "",
@@ -4006,6 +4042,7 @@ function priceOrderItemsForAssignedList(state, input, user, sellerName) {
       const unitPrice = productPriceForListNumber(product, assignment.listNumber);
       return {
         ...item,
+        ...(user && user.role === "seller" ? { discountPct: 0, discount: 0, descuento: 0 } : {}),
         productCode: product.codigo_producto || product.code || item.productCode || "",
         name: product.name || product.descripcion || item.name || "",
         unitPrice,
@@ -6741,6 +6778,77 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    const clientGpsReviewMatch = requestUrl.pathname.match(/^\/api\/clients\/([^/]+)\/gps-review$/);
+    if (clientGpsReviewMatch && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (!["admin", "seller"].includes(sessionUser.role)) {
+        sendJson(res, 403, { ok: false, error: "Operacion GPS no autorizada." });
+        return;
+      }
+      const input = JSON.parse(await readBody(req) || "{}");
+      const currentState = readStateFileCached().state || {};
+      const id = decodeURIComponent(clientGpsReviewMatch[1]);
+      const index = findClientIndex(currentState, id);
+      if (index < 0) {
+        sendJson(res, 404, { ok: false, error: "Cliente no encontrado." });
+        return;
+      }
+      const client = currentState.clients[index];
+      const before = cloneAuditValue({ latitud: client.latitud, longitud: client.longitud, gpsReview: client.gpsReview || null });
+      try {
+        const action = String(input.action || "").trim();
+        const at = new Date().toISOString();
+        const review = client.gpsReview && typeof client.gpsReview === "object" ? client.gpsReview : {};
+        if (action === "mark") {
+          if (sessionUser.role !== "admin") throw new Error("Solo Administracion puede marcar GPS a corregir.");
+          client.gpsReview = { ...review, status: "needs_correction", markedAt: at, markedBy: sessionUser.name,
+            previous: { lat: client.latitud ?? null, lng: client.longitud ?? null }, proposal: null };
+        } else if (action === "submit") {
+          if (!["needs_correction", "rejected"].includes(review.status)) throw new Error("El cliente no tiene GPS pendiente de correccion.");
+          const accuracy = Number(input.gps && input.gps.accuracy);
+          const gps = normalizeGps(input.gps);
+          if (!gps || gpsRejectReason(gps) || !Number.isFinite(accuracy) || accuracy <= 0) throw new Error("Capturar una ubicacion GPS real con precision valida.");
+          client.gpsReview = { ...review, status: "pending_validation", proposal: {
+            lat: gps.lat, lng: gps.lng, accuracy,
+            seller: sessionUser.sellerName || sessionUser.name,
+            username: sessionUser.username,
+            device: String(input.deviceLabel || input.deviceId || ""),
+            deviceId: String(input.deviceId || ""),
+            at
+          } };
+        } else if (action === "approve" || action === "reject") {
+          if (sessionUser.role !== "admin") throw new Error("Solo Administracion puede validar la ubicacion.");
+          if (review.status !== "pending_validation" || !review.proposal) throw new Error("No hay una ubicacion pendiente de validacion.");
+          if (action === "approve") {
+            client.latitud = review.proposal.lat;
+            client.longitud = review.proposal.lng;
+          }
+          client.gpsReview = { ...review, status: action === "approve" ? "approved" : "rejected",
+            resolvedAt: at, resolvedBy: sessionUser.name, resolutionNote: String(input.reason || "").trim() };
+        } else {
+          throw new Error("Accion GPS invalida.");
+        }
+        client.gpsReviewHistory = Array.isArray(client.gpsReviewHistory) ? client.gpsReviewHistory : [];
+        client.gpsReviewHistory.unshift({ at, action, user: sessionUser.name,
+          before, after: { latitud: client.latitud ?? null, longitud: client.longitud ?? null, gpsReview: cloneAuditValue(client.gpsReview) } });
+        client.gpsReviewHistory = client.gpsReviewHistory.slice(0, 30);
+        client.updatedAt = at;
+        const visibleClient = sessionUser.role === "admin" ? client : {
+          ...client, gpsReview: { status: client.gpsReview.status }, gpsReviewHistory: []
+        };
+        writeCompactStateResponse(res, currentState, { client: visibleClient }, auditEntry(req, sessionUser, input, {
+          action: `CLIENTE_GPS_${action.toUpperCase()}`,
+          entityType: "cliente", entityId: client.codigo_cliente || client.name, entityLabel: client.name,
+          previousValue: before, newValue: { latitud: client.latitud, longitud: client.longitud, gpsReview: client.gpsReview },
+          note: client.gpsReview.status
+        }), null, { atomic: true });
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo actualizar el GPS del cliente." });
+      }
+      return;
+    }
+
     if (requestUrl.pathname === "/api/clients" && req.method === "GET") {
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
@@ -7110,6 +7218,11 @@ const server = http.createServer(async (req, res) => {
       const pricedInput = priceOrderItemsForAssignedList(currentState, input, sessionUser, seller);
       if (!(currentState.clients || []).some((client) => client.name === input.client)) {
         sendJson(res, 400, { ok: false, error: "El cliente seleccionado no existe en el padron." });
+        return;
+      }
+      const orderClient = (currentState.clients || []).find((client) => client.name === input.client);
+      if (["needs_correction", "pending_validation", "rejected"].includes(orderClient && orderClient.gpsReview && orderClient.gpsReview.status)) {
+        sendJson(res, 409, { ok: false, error: "UBICACION PENDIENTE DE ACTUALIZACION. Administracion debe aprobar el GPS antes de nuevas ventas." });
         return;
       }
       try {
@@ -7556,6 +7669,32 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/commercial-offers" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Las ofertas autorizadas requieren Administracion." });
+        return;
+      }
+      const input = JSON.parse(await readBody(req) || "{}");
+      const currentState = readStateFileCached().state || {};
+      try {
+        const offer = orderEngine.saveAuthorizedOffer(currentState, input, { user: sessionUser.name });
+        writeCompactStateResponse(res, currentState, { offer, commercialOffers: currentState.commercialOffers }, auditEntry(req, sessionUser, input, {
+          action: "OFERTA_AUTORIZADA_GUARDADA",
+          entityType: "oferta",
+          entityId: offer.id,
+          entityLabel: offer.productName,
+          previousValue: currentState.commercialOfferAudit[0]?.before || null,
+          newValue: offer,
+          note: `Cantidad minima ${offer.minimumQty}. Vigencia ${offer.validFrom} a ${offer.validTo || "sin fin"}.`
+        }), null, { atomic: true });
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar la oferta." });
+      }
+      return;
+    }
+
     const orderCommercialApprovalMatch = requestUrl.pathname.match(/^\/api\/orders\/([^/]+)\/commercial-approval$/);
     if (orderCommercialApprovalMatch && req.method === "POST") {
       const sessionUser = requireUser(req, res);
@@ -7633,7 +7772,21 @@ const server = http.createServer(async (req, res) => {
       const code = decodeURIComponent(orderEditMatch[1]);
       try {
         const previousOrder = JSON.parse(JSON.stringify(entitySnapshot(currentState, "pedido", code)));
+        if (!previousOrder) {
+          sendJson(res, 404, { ok: false, error: "Pedido no encontrado." });
+          return;
+        }
         const fullUser = fullUserByUsername(sessionUser.username) || sessionUser;
+        const expectedUpdatedAt = String(input.expectedUpdatedAt || "");
+        if (expectedUpdatedAt && expectedUpdatedAt !== String(previousOrder.updatedAt || "")) {
+          sendJson(res, 409, { ok: false, error: "El pedido cambio mientras estaba abierto. Volve a abrirlo antes de editar." });
+          return;
+        }
+        const unusualQuantities = orderEngine.unusualOrderEditQuantities(previousOrder, input);
+        if (unusualQuantities.length && (input.confirmLargeQuantities !== true || !expectedUpdatedAt)) {
+          sendJson(res, 409, { ok: false, error: "Cambio de cantidad inusual. Revisar cantidades y total antes de confirmar.", unusualQuantities });
+          return;
+        }
         if (orderEditHasEconomicChange(previousOrder, input) && !userCanEditOrderEconomics(fullUser)) {
           sendJson(res, 403, { ok: false, error: "Modificar precios o descuentos requiere autorizacion administrativa especifica." });
           return;
@@ -7905,6 +8058,29 @@ const server = http.createServer(async (req, res) => {
         }), { atomic: true });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo procesar la etiqueta." });
+      }
+      return;
+    }
+
+    const assemblyVerificationMatch = requestUrl.pathname.match(/^\/api\/orders\/([^/]+)\/assembly\/verify-items$/);
+    if (assemblyVerificationMatch && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (!["admin", "depot"].includes(sessionUser.role)) {
+        sendJson(res, 403, { ok: false, error: "Verificacion permitida solo para administracion o deposito." });
+        return;
+      }
+      const input = JSON.parse(await readBody(req) || "{}");
+      const currentState = readStateFileCached().state || {};
+      try {
+        const code = decodeURIComponent(assemblyVerificationMatch[1]);
+        const order = orderEngine.setAssemblyItemVerification(currentState, code, input.verifiedItemKeys, {
+          user: sessionUser.name,
+          expectedUpdatedAt: input.expectedUpdatedAt
+        });
+        writeCompactStateResponse(res, currentState, { order }, null, null, { atomic: true });
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo verificar el armado." });
       }
       return;
     }
@@ -9161,7 +9337,10 @@ const server = http.createServer(async (req, res) => {
       const currentPayload = readStateFileCached();
       const currentState = currentPayload.state || {};
       try {
-        const route = deliveryEngine.createPlannedRoute(currentState, input, deliveryContext(sessionUser, input));
+        const driver = deliveryDriverFor(input.driverUser || input.driverUsername);
+        const route = deliveryEngine.createPlannedRoute(currentState, {
+          ...input, driverUser: driver.username, driverLabel: driver.name
+        }, deliveryContext(sessionUser, input));
         writeCompactStateResponse(res, currentState, { route }, auditEntry(req, sessionUser, input, {
           action: "RUTA_PLANIFICADA",
           entityType: "ruta",
@@ -9173,6 +9352,62 @@ const server = http.createServer(async (req, res) => {
         }), [], { performanceStartedAt, atomic: true });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo planificar la ruta." });
+      }
+      return;
+    }
+
+    const routeOrdersMatch = requestUrl.pathname.match(/^\/api\/delivery\/routes\/([^/]+)\/orders$/);
+    if (routeOrdersMatch && req.method === "POST") {
+      const performanceStartedAt = performance.now();
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (!canPlanDeliveryRoutes(sessionUser)) {
+        sendJson(res, 403, { ok: false, error: "Asignacion permitida solo para administracion o Darío." });
+        return;
+      }
+      const input = JSON.parse(await readBody(req) || "{}");
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      try {
+        if (!Array.isArray(input.orderCodes) || input.orderCodes.length > 200) throw new Error("Seleccionar hasta 200 pedidos por operacion.");
+        const routeId = decodeURIComponent(routeOrdersMatch[1]);
+        const previousRoute = entitySnapshot(currentState, "ruta", routeId);
+        const route = deliveryEngine.appendOrdersToPlannedRoute(currentState, routeId, input.orderCodes, deliveryContext(sessionUser, input));
+        writeCompactStateResponse(res, currentState, { route }, auditEntry(req, sessionUser, input, {
+          action: "PEDIDOS_ASIGNADOS_RUTA", entityType: "ruta", entityId: route.id,
+          entityLabel: route.name || route.id, previousValue: previousRoute, newValue: route,
+          note: `${input.orderCodes.length} pedidos asignados en lote`
+        }), [], { performanceStartedAt, atomic: true });
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudieron asignar los pedidos." });
+      }
+      return;
+    }
+
+    const routeDriverMatch = requestUrl.pathname.match(/^\/api\/delivery\/routes\/([^/]+)\/driver$/);
+    if (routeDriverMatch && req.method === "POST") {
+      const performanceStartedAt = performance.now();
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (!canPlanDeliveryRoutes(sessionUser)) {
+        sendJson(res, 403, { ok: false, error: "Asignacion permitida solo para administracion o Darío." });
+        return;
+      }
+      const input = JSON.parse(await readBody(req) || "{}");
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      try {
+        const driver = deliveryDriverFor(input.driverUser);
+        const routeId = decodeURIComponent(routeDriverMatch[1]);
+        const previousRoute = entitySnapshot(currentState, "ruta", routeId);
+        const route = deliveryEngine.assignPlannedRouteDriver(currentState, routeId, driver.username, driver.name, deliveryContext(sessionUser, input));
+        writeCompactStateResponse(res, currentState, { route }, auditEntry(req, sessionUser, input, {
+          action: "REPARTIDOR_RUTA_ASIGNADO", entityType: "ruta", entityId: route.id,
+          entityLabel: route.name || route.id, previousValue: previousRoute, newValue: route,
+          note: `${route.stops.length} pedidos asignados a ${driver.name}`
+        }), [], { performanceStartedAt, atomic: true });
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo asignar el repartidor." });
       }
       return;
     }
@@ -9797,6 +10032,7 @@ const server = http.createServer(async (req, res) => {
         stateWrites: {
           ...stateWritePerformanceSnapshot()
         },
+        stateReadMigration: stateReadMigrationSnapshot(),
         stateSync: {
           inFlight: fullStateResponsesInFlight,
           maxConcurrent: MAX_FULL_STATE_RESPONSES,
@@ -9909,6 +10145,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         if (currentPayload.state && !skipMigration && (lastReadMigratedPayload !== currentPayload || duePriceList)) {
+          const migrationStartedAt = performance.now();
           ensureGlobalAudit(currentPayload.state);
           ensureNotifications(currentPayload.state);
           ensureRejectedGps(currentPayload.state);
@@ -9919,6 +10156,7 @@ const server = http.createServer(async (req, res) => {
           legalEngine.migrateState(currentPayload.state);
           ensurePriceListsState(currentPayload.state);
           ensurePrintState(currentPayload.state);
+          normalizedStateObjects.add(currentPayload.state);
           if (applyDuePriceLists(currentPayload.state)) {
             currentPayload = {
               version: writeState(currentPayload.state),
@@ -9926,6 +10164,8 @@ const server = http.createServer(async (req, res) => {
             };
           }
           lastReadMigratedPayload = readStateFileCached();
+          stateReadMigrationSamples.push(performance.now() - migrationStartedAt);
+          if (stateReadMigrationSamples.length > 64) stateReadMigrationSamples.shift();
         }
         const currentVersion = currentPayload.version || readStateVersionFast();
         if (deferClients && (!clientVersion || clientVersion < currentVersion)) {

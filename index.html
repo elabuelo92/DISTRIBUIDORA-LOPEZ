@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-153-r20260922a">
+    <link rel="manifest" href="manifest.json?v=8790-157-r20260927c">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-153-r20260922a">
+    <link rel="stylesheet" href="styles.css?v=8790-157-r20260927c">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -159,7 +159,7 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-153</strong>
+              <strong data-version-value>8790-157</strong>
               <small data-version-build>Actualizada 22/09/2026</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
@@ -352,6 +352,11 @@
                 </div>
                 <button class="secondary-btn" id="toggleMobileClientFormBtn" type="button" aria-expanded="false">Cliente nuevo</button>
               </div>
+              <div class="phone-card" id="mobileGpsCorrectionPanel" hidden>
+                <strong>Ubicacion pendiente de actualizacion</strong>
+                <p id="mobileGpsCorrectionStatus"></p>
+                <button class="secondary-btn" id="mobileGpsCorrectionCaptureBtn" type="button">Registrar ubicacion actual</button>
+              </div>
               <div class="mobile-client-form" id="mobileClientForm" data-mobile-preventa-panel="client" hidden>
                 <label class="phone-field">
                   Nombre comercial
@@ -530,14 +535,16 @@
                     <select id="mobileCommercialChangeType">
                       <option value="">Sin modificacion</option>
                       <option value="product_discount">Descuento por producto</option>
+                      <option value="multi_product_discount">Descuento sobre varios productos</option>
                       <option value="general_discount">Descuento general</option>
                       <option value="price_change">Modificar precio</option>
                     </select>
                   </label>
-                  <label class="phone-field">
+                  <label class="phone-field" id="mobileCommercialSingleProductField">
                     Producto
                     <select id="mobileCommercialProduct"></select>
                   </label>
+                  <div class="phone-field" id="mobileCommercialMultiProducts" hidden></div>
                   <label class="phone-field">
                     Valor solicitado
                     <input id="mobileCommercialValue" type="number" min="0" step="0.01" placeholder="% o precio">
@@ -864,7 +871,7 @@
             <div class="panel-header">
               <div>
                 <h2>Planificacion rapida</h2>
-                <p>Organizar pedidos por lote sin abrirlos individualmente</p>
+                <p>SIN ASIGNAR / LISTOS PARA DESPACHO — organizar pedidos y segundas visitas por lote</p>
               </div>
             </div>
             <form id="deliveryPlannerForm" class="delivery-planner-form">
@@ -879,11 +886,11 @@
                 </label>
                 <label>
                   Usuario repartidor
-                  <input id="deliveryPlannerDriver" name="driverUser" autocomplete="off" value="reparto1">
+                  <input id="deliveryPlannerDriver" name="driverUser" autocomplete="off" value="reparto1" placeholder="Usuario de reparto activo">
                 </label>
                 <label>
-                  Nombre visible
-                  <input id="deliveryPlannerDriverLabel" name="driverLabel" autocomplete="off" value="Reparto 1">
+                  Ruta planificada
+                  <select id="deliveryPlannerTargetRoute" aria-label="Ruta planificada para asignar pedidos"><option value="">Seleccionar ruta</option></select>
                 </label>
                 <label>
                   Ordenar por
@@ -901,6 +908,16 @@
                 <input id="deliveryPlannerSearch" type="search" autocomplete="off" placeholder="Buscar pedido, cliente, direccion o telefono">
                 <select id="deliveryPlannerZoneFilter" aria-label="Filtrar por zona"><option value="all">Todas las zonas</option></select>
                 <select id="deliveryPlannerSellerFilter" aria-label="Filtrar por vendedor"><option value="all">Todos los vendedores</option></select>
+                <label>Desde <input id="deliveryPlannerFrom" type="date"></label>
+                <label>Hasta <input id="deliveryPlannerTo" type="date"></label>
+                <select id="deliveryPlannerStatusFilter" aria-label="Filtrar por estado">
+                  <option value="all">Todos los elegibles</option>
+                  <option>Listo para Despacho</option><option>No entregado</option><option>Postergado</option><option>Rechazado</option>
+                </select>
+                <select id="deliveryPlannerVisitFilter" aria-label="Filtrar por visita">
+                  <option value="all">Todas las visitas</option><option value="first">Primera visita</option><option value="second">Segunda visita / posterior</option>
+                </select>
+                <small>Período por fecha del pedido; para rechazados, fecha del rechazo.</small>
                 <div class="planner-filter-tabs" role="group" aria-label="Filtros rapidos">
                   <button type="button" data-planner-filter="all" class="active">Todos</button>
                   <button type="button" data-planner-filter="unassigned">Sin asignar</button>
@@ -916,7 +933,8 @@
                 <button class="secondary-btn" id="exportDeliveryPlannerXlsxBtn" type="button" title="Exportar seleccionados o resultados filtrados">Manifiesto Excel</button>
                 <button class="secondary-btn" id="exportDeliveryPlannerPdfBtn" type="button" title="Exportar seleccionados o resultados filtrados">Manifiesto PDF</button>
                 <button class="secondary-btn" id="undoDeliveryPlannerBtn" type="button" hidden>Deshacer ultima asignacion</button>
-                <button class="primary-btn" id="deliveryPlannerSubmit" type="submit">Crear hoja planificada</button>
+                <button class="secondary-btn" id="assignSelectedToDeliveryRouteBtn" type="button">Asignar a ruta</button>
+                <button class="primary-btn" id="deliveryPlannerSubmit" type="submit">Crear ruta y asignar repartidor</button>
               </div>
             </form>
             <div class="delivery-planner-summary" id="deliveryPlannerSummary"></div>
@@ -1002,6 +1020,14 @@
                 </div>
                 <button class="primary-btn" type="submit">Guardar configuracion</button>
               </form>
+              <h3>Cuentas para transferencias</h3>
+              <form id="deliveryBankAccountForm" class="form-grid">
+                <label>Banco o billetera<input name="bank" required autocomplete="off"></label>
+                <label>Alias<input name="alias" required autocomplete="off"></label>
+                <label>CBU/CVU<input name="cbu" autocomplete="off"></label>
+                <button class="secondary-btn" type="submit">Agregar cuenta</button>
+              </form>
+              <div id="deliveryBankAccountsList"></div>
             </section>
             <section class="panel admin-only delivery-audit-panel">
               <div class="panel-header">
@@ -1018,6 +1044,11 @@
                   <h2>Cierres diarios</h2>
                   <p>Rendicion de rutas, diferencias y pendientes</p>
                 </div>
+              </div>
+              <div class="toolbar-row">
+                <label>Fecha de cobros <input id="deliveryCollectionsDate" type="date"></label>
+                <button class="secondary-btn" id="deliveryCollectionsPdfBtn" type="button">Manifiesto PDF</button>
+                <button class="secondary-btn" id="deliveryCollectionsXlsxBtn" type="button">Manifiesto Excel</button>
               </div>
               <div class="activity-list" id="deliveryClosureList"></div>
             </section>
@@ -1705,6 +1736,24 @@
               </div>
               <div class="activity-list" id="priceListAuditList"></div>
             </section>
+            <section class="panel wide admin-only">
+              <div class="panel-header"><h2>Ofertas autorizadas</h2></div>
+              <form id="authorizedOfferForm" class="price-list-form">
+                <input id="authorizedOfferId" type="hidden">
+                <div class="form-grid">
+                  <label>Codigo de producto<input id="authorizedOfferProduct" list="authorizedOfferProducts" required autocomplete="off"></label>
+                  <datalist id="authorizedOfferProducts"></datalist>
+                  <label>Cantidad minima<input id="authorizedOfferMinimum" type="number" min="1" step="1" required></label>
+                  <label>Descuento %<input id="authorizedOfferDiscount" type="number" min="0" max="100" step="0.01" value="0"></label>
+                  <label>Precio especial<input id="authorizedOfferPrice" type="number" min="0" step="0.01" value="0"></label>
+                  <label>Vigente desde<input id="authorizedOfferFrom" type="date" required></label>
+                  <label>Vigente hasta<input id="authorizedOfferTo" type="date"></label>
+                </div>
+                <p class="login-message" id="authorizedOfferMessage"></p>
+                <menu><button class="ghost-btn" id="authorizedOfferResetBtn" type="button">Nueva oferta</button><button class="primary-btn" type="submit">Guardar oferta</button></menu>
+              </form>
+              <div class="responsive-table"><table><thead><tr><th>Producto</th><th>Min.</th><th>Condicion</th><th>Vigencia</th><th>Estado</th><th>Accion</th></tr></thead><tbody id="authorizedOffersTable"></tbody></table></div>
+            </section>
           </div>
         </section>
 
@@ -1874,6 +1923,12 @@
                 <button class="secondary-btn" id="commissionReportExcelBtn" type="button">Exportar Excel</button>
                 <button class="primary-btn" id="commissionReportSettleBtn" type="button">Registrar pago</button>
               </div>
+              <div class="table-actions">
+                <button class="secondary-btn" id="salesCommissionPdfBtn" type="button">Ventas y comisiones PDF</button>
+                <button class="secondary-btn" id="salesCommissionExcelBtn" type="button">Ventas y comisiones Excel</button>
+              </div>
+              <div class="responsive-table"><table><thead><tr><th>Vendedor</th><th>Clientes</th><th>Pedidos</th><th>Unidades</th><th>Bruto</th><th>General</th><th>Cigarrillos</th><th>% aplicado</th><th>Comision</th></tr></thead><tbody id="salesCommissionSummaryTable"></tbody></table></div>
+              <details id="salesCommissionDetails"><summary>Detalle de pedidos y productos</summary><div class="responsive-table"><table><thead><tr><th>Vendedor</th><th>Pedido</th><th>Cliente</th><th>Producto</th><th>Cantidad</th><th>Bruto</th><th>%</th><th>Comision</th><th>Regla</th></tr></thead><tbody id="salesCommissionDetailTable"></tbody></table></div><button class="secondary-btn" id="salesCommissionMoreBtn" type="button" hidden>Ver mas</button></details>
               <div class="activity-list" id="commissionSummaryList"></div>
               <div class="price-list-kpis" id="commissionAccountCards"></div>
               <div class="table-wrap">
@@ -2797,7 +2852,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-153</span>
+          <span id="appFooterVersion">Version del sistema: 8790-157</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -4268,8 +4323,7 @@
             <label>
               Banco
               <select id="deliveryTransferBank">
-                <option value="">Seleccionar banco</option>
-                <option value="Mercado Pago">Mercado Pago</option>
+                <option value="Mercado Pago" selected>Mercado Pago</option>
                 <option value="Naranja X">Naranja X</option>
                 <option value="Banco de Cordoba">Banco de Cordoba</option>
                 <option value="Banco Santander">Banco Santander</option>
@@ -4524,18 +4578,20 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-153-r20260922a"></script>
-    <script src="maps-config.js?v=8790-153-r20260922a"></script>
-    <script src="order-engine.js?v=8790-153-r20260922a"></script>
-    <script src="account-engine.js?v=8790-153-r20260922a"></script>
-    <script src="delivery-engine.js?v=8790-153-r20260922a"></script>
-    <script src="legal-engine.js?v=8790-153-r20260922a"></script>
-    <script src="client-portfolio-engine.js?v=8790-153-r20260922a"></script>
-    <script src="client-hours.js?v=8790-153-r20260922a"></script>
-    <script src="share-engine.js?v=8790-153-r20260922a"></script>
-    <script src="portfolio-export-engine.js?v=8790-153-r20260922a"></script>
-    <script src="progressive-list.js?v=8790-153-r20260922a"></script>
-    <script src="app.js?v=8790-153-r20260922a"></script>
+    <script src="config.js?v=8790-157-r20260927c"></script>
+    <script src="maps-config.js?v=8790-157-r20260927c"></script>
+    <script src="order-engine.js?v=8790-157-r20260927c"></script>
+    <script src="account-engine.js?v=8790-157-r20260927c"></script>
+    <script src="route-optimizer.js?v=8790-157-r20260927c"></script>
+    <script src="delivery-engine.js?v=8790-157-r20260927c"></script>
+    <script src="sales-commission-report.js?v=8790-157-r20260927c"></script>
+    <script src="legal-engine.js?v=8790-157-r20260927c"></script>
+    <script src="client-portfolio-engine.js?v=8790-157-r20260927c"></script>
+    <script src="client-hours.js?v=8790-157-r20260927c"></script>
+    <script src="share-engine.js?v=8790-157-r20260927c"></script>
+    <script src="portfolio-export-engine.js?v=8790-157-r20260927c"></script>
+    <script src="progressive-list.js?v=8790-157-r20260927c"></script>
+    <script src="app.js?v=8790-157-r20260927c"></script>
   </body>
 </html>
 

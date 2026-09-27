@@ -35,7 +35,7 @@ const report = {
   durationMs,
   targetOrders,
   deliverAll,
-  actors: { sellers: sellerCount, admins: adminCount, drivers: 1 },
+  actors: { sellers: sellerCount, admins: adminCount, depot: 1, drivers: 1 },
   syntheticStateBytes: 0,
   transport: connectionClose ? "new-connection" : "pooled-connection",
   productionWrites: 0,
@@ -113,6 +113,7 @@ function createUsers() {
   return { users: [
     ...Array.from({ length: sellerCount }, (_, index) => entry(`simseller${index + 1}`, actorName(index), "seller", { sellerName: actorName(index) })),
     ...Array.from({ length: adminCount }, (_, index) => entry(`simadmin${index + 1}`, `Admin Sim ${index + 1}`, "admin")),
+    entry("simdepot", "Deposito Sim", "depot"),
     entry("simdriver", "Reparto Sim", "driver")
   ] };
 }
@@ -276,7 +277,7 @@ async function main() {
     const codes = queued.splice(0, 10);
     for (const action of ["assembly", "labels", "verify-ready"]) {
       const result = await request(`workflow.${action}`, "api/orders/bulk-workflow", {
-        actor: "simadmin1", method: "POST", body: { orderCodes: codes, action }
+        actor: "simdepot", method: "POST", body: { orderCodes: codes, action }
       });
       if (result.status !== 200 || (result.payload.errors || []).length) {
         if (report.failures.length < 50) report.failures.push({ operation: `workflow.${action}`, error: JSON.stringify(result.payload.errors || result.payload.error).slice(0, 180) });
@@ -288,7 +289,7 @@ async function main() {
   async function publishRoute(codes, force = false) {
     if (!codes.length || (stop && !force)) return;
     const planned = await request("route.plan", "api/delivery/routes/plan", {
-      actor: "simadmin4", method: "POST", body: {
+      actor: "simadmin1", method: "POST", body: {
         orderCodes: codes, day: "2026-09-16", zone: "Simulacion", driverUser: "simdriver", driverLabel: "Reparto Sim"
       }
     });
@@ -297,10 +298,10 @@ async function main() {
     routes.push({ id: routeId, codes });
     codes.forEach((code) => routeCodes.add(code));
     await request("route.reorder", `api/delivery/routes/${encodeURIComponent(routeId)}/reorder`, {
-      actor: "simadmin4", method: "POST", body: { orderCodes: [...codes].reverse() }
+      actor: "simadmin1", method: "POST", body: { orderCodes: [...codes].reverse() }
     });
     const published = await request("route.publish", `api/delivery/routes/${encodeURIComponent(routeId)}/publish`, {
-      actor: "simadmin4", method: "POST", body: {}
+      actor: "simadmin1", method: "POST", body: {}
     });
     if (published.status === 200) {
       const claimed = await request("route.claim", `api/delivery/routes/${encodeURIComponent(routeId)}/claim`, {
@@ -419,6 +420,38 @@ async function main() {
     report.finalOrders = finalState.orders.length;
     report.finalLabeled = finalState.orders.filter((order) => order.code.startsWith("PED-") && created.includes(order.code) && order.assembly?.label?.generated).length;
     report.finalDelivered = finalState.orders.filter((order) => created.includes(order.code) && ["Entregado", "Cobrado"].includes(order.status)).length;
+    const newOrders = finalState.orders.filter((order) => created.includes(order.code));
+    const originalByCode = new Map(finalState.orders.map((order) => [order.code, order]));
+    const historicalCore = (order) => JSON.stringify({
+      code: order.code, client: order.client, seller: order.seller, amount: order.amount, status: order.status,
+      items: (order.items || []).map((item) => [item.productCode, item.requestedQty, item.unitPrice, item.lineTotal]),
+      bultos: order.assembly?.bultosConfirmed || 0
+    });
+    const requestedByProduct = new Map();
+    newOrders.forEach((order) => (order.items || []).forEach((item) => {
+      requestedByProduct.set(item.productCode, (requestedByProduct.get(item.productCode) || 0) + Number(item.requestedQty || 0));
+    }));
+    const finalProducts = new Map(finalState.products.map((product) => [product.codigo_producto, product]));
+    const stockDifferences = state.products.filter((product) => {
+      const after = finalProducts.get(product.codigo_producto);
+      return !after || Math.abs((Number(product.stock_fisico) - Number(after.stock_fisico)) - (requestedByProduct.get(product.codigo_producto) || 0)) > 0.01;
+    });
+    const routeStops = finalState.deliveryRoutes.flatMap((route) => route.stops || []);
+    const totalSold = newOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
+    const totalCollected = newOrders.reduce((sum, order) => sum + Number(order.collection?.amountPaid || 0), 0);
+    report.integrity = {
+      historicalOrdersUnchanged: state.orders.every((order) => historicalCore(order) === historicalCore(originalByCode.get(order.code) || {})),
+      originalClientsPreserved: finalState.clients.length === state.clients.length,
+      originalProductsPreserved: finalState.products.length === state.products.length,
+      createdUnique: new Set(created).size === targetOrders && new Set(finalState.orders.map((order) => order.code)).size === finalState.orders.length,
+      lineCount: newOrders.reduce((sum, order) => sum + (order.items || []).length, 0),
+      stockDifferenceProducts: stockDifferences.length,
+      routeStops: routeStops.length,
+      routeStopsUnique: new Set(routeStops.map((stop) => stop.orderCode)).size === routeStops.length,
+      bultos: newOrders.reduce((sum, order) => sum + Number(order.assembly?.bultosConfirmed || 0), 0),
+      totalSold: Math.round(totalSold * 100) / 100,
+      totalCollected: Math.round(totalCollected * 100) / 100
+    };
     report.elapsedMs = Math.round(performance.now() - testStart);
     report.completedAt = new Date().toISOString();
     if (report.failures.length) report.serverLogTail = output;
@@ -429,7 +462,11 @@ async function main() {
     report.ok = !report.abortedForProductionHealth && !report.abortedForHostPressure && report.failures.length === 0 &&
       report.created === targetOrders && report.ready === targetOrders &&
       report.planned === targetOrders && report.finalLabeled === targetOrders &&
-      (deliverAll ? report.finalDelivered === targetOrders : (targetOrders < 5 || report.finalDelivered >= 1));
+      (deliverAll ? report.finalDelivered === targetOrders : (targetOrders < 5 || report.finalDelivered >= 1)) &&
+      report.integrity.historicalOrdersUnchanged && report.integrity.originalClientsPreserved && report.integrity.originalProductsPreserved &&
+      report.integrity.createdUnique && report.integrity.lineCount === targetOrders * 5 && report.integrity.stockDifferenceProducts === 0 &&
+      report.integrity.routeStops === targetOrders && report.integrity.routeStopsUnique && report.integrity.bultos === targetOrders &&
+      (!deliverAll || Math.abs(report.integrity.totalSold - report.integrity.totalCollected) < 0.01);
     console.log(JSON.stringify(report, null, 2));
     if (!report.ok) process.exitCode = 1;
   } finally {

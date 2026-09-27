@@ -555,6 +555,9 @@ let deliveryPlannerSearchTerm = "";
 let deliveryPlannerZoneFilter = "all";
 let deliveryPlannerSellerFilter = "all";
 let deliveryPlannerUndoRouteId = "";
+let deliveryRouteProposal = null;
+let deliveryRouteOrderUndo = null;
+let salesCommissionDetailLimit = 50;
 let deliveryMapVisible = false;
 let deliveryStopFilter = "pending";
 let deliveryStopSearchTerm = "";
@@ -2431,6 +2434,19 @@ function applyOperationalPatches(payload) {
     persistLocalMeta("route-removed");
     scheduleRenderForCurrentUser();
   }
+  if (Array.isArray(payload.commercialOffers)) {
+    state.commercialOffers = payload.commercialOffers;
+    persistLocalMeta("commercial-offer-patch");
+    scheduleRenderForCurrentUser();
+  }
+  if (payload.client && (payload.client.codigo_cliente || payload.client.name)) {
+    const index = (state.clients || []).findIndex((client) =>
+      String(client.codigo_cliente || client.name) === String(payload.client.codigo_cliente || payload.client.name));
+    if (index >= 0) state.clients[index] = payload.client;
+    clientPageCache.clear();
+    persistLocalMeta("client-gps-patch");
+    scheduleRenderForCurrentUser();
+  }
   if (Array.isArray(payload.products) && payload.products.length) {
     const byCode = new Map(payload.products.map((product) => [String(product.codigo_producto || product.code || ""), product]));
     state.products = (state.products || []).map((product) => byCode.get(String(product.codigo_producto || product.code || "")) || product);
@@ -3396,7 +3412,7 @@ async function submitLogin(event) {
 
 function stopRealtimeChannels() {
   if (syncIntervalId) {
-    clearInterval(syncIntervalId);
+    clearTimeout(syncIntervalId);
     syncIntervalId = null;
   }
   if (presenceHeartbeatIntervalId) {
@@ -4964,6 +4980,13 @@ function renderMobileCommercialProductOptions() {
     const code = product.codigo_producto ? `${product.codigo_producto} - ` : "";
     return `<option value="${escapeHtml(product.codigo_producto || product.name)}">${escapeHtml(`${code}${product.name}`)}</option>`;
   }).join("") : '<option value="">Agregar productos al pedido</option>';
+  const multi = byId("mobileCommercialMultiProducts");
+  const selectedCodes = new Set(Array.from(multi?.querySelectorAll("[data-commercial-multi-code]:checked") || []).map((input) => input.dataset.commercialMultiCode));
+  if (multi) multi.innerHTML = `<strong>Productos con descuento solicitado</strong>${lines.map((line) => {
+    const product = line.product || {};
+    const value = product.codigo_producto || product.name || "";
+    return `<label class="inline-check"><input type="checkbox" data-commercial-multi-code="${escapeHtml(value)}" ${selectedCodes.has(value) ? "checked" : ""}>${escapeHtml(product.name || value)}</label>`;
+  }).join("")}`;
 }
 
 function selectedCommercialProduct() {
@@ -4981,6 +5004,10 @@ function updateMobileCommercialRequestVisibility() {
   const status = byId("mobileCommercialStatus");
   if (motiveField) motiveField.hidden = !type;
   if (productField) productField.disabled = type === "general_discount" || !type;
+  const multi = byId("mobileCommercialMultiProducts");
+  if (multi) multi.hidden = type !== "multi_product_discount";
+  const single = byId("mobileCommercialSingleProductField");
+  if (single) single.hidden = type === "multi_product_discount" || type === "general_discount";
   if (valueField) {
     valueField.disabled = !type;
     valueField.placeholder = type === "price_change" ? "Precio solicitado" : "% descuento solicitado";
@@ -5000,12 +5027,17 @@ function mobileCommercialRequestPayload() {
   if (!motive) throw new Error("La solicitud comercial requiere motivo obligatorio.");
   if (proposedValue <= 0) throw new Error("Indicar el valor solicitado para la modificacion comercial.");
   const product = selectedCommercialProduct();
-  if (type !== "general_discount" && !product) throw new Error("Seleccionar el producto de la solicitud comercial.");
+  const productCodes = type === "multi_product_discount"
+    ? Array.from(document.querySelectorAll("[data-commercial-multi-code]:checked")).map((checkbox) => checkbox.dataset.commercialMultiCode)
+    : [];
+  if (type === "multi_product_discount" && productCodes.length < 2) throw new Error("Seleccionar al menos dos productos para el descuento.");
+  if (type !== "general_discount" && type !== "multi_product_discount" && !product) throw new Error("Seleccionar el producto de la solicitud comercial.");
   return {
     type,
-    productCode: product ? product.codigo_producto || "" : "",
-    productName: product ? product.name : "",
-    originalPrice: product ? productPriceForUser(product) : 0,
+    productCode: type === "multi_product_discount" ? "" : product ? product.codigo_producto || "" : "",
+    productName: type === "multi_product_discount" ? "" : product ? product.name : "",
+    productCodes,
+    originalPrice: type === "multi_product_discount" ? 0 : product ? productPriceForUser(product) : 0,
     proposedValue,
     discountPct: type === "price_change" ? 0 : proposedValue,
     motive
@@ -5022,6 +5054,7 @@ function clearMobileCommercialRequest() {
   if (product) product.value = "";
   if (value) value.value = "";
   if (motive) motive.value = "";
+  document.querySelectorAll("[data-commercial-multi-code]").forEach((checkbox) => { checkbox.checked = false; });
   if (observations) observations.value = "";
   updateMobileCommercialRequestVisibility();
 }
@@ -5057,9 +5090,18 @@ function renderMobileClientPicker(clientsForSeller = null) {
   if (label) label.textContent = selected ? selected.name : "Seleccionar cliente";
   if (meta) {
     meta.textContent = selected
-      ? `${selected.status || "Sin estado"} - ${selected.ruta || selected.zone || "Sin ruta"}`
+      ? `${selected.gpsReview && ["needs_correction", "pending_validation", "rejected"].includes(selected.gpsReview.status) ? "UBICACION PENDIENTE DE ACTUALIZACION" : selected.status || "Sin estado"} - ${selected.ruta || selected.zone || "Sin ruta"}`
       : `${mobileClientScopeLabel()} - buscar cliente`;
   }
+  const gpsPanel = byId("mobileGpsCorrectionPanel");
+  const gpsStatus = selected?.gpsReview?.status || "";
+  if (gpsPanel) gpsPanel.hidden = !["needs_correction", "pending_validation", "rejected"].includes(gpsStatus);
+  const gpsMessage = byId("mobileGpsCorrectionStatus");
+  if (gpsMessage) gpsMessage.textContent = gpsStatus === "pending_validation"
+    ? "Ubicacion enviada. Falta aprobacion de Administracion."
+    : "Las ventas quedan pausadas hasta validar una nueva ubicacion.";
+  const gpsButton = byId("mobileGpsCorrectionCaptureBtn");
+  if (gpsButton) gpsButton.disabled = gpsStatus === "pending_validation";
   renderMobileClientOptions(clients);
 }
 
@@ -5098,7 +5140,7 @@ function renderMobileClientOptions(clientsForSeller = null) {
   list.innerHTML = visibleClients.map((client) => `
     <button class="mobile-picker-option ${client.name === mobileClient ? "active" : ""}" type="button" data-mobile-client-option="${escapeHtml(client.name)}">
       <strong>${escapeHtml(client.name)}</strong>
-      <small>${escapeHtml(`${client.codigo_cliente || "S/C"} - ${client.status || "Sin estado"} - ${normalizeWorkday(client.dia_visita) || "Sin dia"} - ${client.ruta || client.zone || "Sin ruta"}${clientGpsPoint(client) && selectedSellerGpsPoint() ? ` - ${Math.round(distanceMeters(selectedSellerGpsPoint(), clientGpsPoint(client)))} m` : " - GPS pendiente"}`)}</small>
+      <small>${escapeHtml(`${client.codigo_cliente || "S/C"} - ${["needs_correction", "pending_validation", "rejected"].includes(client.gpsReview?.status) ? "GPS a corregir" : client.status || "Sin estado"} - ${normalizeWorkday(client.dia_visita) || "Sin dia"} - ${client.ruta || client.zone || "Sin ruta"}${clientGpsPoint(client) && selectedSellerGpsPoint() ? ` - ${Math.round(distanceMeters(selectedSellerGpsPoint(), clientGpsPoint(client)))} m` : " - GPS pendiente"}`)}</small>
     </button>
   `).join("") + (filteredClients.length > 6
     ? `<button class="mobile-picker-more-button" type="button" data-mobile-client-options-toggle>${mobileClientOptionsExpanded ? "Ver menos" : `Ver ${Math.min(54, filteredClients.length - 6)} mas`}</button><div class="mobile-picker-more">Mostrando ${visibleClients.length} de ${filteredClients.length}. Tambien podes buscar por nombre, direccion o ruta.</div>`
@@ -5223,7 +5265,7 @@ function renderMobileCart() {
         <div>
           <strong>${escapeHtml(product.name)}</strong>
           <span class="tag ${tone}">${stockLabel}</span>
-          <small>${money.format(product.price)} x unidad - ${money.format(line.total)}</small>
+          <small>${line.offer ? `<span class="tag ok">Oferta autorizada</span> ` : ""}${money.format(line.unitPrice)} x unidad - ${money.format(line.total)}</small>
         </div>
         <div class="cart-actions">
           <input class="qty-input" data-cart-product="${escapeHtml(product.name)}" type="number" min="0" max="999" value="${qty}" inputmode="numeric" aria-label="Cantidad ${index + 1}">
@@ -5241,6 +5283,7 @@ function renderMobileSummary() {
   const client = getSelectedMobileClient();
   const credit = client ? clientAccountSummary(client.name, summary.total) : null;
   const creditBlocked = Boolean(credit && credit.requiresAuthorization && !canAuthorizeCredit());
+  const gpsBlocked = Boolean(client && ["needs_correction", "pending_validation", "rejected"].includes(client.gpsReview?.status));
   const nextCommission = cartCommission(summary).seller || {};
   byId("mobileSummary").innerHTML = `
     <div>
@@ -5263,8 +5306,9 @@ function renderMobileSummary() {
       ? `<p class="stock-error">El pedido se registrara pendiente de abastecimiento. ${summary.shortages.join(" ")}</p>`
       : '<p class="stock-ok">Stock completo: el pedido quedara listo para armado.</p>'}
     ${credit ? `<p class="${credit.requiresAuthorization ? "stock-error" : "stock-ok"}">Cuenta corriente: ${escapeHtml(credit.warning)} Proyectado ${money.format(credit.projectedBalance)}.</p>` : ""}
+    ${gpsBlocked ? '<p class="stock-error">UBICACION PENDIENTE DE ACTUALIZACION. No se pueden enviar pedidos nuevos.</p>' : ""}
   `;
-  byId("sendMobileOrderBtn").disabled = summary.total <= 0 || creditBlocked;
+  byId("sendMobileOrderBtn").disabled = summary.total <= 0 || creditBlocked || gpsBlocked;
 }
 
 function mobileCommercialStats(seller) {
@@ -5845,7 +5889,10 @@ function getCartSummary() {
   const lines = state.products.map((product) => {
     const qty = Number(mobileCart[product.name] || 0);
     const pricedProduct = productWithUserPrice(product);
-    return { product: pricedProduct, qty, total: qty * pricedProduct.price };
+    const offer = OrderEngine.authorizedOfferForLine(state, pricedProduct, qty);
+    const unitPrice = offer?.specialUnitPrice > 0 ? offer.specialUnitPrice : pricedProduct.price;
+    const total = Math.round(qty * unitPrice * (1 - (offer?.discountPct || 0) / 100) * 100) / 100;
+    return { product: pricedProduct, qty, unitPrice, offer, total };
   }).filter((line) => line.qty > 0);
   const shortages = lines
     .map((line) => {
@@ -8296,24 +8343,30 @@ function commercialApprovalSummary(order) {
   const request = order.commercialApproval;
   const typeLabel = {
     product_discount: "Descuento producto",
+    multi_product_discount: "Descuento en varios productos",
     general_discount: "Descuento general",
     price_change: "Cambio de precio"
   }[request.type] || "Solicitud comercial";
   const value = request.type === "price_change"
     ? money.format(request.proposedValue || 0)
     : `${formatDecimalInput(request.discountPct || request.proposedValue || 0)}%`;
-  const productLabel = request.productName
+  const productLabel = request.type === "multi_product_discount"
+    ? `${(request.productCodes || []).join(", ")}. `
+    : request.productName
     ? `${request.productCode ? `[${request.productCode}] ` : ""}${request.productName}. `
     : "";
   return `${typeLabel}: ${value}. ${productLabel}${request.motive || ""}`;
 }
 
 function renderCommercialApprovalBadge(order) {
-  if (!order || !order.commercialApproval) return "";
+  if (!order) return "";
+  const offerCount = (order.items || []).filter((item) => item.authorizedOffer).length;
+  const offerBadge = offerCount ? `<small class="commercial-approval-line"><span class="tag ok">Oferta autorizada</span> ${offerCount} producto(s)</small>` : "";
+  if (!order.commercialApproval) return offerBadge;
   const request = order.commercialApproval;
   const pending = pendingCommercialApproval(order);
   const tone = pending ? "warn" : request.status === "Aprobada" ? "ok" : "danger";
-  return `<small class="commercial-approval-line"><span class="tag ${tone}">${escapeHtml(request.status || "Pendiente")}</span> ${escapeHtml(commercialApprovalSummary(order))}</small>`;
+  return `${offerBadge}<small class="commercial-approval-line"><span class="tag ${tone}">Descuento solicitado: ${escapeHtml(request.status || "Pendiente")}</span> ${escapeHtml(commercialApprovalSummary(order))}</small>`;
 }
 
 function exportSelectedOrdersCsv() {
@@ -8852,14 +8905,21 @@ function assemblyDepotActionLabel(order) {
 function assemblyDepotOrderItemsHtml(order) {
   const items = assemblyOrderItems(order);
   if (!items.length) return '<p class="empty-note">Pedido sin detalle de productos.</p>';
+  const verified = new Set(order.assembly?.verifiedItemKeys || []);
+  const allVerified = items.every((item, index) => verified.has(OrderEngine.assemblyLineKey(item, index)));
+  const canVerify = Array.isArray(order.items) && order.items.length === items.length;
   return `
-    <div class="assembly-depot-items">
-      ${items.map((item) => {
+    <div class="assembly-depot-items" data-assembly-items>
+      <label class="assembly-depot-item">
+        <input type="checkbox" data-assembly-verify-all ${allVerified ? "checked" : ""} ${canVerify ? "" : "disabled"}>
+        <strong>Seleccionar todos los productos</strong>
+      </label>
+      ${items.map((item, index) => {
         const qty = numeric(item.requestedQty ?? item.qty ?? item.quantity, 0);
-        const controlled = [ORDER_STATUS.ASSEMBLY, ORDER_STATUS.LABELED, ORDER_STATUS.READY_DISPATCH].includes(order.status);
+        const key = OrderEngine.assemblyLineKey(item, index);
         return `
           <label class="assembly-depot-item">
-            <input type="checkbox" ${controlled ? "checked" : ""}>
+            <input type="checkbox" data-assembly-verify-item="${escapeHtml(key)}" ${verified.has(key) ? "checked" : ""} ${canVerify ? "" : "disabled"}>
             <span>
               <strong>${escapeHtml(item.name || item.descripcion || "Producto")}</strong>
               <small>${escapeHtml(item.productCode || item.codigo_producto || item.code || "Sin codigo")} - Cantidad ${escapeHtml(String(qty || item.qty || "-"))}</small>
@@ -9063,13 +9123,18 @@ function deliveryOrderHasGps(order) {
 }
 
 function deliveryPlannerRoute(order) {
-  return deliveryRouteForOrder(order.code);
+  return DeliveryEngine.routeAlreadyContainsOrder(state, order.code);
 }
 
 function deliveryPlannerCandidates() {
   const term = normalizeSearchText(deliveryPlannerSearchTerm);
   return state.orders
-    .filter(DeliveryEngine.isEligibleForRoutePlanning)
+    .filter((order) => DeliveryEngine.matchesPlanningFilters(state, order, {
+      status: byId("deliveryPlannerStatusFilter")?.value || "all",
+      from: byId("deliveryPlannerFrom")?.value || "",
+      to: byId("deliveryPlannerTo")?.value || "",
+      visit: byId("deliveryPlannerVisitFilter")?.value || "all"
+    }))
     .filter((order) => {
       const route = deliveryPlannerRoute(order);
       const destination = deliveryOrderDestinationInfo(order);
@@ -9203,12 +9268,13 @@ function renderDeliveryPlannerOrder(order) {
   const route = deliveryPlannerRoute(order);
   const assembly = orderAssemblyInfo(order);
   const selected = deliveryPlannerSelection.has(order.code);
-  const selectionReason = route
+  const selectionReason = !DeliveryEngine.isEligibleForRoutePlanning(order) ? "Pedido cerrado operativamente."
+    : route
     ? `Ya incluido en ${route.id}. Deshacer esa planificacion para volver a seleccionarlo.`
     : (!destination.hasDestination ? "El pedido necesita domicilio o GPS para planificarlo." : "");
   return `
     <tr class="${selected ? "selected" : ""} ${destination.hasDestination ? "" : "invalid"}" data-planner-row="${escapeHtml(order.code)}">
-      <td><input type="checkbox" data-planner-order="${escapeHtml(order.code)}" aria-label="Seleccionar ${escapeHtml(order.code)}" title="${escapeHtml(selectionReason)}" ${selected ? "checked" : ""} ${(!destination.hasDestination || route) ? "disabled" : ""}></td>
+      <td><input type="checkbox" data-planner-order="${escapeHtml(order.code)}" aria-label="Seleccionar ${escapeHtml(order.code)}" title="${escapeHtml(selectionReason)}" ${selected ? "checked" : ""} ${selectionReason ? "disabled" : ""}></td>
       <td>${escapeHtml(formatAssemblyOrderNumber(assembly))}</td>
       <td><strong>${escapeHtml(order.code)}</strong></td>
       <td><strong>${escapeHtml(order.client)}</strong></td>
@@ -9218,7 +9284,7 @@ function renderDeliveryPlannerOrder(order) {
       <td>${money.format(order.amount)}</td>
       <td>${escapeHtml(orderHoursText(order) || "-")}</td>
       <td>${escapeHtml(order.seller || "-")}</td>
-      <td><span class="tag ${orderStatusClass(order.status)}">${escapeHtml(order.status)}</span></td>
+      <td><span class="tag ${orderStatusClass(order.status)}">${escapeHtml(order.status)}</span><small>${DeliveryEngine.isRepeatVisit(state, order) ? "Segunda visita / posterior" : "Primera visita"}</small>${currentUser?.role === "admin" && order.status === ORDER_STATUS.NOT_DELIVERED && !route ? `<button type="button" class="secondary-btn" data-second-visit="${escapeHtml(order.code)}">Enviar a Segunda Visita</button>` : ""}</td>
       <td>${escapeHtml(route ? route.id : "Sin asignar")}</td>
       <td>${deliveryOrderHasGps(order) ? "Si" : "No"}</td>
     </tr>
@@ -9233,6 +9299,8 @@ function refreshDeliveryPlannerSelectionUi(candidates = deliveryPlannerCandidate
   if (selected) selected.textContent = `${selectedOrders.length} seleccionados (${selectedVisible} visibles) - ${money.format(selectedOrders.reduce((sum, order) => sum + numeric(order.amount, 0), 0))}`;
   const submit = byId("deliveryPlannerSubmit");
   if (submit) submit.disabled = !selectedOrders.length;
+  const assign = byId("assignSelectedToDeliveryRouteBtn");
+  if (assign) assign.disabled = !selectedOrders.length || !byId("deliveryPlannerTargetRoute")?.value;
   const selectable = Array.from(document.querySelectorAll("[data-planner-order]:not(:disabled)"));
   const master = byId("deliveryPlannerSelectAll");
   if (master) {
@@ -9256,17 +9324,42 @@ function renderDeliveryPlannerRoutes() {
     const orders = (route.stops || []).map((stop) => state.orders.find((order) => order.code === stop.orderCode)).filter(Boolean);
     const packages = orders.reduce((sum, order) => sum + numeric(orderAssemblyInfo(order).bultos, 0), 0);
     const canUnplan = String(route.status || "").trim() === "Planificada" && !route.publishedAt && !route.startedAt;
+    const canOptimize = !route.startedAt && !route.closure && route.stops?.length > 1;
     return `
       <div class="planner-route-summary-row">
         <button type="button" class="planner-route-summary" data-delivery-route="${escapeHtml(route.id)}">
-          <strong>${escapeHtml(route.id)}</strong>
-          <span>${escapeHtml(route.day || "Sin fecha")} - ${orders.length} pedidos / ${packages} bultos</span>
-          <small>${escapeHtml(route.deviceLabel || route.driverUser || "Sin repartidor")}</small>
+          <strong>${escapeHtml(DeliveryEngine.routeDisplayName(route))}</strong>
+          <span>${escapeHtml(route.id)} · ${escapeHtml(route.day || "Sin fecha")} · ${orders.length} pedidos / ${packages} bultos</span>
+          <small>${escapeHtml(route.status || "Sin estado")}</small>
         </button>
-        ${canUnplan ? `<button type="button" class="mini-btn" data-unplan-planned-route="${escapeHtml(route.id)}">Deshacer planificacion</button>` : ""}
+        ${canUnplan ? `<div class="planner-route-actions">
+          <button type="button" class="primary-btn" data-publish-route="${escapeHtml(route.id)}">Publicar despacho</button>
+          <button type="button" class="mini-btn" data-assign-route-driver="${escapeHtml(route.id)}" title="Asignar el usuario de reparto indicado arriba a todos los pedidos de esta ruta">Asignar repartidor</button>
+          <button type="button" class="mini-btn" data-unplan-planned-route="${escapeHtml(route.id)}">Deshacer planificacion</button>
+        </div>` : ""}
+        ${canOptimize ? `<div class="planner-route-actions"><button type="button" class="mini-btn" data-optimize-route="${escapeHtml(route.id)}">Optimizar ruta</button></div>` : ""}
+        ${deliveryRouteProposal?.routeId === route.id ? routeOptimizationPreviewHtml() : ""}
+        ${deliveryRouteOrderUndo?.routeId === route.id ? `<button type="button" class="mini-btn" data-undo-optimized-route="${escapeHtml(route.id)}">Volver al orden anterior</button>` : ""}
       </div>
     `;
   }).join("") : '<p class="empty-note">Todavia no hay rutas abiertas.</p>';
+}
+
+function routeOptimizationPreviewHtml() {
+  const proposal = deliveryRouteProposal;
+  if (!proposal) return "";
+  const changed = proposal.orderCodes.some((code, index) => code !== proposal.previousOrderCodes[index]);
+  const names = proposal.orderCodes.map((code, index) => `${index + 1}. ${proposal.clientByCode[code] || code}${proposal.missingGps.includes(code) ? " (SIN GPS)" : ""}`);
+  return `<div class="route-optimization-preview">
+    <strong>Orden sugerido</strong>
+    <span>${proposal.beforeKm.toFixed(2)} km actuales · ${proposal.suggestedKm.toFixed(2)} km sugeridos (distancia aproximada en linea recta)</span>
+    <small>${proposal.missingGps.length} pedidos sin GPS; permanecen visibles y no se incluyen en el calculo de distancia.</small>
+    <details><summary>Ver ${proposal.orderCodes.length} paradas</summary><ol>${names.map((name) => `<li>${escapeHtml(name)}</li>`).join("")}</ol></details>
+    <div class="planner-route-actions">
+      <button type="button" class="primary-btn" data-accept-optimized-route="${escapeHtml(proposal.routeId)}" ${changed ? "" : "disabled"}>Aceptar orden</button>
+      <button type="button" class="secondary-btn" data-dismiss-optimized-route>Cancelar</button>
+    </div>
+  </div>`;
 }
 
 async function unplanDeliveryRoute(routeId, reason) {
@@ -9296,9 +9389,16 @@ function renderDeliveryPlanner() {
   if (day && !day.value) day.value = routeDayToday();
   if (currentUser?.username === "dario") {
     const driver = byId("deliveryPlannerDriver");
-    const driverLabel = byId("deliveryPlannerDriverLabel");
     if (driver && (!driver.value || driver.value === "reparto1")) driver.value = "dario";
-    if (driverLabel && (!driverLabel.value || driverLabel.value === "Reparto 1")) driverLabel.value = "Darío";
+  }
+  const targetRoute = byId("deliveryPlannerTargetRoute");
+  if (targetRoute) {
+    const previous = targetRoute.value;
+    const planned = (state.deliveryRoutes || []).filter((route) => route.status === "Planificada"
+      && !route.publishedAt && !route.startedAt && route.day === day.value);
+    targetRoute.innerHTML = '<option value="">Seleccionar ruta</option>' + planned.map((route) =>
+      `<option value="${escapeHtml(route.id)}">${escapeHtml(DeliveryEngine.routeDisplayName(route))} (${route.stops.length})</option>`).join("");
+    if (planned.some((route) => route.id === previous)) targetRoute.value = previous;
   }
   const zoneSelect = byId("deliveryPlannerZoneFilter");
   const sellerSelect = byId("deliveryPlannerSellerFilter");
@@ -9314,6 +9414,10 @@ function renderDeliveryPlanner() {
   const candidates = deliveryPlannerCandidates();
   const assignedCount = eligibleOrders.filter(deliveryPlannerRoute).length;
   const unassignedCount = eligibleOrders.length - assignedCount;
+  const plannedRoutesToday = (state.deliveryRoutes || []).filter((route) => (
+    String(route.day || "").slice(0, 10) === (day?.value || routeDayToday())
+    && String(route.status || "").trim() === "Planificada"
+  )).length;
   const selectableCodes = new Set(eligibleOrders
     .filter((order) => !deliveryPlannerRoute(order) && deliveryOrderDestinationInfo(order).hasDestination)
     .map((order) => order.code));
@@ -9326,6 +9430,7 @@ function renderDeliveryPlanner() {
     <span>Pedidos listos: ${eligibleOrders.length}</span>
     <span>Sin asignar: ${unassignedCount}</span>
     <span>Con ruta: ${assignedCount}</span>
+    <span>Rutas sin publicar hoy: ${plannedRoutesToday}</span>
     <span>${candidates.length} resultados con filtros</span>
     <span id="deliveryPlannerSelectedSummary">${selectedOrders.length} seleccionados (${candidates.filter((order) => deliveryPlannerSelection.has(order.code)).length} visibles) - ${money.format(total)}</span>
     <span>${money.format(total)}</span>
@@ -9598,17 +9703,20 @@ function renderDeliveryActivePanel(route, routes) {
   const directionsUrl = deliveryRouteDirectionsUrl(route);
   const showMap = deliveryMapVisible;
 
-  title.textContent = `${route.zone || "Ruta"} - ${route.id}`;
-  meta.textContent = `${route.day || "Sin dia"} - ${route.deviceLabel || route.driverUser || "Sin dispositivo"} - ${stats.closed}/${stats.stops.length} gestionadas`;
+  title.textContent = DeliveryEngine.routeDisplayName(route);
+  meta.textContent = `${route.id} - ${stats.closed}/${stats.stops.length} gestionadas`;
   actions.innerHTML = `
     <button class="secondary-btn" type="button" data-delivery-map-mode="${showMap ? "table" : "map"}">${showMap ? "Ocultar mapa" : "Ver mapa"}</button>
     ${canPlanDeliveryRoutes() ? `<button class="secondary-btn" type="button" data-route-manifest="csv" data-route-id="${escapeHtml(route.id)}">Manifiesto CSV</button>` : ""}
     ${canPlanDeliveryRoutes() ? `<button class="secondary-btn" type="button" data-route-manifest="pdf" data-route-id="${escapeHtml(route.id)}">Manifiesto PDF</button>` : ""}
+    ${canPlanDeliveryRoutes() && !route.startedAt && !route.closure && route.stops?.length > 1 ? `<button class="secondary-btn" type="button" data-optimize-route="${escapeHtml(route.id)}">Optimizar ruta</button>` : ""}
     ${directionsUrl ? `<button class="secondary-btn" type="button" data-delivery-route-map-open="${escapeHtml(route.id)}">Abrir recorrido</button>` : ""}
     ${canClaim ? `<button class="primary-btn" type="button" data-claim-route="${escapeHtml(route.id)}">Tomar Ruta</button>` : ""}
     ${canCloseRoute ? `<button class="primary-btn" type="button" data-close-route="${escapeHtml(route.id)}">Rendir caja</button>` : ""}
   `;
   summary.innerHTML = `
+    ${deliveryRouteProposal?.routeId === route.id ? routeOptimizationPreviewHtml() : ""}
+    ${deliveryRouteOrderUndo?.routeId === route.id ? `<button class="secondary-btn" type="button" data-undo-optimized-route="${escapeHtml(route.id)}">Volver al orden anterior</button>` : ""}
     <div class="delivery-progress-hero">
       <span class="tag ${deliveryTone(route.status)}">${escapeHtml(route.status || "Ruta")}</span>
       <strong>${stats.progress}% completado</strong>
@@ -9917,10 +10025,10 @@ function renderDelivery() {
       <article class="delivery-route-card ${route.id === activeDeliveryRouteId ? "active" : ""}">
         <button class="delivery-route-select" type="button" data-delivery-route="${escapeHtml(route.id)}">
           <div class="delivery-route-head">
-            <strong>${escapeHtml(route.id)}</strong>
+            <strong>${escapeHtml(DeliveryEngine.routeDisplayName(route))}</strong>
             <span class="tag ${deliveryTone(route.status)}">${escapeHtml(route.status)}</span>
           </div>
-          <p>${escapeHtml(route.zone)} - ${escapeHtml(route.day)}</p>
+          <p>${escapeHtml(route.id)} - ${escapeHtml(route.day)}</p>
           <div class="delivery-route-summary">
             <span>${completedStops}/${totalStops} gestionadas</span>
             <span>${escapeHtml(route.deviceLabel || route.driverUser || "Sin dispositivo")}</span>
@@ -10152,6 +10260,30 @@ function renderDeliverySettings() {
     const field = byId(id);
     if (field && document.activeElement !== field) field.value = value;
   });
+  const list = byId("deliveryBankAccountsList");
+  if (list) list.innerHTML = (settings.bankAccounts || []).length ? (settings.bankAccounts || []).map((account, index) => `
+    <div class="planner-route-summary-row"><strong>${escapeHtml(account.bank)}</strong>
+      <span>${escapeHtml(account.alias)}${account.cbu ? ` · ${escapeHtml(account.cbu)}` : ""}</span>
+      <button class="mini-btn" type="button" data-remove-delivery-bank="${index}">Quitar</button>
+    </div>`).join("") : '<p class="empty-note">Sin cuentas adicionales.</p>';
+  renderDeliveryBankOptions();
+}
+
+function renderDeliveryBankOptions() {
+  const select = byId("deliveryTransferBank");
+  if (!select) return;
+  const selected = select.value;
+  select.querySelectorAll("option[data-configured-bank]").forEach((option) => option.remove());
+  (state.deliverySettings?.bankAccounts || []).forEach((account) => {
+    const option = document.createElement("option");
+    option.value = account.bank;
+    option.textContent = `${account.bank} - ${account.alias}`;
+    option.dataset.configuredBank = "true";
+    option.dataset.alias = account.alias;
+    option.dataset.cbu = account.cbu || "";
+    select.add(option);
+  });
+  if ([...select.options].some((option) => option.value === selected)) select.value = selected;
 }
 
 function renderDeliveryAudit() {
@@ -10179,9 +10311,55 @@ function deliveryClosureRecords() {
   return Array.from(byKey.values()).sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
 }
 
+const DELIVERY_COLLECTION_HEADERS = ["Cliente", "Pedido", "Total", "Efectivo", "Transferencia", "Banco", "Cuenta corriente", "Saldo a favor", "Diferencia"];
+
+function deliveryCollectionsManifestRows(day) {
+  const totals = { total: 0, cash: 0, transfer: 0, credit: 0, customerCredit: 0, difference: 0 };
+  const rows = [];
+  (state.deliveryRoutes || []).forEach((route) => (route.stops || []).forEach((stop) => {
+    const collection = stop.collection;
+    if (!collection || !collection.at || new Date(collection.at).toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" }) !== day) return;
+    const order = (state.orders || []).find((item) => item.code === stop.orderCode);
+    const total = numeric(collection.collectibleAmount ?? order?.amount ?? stop.amount, 0);
+    const cash = numeric(collection.cashAmount, 0);
+    const transfer = numeric(collection.transferAmount, 0);
+    const credit = numeric(collection.creditAmount, 0);
+    const customerCredit = numeric(collection.customerCreditAmount, 0);
+    const difference = Math.round((cash + transfer + credit - customerCredit - total) * 100) / 100;
+    rows.push([order?.client || stop.client || "", stop.orderCode || "", total, cash, transfer,
+      collection.transferReceipt?.bank || "", credit, customerCredit, difference]);
+    totals.total += total;
+    totals.cash += cash;
+    totals.transfer += transfer;
+    totals.credit += credit;
+    totals.customerCredit += customerCredit;
+    totals.difference += difference;
+  }));
+  rows.sort((left, right) => String(left[1]).localeCompare(String(right[1]), "es", { numeric: true }));
+  rows.push(["TOTALES", `${rows.length} pedidos`, ...[totals.total, totals.cash, totals.transfer], "",
+    totals.credit, totals.customerCredit, totals.difference].map((value) => typeof value === "number" ? Math.round(value * 100) / 100 : value));
+  return rows;
+}
+
+async function exportDeliveryCollectionsManifest(format) {
+  if (!isAdminUser()) return;
+  const day = byId("deliveryCollectionsDate")?.value || routeDayToday();
+  const rows = deliveryCollectionsManifestRows(day);
+  if (rows.length === 1) return showCompactNotice("No hay cobros registrados en esa fecha.", "warn");
+  if (format === "xlsx") {
+    await downloadXlsxReport({ fileName: `manifiesto-cobros-${day}.xlsx`, sheetName: "Cobros del dia", headers: DELIVERY_COLLECTION_HEADERS, rows });
+  } else {
+    downloadBlob(`manifiesto-cobros-${day}.pdf`, makeTablePdf(`Distribuidora Lopez - Cobros ${day}`, DELIVERY_COLLECTION_HEADERS, rows, {
+      subtitle: `${rows.length - 1} pedidos. Transferencias sujetas a conciliacion bancaria.`
+    }));
+  }
+}
+
 function renderDeliveryClosures() {
   const list = byId("deliveryClosureList");
   if (!list) return;
+  const manifestDate = byId("deliveryCollectionsDate");
+  if (manifestDate && !manifestDate.value) manifestDate.value = routeDayToday();
   const closures = deliveryClosureRecords().slice(0, 20);
   list.innerHTML = closures.length ? closures.map((closure) => {
     const tone = deliveryDifferenceTone(closure.totalDifference);
@@ -10720,6 +10898,7 @@ function renderClientPage(payload, fromCache = false) {
         <strong>${escapeHtml(client.zone)}</strong>
         <small>${escapeHtml(client.ruta || client.zone)} - ${escapeHtml(client.seller || "Sin vendedor")}</small>
         <small>${escapeHtml(client.horario_atencion || "Sin horario")} - ${Number.isFinite(client.latitud) && Number.isFinite(client.longitud) ? "GPS cargado" : "GPS pendiente"}</small>
+        ${client.gpsReviewStatus ? `<small><span class="tag ${client.gpsReviewStatus === "approved" ? "ok" : "warn"}">${escapeHtml(client.gpsReviewStatus === "pending_validation" ? "GPS pendiente de validacion" : client.gpsReviewStatus === "needs_correction" ? "GPS a corregir" : client.gpsReviewStatus === "rejected" ? "GPS rechazado" : "GPS aprobado")}</span></small>` : ""}
       </td>
       <td>
         <span class="tag ${clientStatusClass(client.status)}">${escapeHtml(client.status)}</span>
@@ -10737,6 +10916,9 @@ function renderClientPage(payload, fromCache = false) {
       </td>
       <td>
         <button class="mini-btn" type="button" data-client-edit="${escapeHtml(client.codigo_cliente || client.name)}">Editar</button>
+        ${client.gpsReviewStatus === "pending_validation"
+          ? `<button class="mini-btn primary-mini" type="button" data-client-gps-action="approve" data-client-gps-id="${escapeHtml(client.codigo_cliente || client.name)}">Aprobar GPS</button><button class="mini-btn" type="button" data-client-gps-action="reject" data-client-gps-id="${escapeHtml(client.codigo_cliente || client.name)}">Rechazar</button>`
+          : `<button class="mini-btn" type="button" data-client-gps-action="mark" data-client-gps-id="${escapeHtml(client.codigo_cliente || client.name)}">GPS a corregir</button>`}
         <button class="mini-btn primary-mini" type="button" data-account-open="client" data-account-id="${escapeHtml(client.codigo_cliente || client.name)}">Cuenta</button>
         ${mixedEntityKeyValue ? `<button class="mini-btn primary-mini" type="button" data-mixed-entity="${escapeHtml(mixedEntityKeyValue)}">Ficha mixta</button>` : ""}
       </td>
@@ -11070,12 +11252,30 @@ async function exportCommercialPortfolio(format) {
   }));
 }
 
-const FULL_CLIENT_EXPORT_HEADERS = ["Codigo", "Cliente", "CUIT", "Telefono", "Direccion", "Referencia", "Localidad", "Zona", "Ruta", "Vendedor", "Dias", "Horario", "Saldo", "Estado"];
+const FULL_CLIENT_EXPORT_HEADERS = ["Codigo", "Cliente", "CUIT", "Telefono", "Direccion", "Referencia", "Localidad", "Zona", "Ruta", "Vendedor", "Dias", "Horario", "Latitud", "Longitud", "GPS", "Saldo", "Estado"];
 
 function fullClientPortfolioRows() {
   return [...(state.clients || [])]
+    .filter((client) => {
+      const seller = client.seller || client.vendedor_asignado || client.vendedor || "";
+      const zone = client.zona || client.zone || client.ruta || "";
+      const status = client.status || client.estado || "Activo";
+      const balance = numeric(client.balance ?? client.saldo_actual ?? client.saldo_inicial, 0);
+      const limit = numeric(client.limit ?? client.limite_credito, 0);
+      const search = [client.name, client.nombre_comercial, client.cuit, client.telefono, client.domicilio, zone, client.ruta, seller].join(" ");
+      if (clientSearchTerm && !matchesSearch(search, searchTerms(clientSearchTerm))) return false;
+      if (clientStatusFilter !== "all" && status !== clientStatusFilter) return false;
+      if (clientSellerFilter !== "all" && seller !== clientSellerFilter) return false;
+      if (clientZoneFilter !== "all" && zone !== clientZoneFilter) return false;
+      if (clientAccountFilter === "debt" && balance <= 0) return false;
+      if (clientAccountFilter === "clear" && balance > 0) return false;
+      if (clientAccountFilter === "overlimit" && !(limit > 0 && balance > limit)) return false;
+      return true;
+    })
     .sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""), "es", { sensitivity: "base" }))
-    .map((client) => [
+    .map((client) => {
+      const point = DeliveryEngine.clientCoordinates(client);
+      return [
       client.codigo_cliente || "",
       client.name || client.nombre_comercial || "",
       client.cuit || "",
@@ -11088,9 +11288,13 @@ function fullClientPortfolioRows() {
       client.seller || client.vendedor_asignado || "",
       (client.dias_visita || []).join(" / ") || client.dia_visita || "",
       client.horario_atencion || "",
+      point ? point.lat : "",
+      point ? point.lng : "",
+      point ? "Si" : "No",
       numeric(client.balance ?? client.saldo_actual, 0),
       client.estado || client.status || "Activo"
-    ]);
+    ];
+    });
 }
 
 function exportFullClientPortfolioCsv() {
@@ -11102,8 +11306,8 @@ function exportFullClientPortfolioPdf() {
   if (!isAdminUser()) return;
   const rows = fullClientPortfolioRows();
   downloadBlob(`cartera-completa-clientes-${reportDateStamp()}.pdf`, makeTablePdf("Distribuidora Lopez - Cartera completa de clientes", FULL_CLIENT_EXPORT_HEADERS, rows, {
-    weights: [0.8, 1.8, 1.1, 1.1, 2.1, 1.6, 1.1, 1, 1.2, 1.2, 1, 1.7, 0.9, 0.8],
-    subtitle: `${rows.length} clientes - filas y columnas`
+    weights: [0.8, 1.8, 1.1, 1.1, 2.1, 1.6, 1.1, 1, 1.2, 1.2, 1, 1.7, 1, 1, 0.5, 0.9, 0.8],
+    subtitle: `${rows.length} clientes - filtros activos`
   }));
   showCompactNotice(`${rows.length} clientes incluidos en el PDF tabular.`, "ok");
 }
@@ -11111,7 +11315,7 @@ function exportFullClientPortfolioPdf() {
 const FULL_PRODUCT_EXPORT_HEADERS = ["Codigo", "Barras", "Producto", "Rubro", "Marca", "Proveedor", "Costo", "Lista 1", "Lista 2", "Lista 3", "Lista 4", "Lista 5", "Stock", "Estado"];
 
 function fullProductPortfolioRows() {
-  return [...(state.products || [])]
+  return filteredPriceListProducts()
     .sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""), "es", { sensitivity: "base" }))
     .map((product) => [
       product.codigo_producto || "",
@@ -11331,6 +11535,7 @@ function accountStatementSummaryCards(statement) {
   }
   return [
     ["Saldo actual", money.format(summary.balance || 0), "Deuda registrada"],
+    ["Saldo a favor", money.format(summary.customerCredit || 0), "Credito disponible del cliente"],
     ["Deuda total", money.format(summary.totalDebt || 0), `Pedidos pendientes ${money.format(summary.pendingOrders || 0)}`],
     ["Limite", money.format(summary.creditLimit || 0), "Credito configurado"],
     ["Deuda vencida", money.format(summary.overdue || 0), `${summary.movementCount || 0} movimientos`]
@@ -11492,17 +11697,19 @@ function renderAccounts() {
 
   const totals = summaries.reduce((acc, summary) => {
     acc.current += summary.currentBalance;
+    acc.customerCredit += summary.customerCredit || 0;
     acc.overdue += summary.overdueDebt;
     acc.total += summary.totalDebt;
     acc.pending += summary.pendingOrderExposure;
     if (summary.overLimitAmount > 0) acc.overLimit += 1;
     return acc;
-  }, { current: 0, overdue: 0, total: 0, pending: 0, overLimit: 0 });
+  }, { current: 0, customerCredit: 0, overdue: 0, total: 0, pending: 0, overLimit: 0 });
 
   const kpiBox = byId("accountsSummaryCards");
   if (kpiBox) {
     kpiBox.innerHTML = [
       { label: "Saldo actual", value: money.format(totals.current), text: "Deuda registrada en clientes." },
+      { label: "Saldo a favor", value: money.format(totals.customerCredit), text: "Credito de clientes por excedentes." },
       { label: "Deuda vencida", value: money.format(totals.overdue), text: "Requiere seguimiento." },
       { label: "Deuda total", value: money.format(totals.total), text: "Saldo mas pedidos pendientes." },
       { label: "Sobre limite", value: String(totals.overLimit), text: "Clientes que requieren autorizacion." }
@@ -11519,7 +11726,7 @@ function renderAccounts() {
   if (clientTable) {
     clientTable.innerHTML = filteredSummaries.length ? filteredSummaries.map((summary) => `
       <tr data-account-entity-type="client" data-account-entity-id="${escapeHtml(summary.clientName)}" title="Doble clic para abrir el estado de cuenta">
-        <td><strong>${escapeHtml(summary.clientName)}</strong><small>Pedidos pendientes ${money.format(summary.pendingOrderExposure)}</small></td>
+        <td><strong>${escapeHtml(summary.clientName)}</strong><small>Pedidos pendientes ${money.format(summary.pendingOrderExposure)}${summary.customerCredit ? ` · Saldo a favor ${money.format(summary.customerCredit)}` : ""}</small></td>
         <td>${money.format(summary.currentBalance)}</td>
         <td>${money.format(summary.creditLimit)}</td>
         <td>${money.format(summary.overdueDebt)}</td>
@@ -12385,6 +12592,59 @@ function renderPriceListOperationFields() {
   });
 }
 
+function renderAuthorizedOffers() {
+  const table = byId("authorizedOffersTable");
+  if (!table) return;
+  const offers = [...(state.commercialOffers || [])].sort((left, right) =>
+    String(left.productName || "").localeCompare(String(right.productName || ""), "es")
+    || Number(right.minimumQty || 0) - Number(left.minimumQty || 0));
+  table.innerHTML = offers.length ? offers.map((offer) => `
+    <tr>
+      <td><strong>${escapeHtml(offer.productName || offer.productCode)}</strong><small>${escapeHtml(offer.productCode)}</small></td>
+      <td>${escapeHtml(String(offer.minimumQty))}</td>
+      <td>${offer.specialUnitPrice > 0 ? money.format(offer.specialUnitPrice) : `${escapeHtml(String(offer.discountPct))}%`}</td>
+      <td>${escapeHtml(offer.validFrom)} - ${escapeHtml(offer.validTo || "Sin fin")}</td>
+      <td><span class="tag ${offer.active === false ? "warn" : "ok"}">${offer.active === false ? "Inactiva" : "Activa"}</span></td>
+      <td><button class="mini-btn" type="button" data-offer-edit="${escapeHtml(offer.id)}">Editar</button>
+        ${offer.active === false ? "" : `<button class="mini-btn" type="button" data-offer-inactivate="${escapeHtml(offer.id)}">Inactivar</button>`}</td>
+    </tr>
+  `).join("") : '<tr><td colspan="6" class="stock-empty">Sin ofertas configuradas.</td></tr>';
+  if (!byId("authorizedOfferFrom").value) byId("authorizedOfferFrom").value = routeDayToday();
+}
+
+function resetAuthorizedOfferForm() {
+  byId("authorizedOfferForm").reset();
+  byId("authorizedOfferId").value = "";
+  byId("authorizedOfferFrom").value = routeDayToday();
+  byId("authorizedOfferMessage").textContent = "";
+}
+
+async function submitAuthorizedOffer(event) {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector('[type="submit"]');
+  button.disabled = true;
+  try {
+    const payload = {
+      id: byId("authorizedOfferId").value || undefined,
+      productCode: byId("authorizedOfferProduct").value.trim(),
+      minimumQty: Number(byId("authorizedOfferMinimum").value),
+      discountPct: Number(byId("authorizedOfferDiscount").value || 0),
+      specialUnitPrice: Number(byId("authorizedOfferPrice").value || 0),
+      validFrom: byId("authorizedOfferFrom").value,
+      validTo: byId("authorizedOfferTo").value,
+      active: true
+    };
+    await postOperationalAction("api/commercial-offers", payload);
+    resetAuthorizedOfferForm();
+    renderAuthorizedOffers();
+    showCompactNotice("Oferta autorizada guardada.", "ok");
+  } catch (error) {
+    byId("authorizedOfferMessage").textContent = error.message || "No se pudo guardar la oferta.";
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function renderPriceLists() {
   if (!byId("priceListCards")) return;
   populatePriceListSelectors();
@@ -12394,6 +12654,7 @@ function renderPriceLists() {
   renderPriceListDirectory();
   renderPriceListProductsTable();
   renderPriceListSimulation();
+  renderAuthorizedOffers();
   const latestAudit = byId("priceListAuditList");
   if (latestAudit) {
     const rows = (state.priceListAudit || []).slice(0, 8);
@@ -12740,6 +13001,60 @@ function commissionReportData() {
   return { seller, from, to, orders, users: Array.from(users.values()).sort((a, b) => a.user.localeCompare(b.user, "es")), products: productRows };
 }
 
+function salesCommissionReportData() {
+  return DLSalesCommissionReport.build(commissionReportData().orders);
+}
+
+function renderSalesCommissionReport() {
+  const report = salesCommissionReportData();
+  const summary = byId("salesCommissionSummaryTable");
+  if (summary) summary.innerHTML = report.sellers.length ? report.sellers.map((row) => `<tr>
+    <td><strong>${escapeHtml(row.seller)}</strong></td><td>${row.clients}</td><td>${row.orders}</td>
+    <td>${row.units}</td><td>${money.format(row.gross)}</td><td>${money.format(row.general)}</td>
+    <td>${money.format(row.cigarettes)}</td><td>${row.percent.toFixed(2)}%</td><td><strong>${money.format(row.commission)}</strong></td>
+  </tr>`).join("") : '<tr><td colspan="9">Sin ventas en el periodo.</td></tr>';
+  const detail = byId("salesCommissionDetailTable");
+  if (!detail || !byId("salesCommissionDetails")?.open) {
+    if (detail) detail.innerHTML = "";
+    return;
+  }
+  detail.innerHTML = report.details.slice(0, salesCommissionDetailLimit).map((row) => `<tr>
+    <td>${escapeHtml(row.seller)}</td><td>${escapeHtml(row.orderCode)}</td><td>${escapeHtml(row.client)}</td>
+    <td>${escapeHtml(row.product)}</td><td>${row.quantity}</td><td>${money.format(row.gross)}</td>
+    <td>${row.percent.toFixed(2)}%</td><td>${money.format(row.commission)}</td><td>${escapeHtml(row.ruleId || "-")}</td>
+  </tr>`).join("") || '<tr><td colspan="9">Sin productos en el periodo.</td></tr>';
+  byId("salesCommissionMoreBtn").hidden = report.details.length <= salesCommissionDetailLimit;
+}
+
+const SALES_COMMISSION_EXPORT_HEADERS = ["Vendedor", "Fecha", "Pedido", "Cliente", "Producto", "Cantidad", "Bruto", "Mercaderia general", "Cigarrillos", "% aplicado", "Comision", "Regla"];
+
+function salesCommissionExportRows() {
+  const report = salesCommissionReportData();
+  return [
+    ...report.sellers.map((row) => [row.seller, "", "RESUMEN", `${row.clients} clientes / ${row.orders} pedidos`, "", row.units, row.gross, row.general, row.cigarettes, row.percent.toFixed(2), row.commission, ""]),
+    ...report.details.map((row) => [row.seller, commissionReportDateKey(row.date), row.orderCode, row.client, row.product, row.quantity, row.gross, row.group === "cigarrillos" ? 0 : row.gross, row.group === "cigarrillos" ? row.gross : 0, row.percent.toFixed(2), row.commission, row.ruleId])
+  ];
+}
+
+function exportSalesCommissionPdf() {
+  const rows = salesCommissionExportRows();
+  const report = commissionReportData();
+  downloadBlob(`ventas-comisiones-${reportDateStamp()}.pdf`, makeTablePdf("Ventas y comisiones por vendedor", SALES_COMMISSION_EXPORT_HEADERS, rows, {
+    subtitle: `${report.seller === "all" ? "Todos" : report.seller} · ${report.from || "Inicio"} a ${report.to || "Hoy"} · ${report.orders.length} pedidos`,
+    weights: [1, 0.8, 0.9, 1.4, 1.7, 0.6, 0.9, 0.9, 0.8, 0.7, 0.9, 0.8]
+  }));
+}
+
+async function exportSalesCommissionExcel() {
+  try {
+    const rows = salesCommissionExportRows();
+    await downloadXlsxReport({ fileName: `ventas-comisiones-${reportDateStamp()}.xlsx`, sheetName: "Ventas y comisiones", headers: SALES_COMMISSION_EXPORT_HEADERS, rows });
+    showCompactNotice(`${rows.length} filas exportadas.`, "ok");
+  } catch (error) {
+    showCompactNotice(error.message || "No se pudo exportar el Excel.", "danger");
+  }
+}
+
 function commissionAccountData(report = commissionReportData()) {
   if (report.seller === "all" || !OrderEngine || typeof OrderEngine.commissionAccountStatement !== "function") return null;
   return OrderEngine.commissionAccountStatement(state, {
@@ -12813,6 +13128,7 @@ function renderCommissionSummary() {
   const list = byId("commissionSummaryList");
   if (!list) return;
   const report = commissionReportData();
+  renderSalesCommissionReport();
   const rows = report.users;
   list.innerHTML = rows.length ? rows.map((row) => `
     <article class="stock-item commission-summary-card">
@@ -17273,6 +17589,38 @@ async function submitOrderEdit(event) {
     byId("orderEditMessage").textContent = "El motivo es obligatorio.";
     return;
   }
+  const order = state.orders.find((item) => item.code === orderEditTargetCode);
+  if (!order) {
+    byId("orderEditMessage").textContent = "El pedido ya no esta disponible. Volve a abrirlo.";
+    return;
+  }
+  const keyFor = (item) => String(item && item.productCode || "").trim() || normalizeSearchText(item && item.name || "");
+  const previousByKey = new Map((order.items || []).map((item) => [keyFor(item), item]));
+  const nextKeys = new Set(orderEditDraftItems.map(keyFor));
+  const changes = orderEditDraftItems.flatMap((item) => {
+    const before = previousByKey.get(keyFor(item));
+    if (!before) return [`${item.name}: nuevo, ${item.qty} x $${formatDecimalInput(item.unitPrice)}`];
+    const details = [];
+    const beforeQty = numeric(before.requestedQty ?? before.qty, 0);
+    if (beforeQty !== numeric(item.qty, 0)) details.push(`cantidad ${beforeQty} -> ${item.qty}`);
+    if (Math.abs(numeric(before.unitPrice, 0) - numeric(item.unitPrice, 0)) > 0.009) {
+      details.push(`precio $${formatDecimalInput(before.unitPrice)} -> $${formatDecimalInput(item.unitPrice)}`);
+    }
+    if (Math.abs(numeric(before.discountPct, 0) - numeric(item.discountPct, 0)) > 0.009) {
+      details.push(`descuento ${numeric(before.discountPct, 0)}% -> ${numeric(item.discountPct, 0)}%`);
+    }
+    return details.length ? [`${item.name}: ${details.join(", ")}`] : [];
+  });
+  (order.items || []).filter((item) => !nextKeys.has(keyFor(item))).forEach((item) => {
+    changes.push(`${item.name}: quitar ${numeric(item.requestedQty ?? item.qty, 0)}`);
+  });
+  const unusualQuantities = OrderEngine.unusualOrderEditQuantities(order, { items: orderEditDraftItems });
+  if (changes.length) {
+    const nextTotal = orderEditDraftItems.reduce((sum, item) => sum + orderEditLineSubtotal(item), 0);
+    const warning = unusualQuantities.length ? "ATENCION: hay cantidades mucho mayores que las originales.\n\n" : "";
+    const summary = `${warning}${order.code}\n${changes.join("\n")}\n\nTotal: ${money.format(numeric(order.amount, 0))} -> ${money.format(nextTotal)}\n\nConfirmar modificacion?`;
+    if (!window.confirm(summary)) return;
+  }
   const submit = byId("orderEditSubmitBtn");
   submit.disabled = true;
   submit.textContent = "Guardando...";
@@ -17280,7 +17628,9 @@ async function submitOrderEdit(event) {
     const payload = await postOperationalAction(`api/orders/${encodeURIComponent(orderEditTargetCode)}/edit`, {
       items: orderEditDraftItems,
       observations: byId("orderEditObservation").value,
-      motive
+      motive,
+      expectedUpdatedAt: order.updatedAt || "",
+      confirmLargeQuantities: unusualQuantities.length > 0
     });
     if (payload.order) {
       const index = state.orders.findIndex((order) => order.code === payload.order.code);
@@ -18137,6 +18487,49 @@ async function registerMobileClientLocation() {
   }
 }
 
+async function submitClientGpsCorrection() {
+  const client = getSelectedMobileClient();
+  if (!client || !["needs_correction", "rejected"].includes(client.gpsReview?.status)) return;
+  const button = byId("mobileGpsCorrectionCaptureBtn");
+  button.disabled = true;
+  try {
+    const gps = await captureCurrentSellerGpsForClient();
+    await postOperationalAction(`api/clients/${encodeURIComponent(client.codigo_cliente || client.name)}/gps-review`, {
+      action: "submit", gps, deviceId: sessionDevicePayload()?.id || "", deviceLabel: sessionDevicePayload()?.label || ""
+    });
+    renderMobileClientPicker();
+    renderMobileSummary();
+    showCompactNotice("Ubicacion enviada para validacion.", "ok");
+  } catch (error) {
+    showCompactNotice(error.message || "No se pudo registrar la ubicacion.", "danger");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function changeClientGpsReview(id, action) {
+  const client = currentClientPageRecords.find((item) => (item.codigo_cliente || item.name) === id);
+  if (!client) return;
+  const proposal = client.gpsReview?.proposal;
+  let reason = "";
+  if (action === "mark" && !window.confirm(`Marcar GPS a corregir para ${client.name}? Se pausaran las ventas nuevas.`)) return;
+  if (action === "approve") {
+    if (!proposal) return window.alert("No hay coordenadas pendientes.");
+    if (!window.confirm(`Aprobar GPS de ${client.name}?\nAnterior: ${client.latitud}, ${client.longitud}\nNuevo: ${proposal.lat}, ${proposal.lng}\nPrecision: ${proposal.accuracy} m\nVendedor: ${proposal.seller}\nDispositivo: ${proposal.device}`)) return;
+  }
+  if (action === "reject") {
+    reason = window.prompt(`Motivo del rechazo de GPS para ${client.name}:`, "Ubicacion no coincide con el comercio") || "";
+    if (!reason.trim()) return;
+  }
+  try {
+    await postOperationalAction(`api/clients/${encodeURIComponent(id)}/gps-review`, { action, reason });
+    renderClients({ force: true });
+    showCompactNotice(`GPS de ${client.name}: ${action === "mark" ? "correccion solicitada" : action === "approve" ? "aprobado" : "rechazado"}.`, "ok");
+  } catch (error) {
+    showCompactNotice(error.message || "No se pudo actualizar el GPS.", "danger");
+  }
+}
+
 function newMobileClientOperationId() {
   const token = globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
     ? globalThis.crypto.randomUUID()
@@ -18444,6 +18837,10 @@ async function addMobileOrder() {
   const client = state.clients.find((item) => item.name === mobileClient);
   if (!client) {
     window.alert("Seleccionar un cliente cargado o usar Cargar cliente.");
+    return;
+  }
+  if (["needs_correction", "pending_validation", "rejected"].includes(client.gpsReview?.status)) {
+    window.alert("UBICACION PENDIENTE DE ACTUALIZACION. Registrar GPS y esperar aprobacion de Administracion.");
     return;
   }
   let authorization = { creditOverride: false };
@@ -19135,6 +19532,34 @@ byId("applyPriceListBtn").addEventListener("click", applyPriceListFromForm);
 byId("exportPriceListPdfBtn").addEventListener("click", exportSelectedPriceListPdf);
 byId("derivePriceListOneBtn").addEventListener("click", derivePriceListOneFromTwo);
 byId("assignSellerPriceListBtn").addEventListener("click", assignSellerPriceListFromPanel);
+byId("authorizedOfferForm").addEventListener("submit", submitAuthorizedOffer);
+byId("authorizedOfferResetBtn").addEventListener("click", resetAuthorizedOfferForm);
+byId("authorizedOfferProduct").addEventListener("input", (event) => {
+  const term = normalizeSearchText(event.target.value);
+  const matches = (state.products || []).filter((product) => !term || normalizeSearchText(`${product.codigo_producto || ""} ${product.name || ""}`).includes(term)).slice(0, 20);
+  byId("authorizedOfferProducts").innerHTML = matches.map((product) => `<option value="${escapeHtml(product.codigo_producto || "")}" label="${escapeHtml(product.name || "")}"></option>`).join("");
+});
+byId("authorizedOffersTable").addEventListener("click", (event) => {
+  const editId = event.target.closest("[data-offer-edit]")?.dataset.offerEdit;
+  const inactiveId = event.target.closest("[data-offer-inactivate]")?.dataset.offerInactivate;
+  const offer = (state.commercialOffers || []).find((item) => item.id === (editId || inactiveId));
+  if (!offer) return;
+  if (inactiveId) {
+    if (!window.confirm(`Inactivar la oferta de ${offer.productName}? Los pedidos anteriores conservaran el precio aplicado.`)) return;
+    postOperationalAction("api/commercial-offers", { ...offer, active: false })
+      .then(() => { renderAuthorizedOffers(); showCompactNotice("Oferta inactivada.", "ok"); })
+      .catch((error) => showCompactNotice(error.message || "No se pudo inactivar.", "danger"));
+    return;
+  }
+  byId("authorizedOfferId").value = offer.id;
+  byId("authorizedOfferProduct").value = offer.productCode;
+  byId("authorizedOfferMinimum").value = offer.minimumQty;
+  byId("authorizedOfferDiscount").value = offer.discountPct || 0;
+  byId("authorizedOfferPrice").value = offer.specialUnitPrice || 0;
+  byId("authorizedOfferFrom").value = offer.validFrom;
+  byId("authorizedOfferTo").value = offer.validTo || "";
+  byId("authorizedOfferForm").scrollIntoView({ block: "center" });
+});
 document.querySelectorAll("[data-maintenance-cleanup]").forEach((button) => {
   button.addEventListener("click", () => runMaintenanceCleanup(button.dataset.maintenanceCleanup));
 });
@@ -19198,6 +19623,13 @@ byId("exportCommissionsCsvBtn").addEventListener("click", exportCommissionsCsv);
 });
 byId("commissionReportPrintBtn").addEventListener("click", printCommissionReport);
 byId("commissionReportExcelBtn").addEventListener("click", exportCommissionReportExcel);
+byId("salesCommissionPdfBtn").addEventListener("click", exportSalesCommissionPdf);
+byId("salesCommissionExcelBtn").addEventListener("click", exportSalesCommissionExcel);
+byId("salesCommissionDetails").addEventListener("toggle", renderSalesCommissionReport);
+byId("salesCommissionMoreBtn").addEventListener("click", () => {
+  salesCommissionDetailLimit += 50;
+  renderSalesCommissionReport();
+});
 byId("commissionReportSettleBtn").addEventListener("click", settleCommissionReport);
 byId("commissionPaymentSubmitBtn").addEventListener("click", submitCommissionPayment);
 byId("mobileProgressDashboard").addEventListener("change", (event) => {
@@ -19483,6 +19915,26 @@ byId("assemblyDepotWorkspace").addEventListener("input", (event) => {
   debouncedRenderAssemblyDepot();
 });
 byId("assemblyDepotWorkspace").addEventListener("change", (event) => {
+  if (event.target.matches("[data-assembly-verify-all], [data-assembly-verify-item]")) {
+    const card = event.target.closest("[data-order-row]");
+    const order = (state.orders || []).find((item) => item.code === card?.dataset.orderRow);
+    if (!card || !order) return;
+    const boxes = Array.from(card.querySelectorAll("[data-assembly-verify-item]"));
+    if (event.target.matches("[data-assembly-verify-all]")) {
+      boxes.forEach((box) => { box.checked = event.target.checked; });
+    }
+    const verifiedItemKeys = boxes.filter((box) => box.checked).map((box) => box.dataset.assemblyVerifyItem);
+    card.querySelectorAll("[data-assembly-verify-all], [data-assembly-verify-item]").forEach((box) => { box.disabled = true; });
+    postOperationalAction(`api/orders/${encodeURIComponent(order.code)}/assembly/verify-items`, {
+      verifiedItemKeys,
+      expectedUpdatedAt: order.updatedAt
+    }).then(() => showCompactNotice(`${verifiedItemKeys.length}/${boxes.length} productos verificados.`, "ok"))
+      .catch((error) => {
+        showCompactNotice(error.message || "No se pudo guardar la verificacion.", "danger");
+        renderAssemblyDepot();
+      });
+    return;
+  }
   if (event.target.id === "assemblyControlSort") {
     assemblyControlSortKey = event.target.value;
     renderAssemblyDepot();
@@ -19594,6 +20046,11 @@ byId("clientsPager").addEventListener("click", (event) => {
   renderClients();
 });
 byId("clientsTable").addEventListener("click", (event) => {
+  const gpsButton = event.target.closest("[data-client-gps-action]");
+  if (gpsButton) {
+    changeClientGpsReview(gpsButton.dataset.clientGpsId, gpsButton.dataset.clientGpsAction);
+    return;
+  }
   if (!event.target.closest("[data-clients-retry]")) return;
   renderClients({ force: true });
 });
@@ -20577,6 +21034,7 @@ document.addEventListener("click", (event) => {
   if (!editButton) return;
   openClientEditDialog(editButton.dataset.clientEdit);
 });
+byId("mobileGpsCorrectionCaptureBtn").addEventListener("click", submitClientGpsCorrection);
 
 document.addEventListener("click", (event) => {
   const button = event.target.closest("[data-mixed-entity]");
@@ -21107,6 +21565,7 @@ function updateDeliveryClosurePreview() {
       <strong>Diferencia total: ${escapeHtml(money.format(summary.totalDifference))}</strong>
       <span>Efectivo: ${escapeHtml(money.format(summary.cashDifference))} - Transferencias: ${escapeHtml(money.format(summary.transferDifference))}</span>
       <small>Pedidos pendientes: ${summary.pendingOrders}. Pedidos con devolucion: ${summary.returnedOrders}. Importe devuelto: ${escapeHtml(money.format(summary.returnedAmount))}.</small>
+      <small>${Math.abs(summary.cashDifference) > 1000 ? "Diferencia de efectivo mayor a $1.000: requiere cierre desde Administracion." : "Diferencia de efectivo dentro de la tolerancia de $1.000."}</small>
     `;
   }
   const reasonField = byId("deliveryClosureReasonField");
@@ -21158,6 +21617,10 @@ async function submitDeliveryRouteClosure(event) {
     }
     if (hasDifference && (!observations || differenceReason === "Otro" && observations.length < 4)) {
       setDeliveryClosureMessage("Con diferencia de caja, agregar una observacion clara.");
+      return;
+    }
+    if (Math.abs(summary.cashDifference) > 1000 && !isAdminUser()) {
+      setDeliveryClosureMessage("La diferencia supera $1.000. Administracion debe autorizar y cerrar esta rendicion.");
       return;
     }
     const gps = await requireDeliveryLocation();
@@ -21382,10 +21845,12 @@ function updateDeliveryPendingAmount() {
   const balance = byId("deliveryMixedBalance");
   if (balance) {
     const diff = Math.round((cash + transfer + credit - total) * 100) / 100;
-    balance.textContent = diff === 0
-      ? `Saldo pendiente calculado: ${money.format(credit)}`
-      : `Diferencia a corregir: ${money.format(diff)}`;
-    balance.dataset.tone = diff === 0 ? "ok" : "danger";
+    balance.textContent = diff > 0
+      ? `Saldo a favor del cliente: ${money.format(diff)} (excedente de efectivo)`
+      : diff < 0
+        ? `Faltante a registrar: ${money.format(-diff)}`
+        : `Cuenta corriente del pedido: ${money.format(credit)}`;
+    balance.dataset.tone = diff < 0 ? "danger" : "ok";
   }
   const hasTransfer = transfer > 0;
   updateDeliveryPaymentPresetSelection();
@@ -21395,7 +21860,7 @@ function updateDeliveryPendingAmount() {
   byId("deliveryTransferPhoto").required = false;
   byId("deliveryTransferGallery").required = false;
   byId("deliveryTransferFile").required = false;
-  byId("deliveryTransferBank").required = hasTransfer;
+  byId("deliveryTransferBank").required = false;
   byId("deliveryTransferAlias").required = false;
   byId("deliveryTransferCbu").required = false;
 }
@@ -21561,7 +22026,8 @@ function openDeliveryCollection(orderCode) {
   byId("deliveryTransferPhoto").value = "";
   byId("deliveryTransferGallery").value = "";
   byId("deliveryTransferFile").value = "";
-  byId("deliveryTransferBank").value = "";
+  renderDeliveryBankOptions();
+  byId("deliveryTransferBank").value = "Mercado Pago";
   byId("deliveryTransferAlias").value = state.deliverySettings?.bankAlias || "";
   byId("deliveryTransferCbu").value = state.deliverySettings?.bankCbu || "";
   byId("deliveryTransferObservations").value = "";
@@ -21608,14 +22074,12 @@ async function submitDeliveryCollection(event) {
     return;
   }
   const totals = deliveryCollectionTotals(order);
-  if (Math.abs(cashAmount + transferAmount + pendingAmount - totals.netAmount) > 0.01) {
-    setDeliveryCollectionMessage("Efectivo + transferencia + cuenta corriente debe coincidir con el total cobrable.");
+  const customerCreditAmount = Math.round((cashAmount + transferAmount + pendingAmount - totals.netAmount) * 100) / 100;
+  if (customerCreditAmount < -0.01 || customerCreditAmount > cashAmount + 0.01 || (customerCreditAmount > 0.01 && pendingAmount > 0)) {
+    setDeliveryCollectionMessage("El faltante va a cuenta corriente; el saldo a favor solo puede ser excedente de efectivo sin deuda nueva.");
     return;
   }
-  if (cashAmount + transferAmount > totals.netAmount) {
-    setDeliveryCollectionMessage("El efectivo y la transferencia no pueden superar el total cobrable.");
-    return;
-  }
+  if (customerCreditAmount > 0.01 && !window.confirm(`Se registrara ${money.format(customerCreditAmount)} como saldo a favor de ${order.client}. Confirmar?`)) return;
   if (totals.returnedQty > 0 && !byId("deliveryReturnReason").value.trim()) {
     setDeliveryCollectionMessage("Indicar el motivo de la devolucion.");
     return;
@@ -21630,10 +22094,6 @@ async function submitDeliveryCollection(event) {
   if (transferAmount > 0) {
     if (transferAmount <= 0) {
       setDeliveryCollectionMessage("La transferencia debe registrar un importe cobrado mayor a cero.");
-      return;
-    }
-    if (!transferReceipt.bank) {
-      setDeliveryCollectionMessage("Seleccionar el banco del comprobante de transferencia.");
       return;
     }
     if (!deliveryTransferAttachmentFile()) {
@@ -21788,7 +22248,7 @@ byId("clearDeliveryPlannerBtn").addEventListener("click", () => {
 
 byId("selectFilteredDeliveryPlannerBtn").addEventListener("click", () => {
   deliveryPlannerCandidates().forEach((order) => {
-    if (!deliveryPlannerRoute(order) && deliveryOrderDestinationInfo(order).hasDestination) deliveryPlannerSelection.add(order.code);
+    if (DeliveryEngine.isEligibleForRoutePlanning(order) && !deliveryPlannerRoute(order) && deliveryOrderDestinationInfo(order).hasDestination) deliveryPlannerSelection.add(order.code);
   });
   document.querySelectorAll("[data-planner-order]:not(:disabled)").forEach((checkbox) => { checkbox.checked = true; });
   refreshDeliveryPlannerSelectionUi();
@@ -21796,6 +22256,8 @@ byId("selectFilteredDeliveryPlannerBtn").addEventListener("click", () => {
 
 byId("exportDeliveryPlannerXlsxBtn").addEventListener("click", () => exportDeliveryPlannerManifest("xlsx"));
 byId("exportDeliveryPlannerPdfBtn").addEventListener("click", () => exportDeliveryPlannerManifest("pdf"));
+byId("deliveryCollectionsPdfBtn").addEventListener("click", () => exportDeliveryCollectionsManifest("pdf").catch((error) => showCompactNotice(error.message, "danger")));
+byId("deliveryCollectionsXlsxBtn").addEventListener("click", () => exportDeliveryCollectionsManifest("xlsx").catch((error) => showCompactNotice(error.message, "danger")));
 
 byId("deliveryPlannerSelectAll").addEventListener("change", (event) => {
   document.querySelectorAll("[data-planner-order]:not(:disabled)").forEach((checkbox) => {
@@ -21828,6 +22290,22 @@ byId("deliveryPlannerSort").addEventListener("change", (event) => {
 
 byId("deliveryPlannerDay").addEventListener("change", renderDeliveryPlanner);
 
+["deliveryPlannerFrom", "deliveryPlannerTo", "deliveryPlannerStatusFilter", "deliveryPlannerVisitFilter"].forEach((id) => {
+  byId(id).addEventListener("change", () => {
+    deliveryPlannerSelection.clear();
+    renderDeliveryPlanner();
+  });
+});
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-second-visit]");
+  if (!button || currentUser?.role !== "admin") return;
+  deliveryPlannerSelection = new Set([button.dataset.secondVisit]);
+  renderDeliveryPlanner();
+  byId("deliveryPlannerDay").focus();
+  showCompactNotice("Segunda Visita: indique nueva fecha, zona y repartidor; luego cree la hoja planificada.", "warn");
+});
+
 byId("deliveryPlannerForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
@@ -21839,10 +22317,10 @@ byId("deliveryPlannerForm").addEventListener("submit", async (event) => {
   try {
     const payload = await postOperationalAction("api/delivery/routes/plan", {
       orderCodes,
+      secondVisit: currentUser?.role === "admin" && orderCodes.every((code) => state.orders.find((order) => order.code === code)?.status === ORDER_STATUS.NOT_DELIVERED),
       day: form.get("day"),
       zone: form.get("zone"),
-      driverUser: form.get("driverUser"),
-      driverLabel: form.get("driverLabel")
+      driverUser: form.get("driverUser")
     });
     deliveryPlannerSelection.clear();
     activeDeliveryRouteId = payload.route.id;
@@ -21855,6 +22333,46 @@ byId("deliveryPlannerForm").addEventListener("submit", async (event) => {
     showCompactNotice(`Hoja ${payload.route.id} planificada. Puede deshacerla mientras no se publique.`, "ok");
   } catch (error) {
     window.alert(error.message || "No se pudo crear la hoja de ruta.");
+  }
+});
+
+byId("deliveryPlannerTargetRoute").addEventListener("change", () => refreshDeliveryPlannerSelectionUi());
+
+byId("assignSelectedToDeliveryRouteBtn").addEventListener("click", async () => {
+  const routeId = byId("deliveryPlannerTargetRoute").value;
+  const orderCodes = Array.from(deliveryPlannerSelection);
+  if (!routeId || !orderCodes.length) return;
+  const button = byId("assignSelectedToDeliveryRouteBtn");
+  button.disabled = true;
+  try {
+    const payload = await postOperationalAction(`api/delivery/routes/${encodeURIComponent(routeId)}/orders`, { orderCodes });
+    deliveryPlannerSelection.clear();
+    activeDeliveryRouteId = routeId;
+    showCompactNotice(`${orderCodes.length} pedidos agregados a ${DeliveryEngine.routeDisplayName(payload.route)}.`, "ok");
+  } catch (error) {
+    window.alert(error.message || "No se pudieron asignar los pedidos.");
+  } finally {
+    button.disabled = false;
+  }
+});
+
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-assign-route-driver]");
+  if (!button) return;
+  const driverUser = byId("deliveryPlannerDriver").value.trim();
+  if (!driverUser) {
+    window.alert("Indicar el usuario de reparto antes de asignarlo.");
+    byId("deliveryPlannerDriver").focus();
+    return;
+  }
+  button.disabled = true;
+  try {
+    const payload = await postOperationalAction(`api/delivery/routes/${encodeURIComponent(button.dataset.assignRouteDriver)}/driver`, { driverUser });
+    showCompactNotice(`${payload.route.stops.length} pedidos asignados a ${payload.route.deviceLabel}.`, "ok");
+  } catch (error) {
+    window.alert(error.message || "No se pudo asignar el repartidor.");
+  } finally {
+    button.disabled = false;
   }
 });
 
@@ -21876,6 +22394,7 @@ byId("deliverySettingsForm").addEventListener("submit", async (event) => {
       bankAlias: form.get("bankAlias"),
       bankAccountName: form.get("bankAccountName"),
       bankCbu: form.get("bankCbu"),
+      bankAccounts: state.deliverySettings?.bankAccounts || [],
       depotLat: form.get("depotLat"),
       depotLng: form.get("depotLng")
     }));
@@ -21883,6 +22402,52 @@ byId("deliverySettingsForm").addEventListener("submit", async (event) => {
   } catch (error) {
     window.alert(error.message || "No se pudo guardar la configuracion.");
   }
+});
+
+byId("deliveryBankAccountForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = new FormData(form);
+  const current = state.deliverySettings || {};
+  try {
+    await postOperationalAction("api/delivery/settings", deliveryActionBody(deliveryLocation, {
+      ...current,
+      bankAccounts: [...(current.bankAccounts || []), {
+        bank: data.get("bank"), alias: data.get("alias"), cbu: data.get("cbu")
+      }]
+    }));
+    form.reset();
+    renderDeliverySettings();
+    showCompactNotice("Cuenta agregada para transferencias.", "ok");
+  } catch (error) {
+    showCompactNotice(error.message || "No se pudo agregar la cuenta.", "danger");
+  }
+});
+
+byId("deliveryBankAccountsList").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-remove-delivery-bank]");
+  if (!button) return;
+  const index = Number(button.dataset.removeDeliveryBank);
+  const current = state.deliverySettings || {};
+  const accounts = [...(current.bankAccounts || [])];
+  if (!Number.isInteger(index) || index < 0 || index >= accounts.length) return;
+  if (!window.confirm(`Quitar ${accounts[index].bank} - ${accounts[index].alias}?`)) return;
+  accounts.splice(index, 1);
+  button.disabled = true;
+  try {
+    await postOperationalAction("api/delivery/settings", deliveryActionBody(deliveryLocation, { ...current, bankAccounts: accounts }));
+    renderDeliverySettings();
+  } catch (error) {
+    showCompactNotice(error.message || "No se pudo quitar la cuenta.", "danger");
+    button.disabled = false;
+  }
+});
+
+byId("deliveryTransferBank").addEventListener("change", (event) => {
+  const option = event.target.selectedOptions[0];
+  if (!option?.dataset.configuredBank) return;
+  byId("deliveryTransferAlias").value = option.dataset.alias || "";
+  byId("deliveryTransferCbu").value = option.dataset.cbu || "";
 });
 
 document.addEventListener("change", (event) => {
@@ -22020,6 +22585,69 @@ document.addEventListener("click", async (event) => {
   const manifest = event.target.closest("[data-route-manifest]");
   if (manifest) {
     exportDeliveryRouteManifest(manifest.dataset.routeId, manifest.dataset.routeManifest);
+    return;
+  }
+  const optimizeRoute = event.target.closest("[data-optimize-route]");
+  if (optimizeRoute) {
+    try {
+      const routeId = optimizeRoute.dataset.optimizeRoute;
+      deliveryRouteProposal = { routeId, ...DeliveryEngine.proposeRouteOrder(state, routeId) };
+      activeDeliveryRouteId = routeId;
+      renderDelivery();
+    } catch (error) {
+      window.alert(error.message || "No se pudo calcular la ruta.");
+    }
+    return;
+  }
+  if (event.target.closest("[data-dismiss-optimized-route]")) {
+    deliveryRouteProposal = null;
+    renderDelivery();
+    return;
+  }
+  const acceptRoute = event.target.closest("[data-accept-optimized-route]");
+  if (acceptRoute) {
+    const proposal = deliveryRouteProposal;
+    if (!proposal || proposal.routeId !== acceptRoute.dataset.acceptOptimizedRoute) return;
+    const route = (state.deliveryRoutes || []).find((item) => item.id === proposal.routeId);
+    if (!route || route.startedAt || route.stops.map((stop) => stop.orderCode).join("|") !== proposal.previousOrderCodes.join("|")) {
+      window.alert("La ruta cambio. Volver a calcular la propuesta.");
+      deliveryRouteProposal = null;
+      return;
+    }
+    acceptRoute.disabled = true;
+    try {
+      await postOperationalAction(`api/delivery/routes/${encodeURIComponent(route.id)}/reorder`, { orderCodes: proposal.orderCodes });
+      deliveryRouteOrderUndo = { routeId: route.id, previousOrderCodes: proposal.previousOrderCodes, appliedOrderCodes: proposal.orderCodes };
+      deliveryRouteProposal = null;
+      activeDeliveryRouteId = route.id;
+      showCompactNotice("Orden sugerido aplicado. Podes volver al orden anterior.", "ok");
+    } catch (error) {
+      window.alert(error.message || "No se pudo guardar el orden.");
+    } finally {
+      acceptRoute.disabled = false;
+    }
+    return;
+  }
+  const undoOptimized = event.target.closest("[data-undo-optimized-route]");
+  if (undoOptimized) {
+    const undo = deliveryRouteOrderUndo;
+    const route = (state.deliveryRoutes || []).find((item) => item.id === undo?.routeId);
+    if (!undo || !route || route.id !== undoOptimized.dataset.undoOptimizedRoute) return;
+    if (route.startedAt || route.stops.map((stop) => stop.orderCode).join("|") !== undo.appliedOrderCodes.join("|")) {
+      deliveryRouteOrderUndo = null;
+      window.alert("La ruta cambio despues de optimizarla; no se puede volver al orden anterior automaticamente.");
+      return;
+    }
+    undoOptimized.disabled = true;
+    try {
+      await postOperationalAction(`api/delivery/routes/${encodeURIComponent(route.id)}/reorder`, { orderCodes: undo.previousOrderCodes });
+      deliveryRouteOrderUndo = null;
+      showCompactNotice("Se restauro el orden anterior.", "ok");
+    } catch (error) {
+      window.alert(error.message || "No se pudo restaurar el orden.");
+    } finally {
+      undoOptimized.disabled = false;
+    }
     return;
   }
   const unplanRoute = event.target.closest("[data-unplan-planned-route]");
@@ -22454,6 +23082,20 @@ async function pushStateToServer() {
   }
 }
 
+function scheduleNextStatePull() {
+  if (syncIntervalId || !currentUser) return;
+  const interval = currentSyncIntervalMs();
+  const jitter = Math.floor(Math.random() * Math.min(3000, interval * 0.3));
+  syncIntervalId = window.setTimeout(async () => {
+    syncIntervalId = null;
+    try {
+      if (document.visibilityState !== "hidden") await pullStateFromServer();
+    } finally {
+      scheduleNextStatePull();
+    }
+  }, interval + jitter);
+}
+
 function startAuthenticatedApp() {
   readNotificationIds = loadReadNotificationIds();
   knownNotificationIds = new Set();
@@ -22484,7 +23126,7 @@ function startAuthenticatedApp() {
   installAppBackGuard();
   renderForCurrentUser();
   pullStateFromServer();
-  if (!syncIntervalId) syncIntervalId = setInterval(pullStateFromServer, currentSyncIntervalMs());
+  scheduleNextStatePull();
 }
 
 function bootApp() {
