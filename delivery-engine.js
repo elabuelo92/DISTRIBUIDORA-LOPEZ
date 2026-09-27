@@ -5,10 +5,13 @@
   const accountEngine = typeof module === "object" && module.exports
     ? require("./account-engine")
     : root.DLAccountEngine;
-  const engine = factory(orderEngine, accountEngine);
+  const routeOptimizer = typeof module === "object" && module.exports
+    ? require("./route-optimizer")
+    : root.DLRouteOptimizer;
+  const engine = factory(orderEngine, accountEngine, routeOptimizer);
   if (typeof module === "object" && module.exports) module.exports = engine;
   if (root) root.DLDeliveryEngine = engine;
-})(typeof globalThis !== "undefined" ? globalThis : this, function buildDeliveryEngine(orderEngine, accountEngine) {
+})(typeof globalThis !== "undefined" ? globalThis : this, function buildDeliveryEngine(orderEngine, accountEngine, routeOptimizer) {
   "use strict";
 
   const STATUS = orderEngine.STATUS;
@@ -27,6 +30,26 @@
 
   function isEligibleForRoutePlanning(order) {
     return Boolean(order) && REPLANNABLE_STATUSES.has(order.status);
+  }
+
+  function isRepeatVisit(state, order) {
+    return Boolean(order) && (DELIVERY_EXCEPTION_STATUSES.has(order.status)
+      || (state.deliveryRoutes || []).some((route) => (route.stops || []).some((stop) =>
+        stop.orderCode === order.code && DELIVERY_EXCEPTION_STATUSES.has(stop.status))));
+  }
+
+  function matchesPlanningFilters(state, order, filters = {}) {
+    if (!order) return false;
+    const rejected = filters.status === STATUS.REJECTED;
+    if (rejected ? order.status !== STATUS.REJECTED : !isEligibleForRoutePlanning(order)) return false;
+    if (filters.status && filters.status !== "all" && order.status !== filters.status) return false;
+    const timestamp = rejected ? (order.deliveryException?.at || order.updatedAt) : order.createdAt;
+    const day = timestamp ? routeDay(timestamp) : "";
+    if (filters.from && (!day || day < filters.from)) return false;
+    if (filters.to && (!day || day > filters.to)) return false;
+    if (filters.visit === "first" && isRepeatVisit(state, order)) return false;
+    if (filters.visit === "second" && !isRepeatVisit(state, order)) return false;
+    return true;
   }
 
   function numeric(value, fallback = 0) {
@@ -55,6 +78,11 @@
     });
   }
 
+  function validRouteDay(day) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(day) && Number.isFinite(Date.parse(`${day}T12:00:00Z`))
+      && new Date(`${day}T12:00:00Z`).toISOString().slice(0, 10) === day;
+  }
+
   function normalizeText(value) {
     return String(value || "")
       .normalize("NFD")
@@ -72,10 +100,12 @@
       bankAlias: "DISTRIBUIDORA.LOPEZ",
       bankAccountName: "Distribuidora Lopez",
       bankCbu: "",
+      bankAccounts: [],
       depotLat: -31.4167,
       depotLng: -64.1833,
       ...state.deliverySettings
     };
+    state.deliverySettings.bankAccounts = Array.isArray(state.deliverySettings.bankAccounts) ? state.deliverySettings.bankAccounts : [];
     state.deliveryRoutes = Array.isArray(state.deliveryRoutes) ? state.deliveryRoutes : [];
     state.deliveryAudit = Array.isArray(state.deliveryAudit) ? state.deliveryAudit : [];
     state.deliveryClosures = Array.isArray(state.deliveryClosures) ? state.deliveryClosures : [];
@@ -103,9 +133,14 @@
   function clientCoordinates(client) {
     if (!client) return null;
     const source = client.location || client.geolocation || client.gps || client;
-    const lat = numeric(source.lat ?? source.latitude ?? client.latitud, NaN);
-    const lng = numeric(source.lng ?? source.longitude ?? client.longitud, NaN);
-    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+    const rawLat = source.lat ?? source.latitude ?? client.latitud;
+    const rawLng = source.lng ?? source.longitude ?? client.longitud;
+    if (rawLat === null || rawLat === undefined || rawLat === "" || rawLng === null || rawLng === undefined || rawLng === "") return null;
+    const lat = Number(rawLat);
+    const lng = Number(rawLng);
+    return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat !== 0 || lng !== 0)
+      ? { lat, lng }
+      : null;
   }
 
   function clientAddress(client) {
@@ -287,6 +322,15 @@
     return `${base}-${index}`;
   }
 
+  function routeDisplayName(route) {
+    const day = String(route && route.day || "").slice(0, 10);
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(day) ? new Date(`${day}T12:00:00Z`) : null;
+    const weekday = date && !Number.isNaN(date.getTime())
+      ? new Intl.DateTimeFormat("es-AR", { weekday: "long", timeZone: "UTC" }).format(date).toLocaleUpperCase("es-AR")
+      : "SIN DIA";
+    return `${weekday} — ${String(route && route.zone || "Sin zona").trim().toLocaleUpperCase("es-AR")} — ${String(route && (route.deviceLabel || route.driverUser) || "Sin repartidor").trim().toLocaleUpperCase("es-AR")}`;
+  }
+
   function hasDestination(state, order) {
     if (!order) return false;
     const client = findClient(state, order.client);
@@ -407,6 +451,14 @@
   }
 
   function createPlannedRoute(state, input, context) {
+    if (input.secondVisit) {
+      if (context?.role !== "admin") throw new Error("Solo administracion puede enviar a Segunda Visita.");
+      const day = String(input.day || "");
+      if (!validRouteDay(day)) throw new Error("Indicar una fecha valida para Segunda Visita.");
+      if (!(input.orderCodes || []).length || input.orderCodes.some((code) => findOrder(state, code)?.status !== STATUS.NOT_DELIVERED)) {
+        throw new Error("Segunda Visita requiere pedidos No entregados.");
+      }
+    }
     prepareMutationState(state, context);
     const orderCodes = Array.from(new Set((input.orderCodes || []).map((code) => String(code || "").trim()).filter(Boolean)));
     if (!orderCodes.length) throw new Error("Seleccionar al menos un pedido en Armado.");
@@ -420,6 +472,7 @@
       return order;
     });
     const day = String(input.day || routeDay()).trim() || routeDay();
+    if (!validRouteDay(day)) throw new Error("Indicar una fecha valida para la ruta.");
     const zone = String(input.zone || routeZone(state, orders[0])).trim() || "Sin zona";
     const driverUser = String(input.driverUser || input.driverUsername || "").trim().toLowerCase();
     const deviceLabel = String(input.deviceLabel || input.driverLabel || driverUser || "Sin repartidor asignado").trim();
@@ -446,6 +499,7 @@
       closure: null,
       stops: orders.map((order) => stopFromOrder(state, order))
     };
+    route.name = routeDisplayName(route);
     reorderPendingStops(route, state.deliverySettings);
     route.stops.forEach((stop) => { stop.status = STATUS.READY_DISPATCH; });
     state.deliveryRoutes.unshift(route);
@@ -453,7 +507,63 @@
       ...context,
       note: `${orders.length} pedidos listos para despacho asignados a ${deviceLabel}`
     });
+    if (input.secondVisit) orders.forEach((order) => appendAudit(state, "SEGUNDA_VISITA_PLANIFICADA", order, route, {
+      ...context, note: `Segunda Visita: ${day}, ${route.id}, ${deviceLabel}`
+    }));
     state.activity.unshift({ type: "Reparto", title: `${route.id} planificada`, text: `${orders.length} pedidos listos asignados a ${deviceLabel}.` });
+    return route;
+  }
+
+  function appendOrdersToPlannedRoute(state, routeIdValue, orderCodes, context) {
+    ensureState(state);
+    const route = findRoute(state, routeIdValue);
+    if (!route || route.status !== ROUTE_STATUS.PLANNED || route.publishedAt || route.startedAt || route.closure) {
+      throw new Error("Solo se pueden agregar pedidos a una ruta planificada sin publicar.");
+    }
+    const codes = Array.from(new Set((orderCodes || []).map((code) => String(code || "").trim()).filter(Boolean)));
+    if (!codes.length) throw new Error("Seleccionar pedidos para asignar a la ruta.");
+    const orders = codes.map((code) => {
+      const order = findOrder(state, code);
+      if (!order) throw new Error(`Pedido no encontrado: ${code}.`);
+      if (!isEligibleForRoutePlanning(order)) throw new Error(`${code} no esta disponible para planificacion.`);
+      const existing = routeAlreadyContainsOrder(state, code);
+      if (existing) throw new Error(`${code} ya esta incluido en ${existing.id}.`);
+      if (!hasDestination(state, order)) throw new Error(`${code} - ${order.client} no tiene domicilio ni GPS cargado.`);
+      return order;
+    });
+    orders.forEach((order) => {
+      const stop = stopFromOrder(state, order);
+      stop.status = STATUS.READY_DISPATCH;
+      route.stops.push(stop);
+    });
+    if (route.manualOrder) route.stops.forEach((stop, index) => { stop.sequence = index + 1; });
+    else reorderPendingStops(route, state.deliverySettings);
+    route.updatedAt = nowIso();
+    appendAudit(state, "PEDIDOS_ASIGNADOS_RUTA", null, route, {
+      ...context, note: `${orders.length} pedidos agregados: ${codes.join(", ")}`
+    });
+    orders.filter((order) => order.status === STATUS.NOT_DELIVERED).forEach((order) => appendAudit(state, "SEGUNDA_VISITA_PLANIFICADA", order, route, {
+      ...context, note: `Segunda Visita: ${route.day}, ${route.id}, ${route.deviceLabel}`
+    }));
+    return route;
+  }
+
+  function assignPlannedRouteDriver(state, routeIdValue, driverUser, driverLabel, context) {
+    ensureState(state);
+    const route = findRoute(state, routeIdValue);
+    if (!route || route.status !== ROUTE_STATUS.PLANNED || route.publishedAt || route.startedAt || route.closure) {
+      throw new Error("Solo se puede cambiar el repartidor de una ruta planificada sin publicar.");
+    }
+    const username = String(driverUser || "").trim().toLowerCase();
+    if (!username) throw new Error("Seleccionar un repartidor valido.");
+    const previous = route.driverUser;
+    route.driverUser = username;
+    route.deviceLabel = String(driverLabel || username).trim();
+    route.name = routeDisplayName(route);
+    route.updatedAt = nowIso();
+    appendAudit(state, "REPARTIDOR_RUTA_ASIGNADO", null, route, {
+      ...context, note: `${previous || "Sin asignar"} -> ${username}; ${route.stops.length} pedidos`
+    });
     return route;
   }
 
@@ -479,6 +589,30 @@
     return route;
   }
 
+  function proposeRouteOrder(state, routeIdValue) {
+    const route = findRoute(state, routeIdValue);
+    if (!route) throw new Error("Hoja de ruta no encontrada.");
+    if (route.startedAt || route.closure || route.status === ROUTE_STATUS.COMPLETED) {
+      throw new Error("Solo se puede optimizar una ruta que no haya comenzado.");
+    }
+    const nodes = (route.stops || []).map((stop) => {
+      const order = findOrder(state, stop.orderCode);
+      const client = order && findClient(state, order.client);
+      return { orderCode: stop.orderCode, client: stop.client, coordinates: clientCoordinates(client) };
+    });
+    const settings = state.deliverySettings || {};
+    const depotLat = numeric(settings.depotLat, NaN);
+    const depotLng = numeric(settings.depotLng, NaN);
+    const origin = Number.isFinite(depotLat) && Number.isFinite(depotLng) && (depotLat !== 0 || depotLng !== 0)
+      ? { lat: depotLat, lng: depotLng }
+      : null;
+    return {
+      ...routeOptimizer.propose(nodes, origin),
+      previousOrderCodes: nodes.map((node) => node.orderCode),
+      clientByCode: Object.fromEntries(nodes.map((node) => [node.orderCode, node.client]))
+    };
+  }
+
   function removePlannedRoute(state, routeIdValue, context) {
     prepareMutationState(state, context);
     const index = state.deliveryRoutes.findIndex((route) => route.id === routeIdValue);
@@ -502,12 +636,15 @@
     if (!route) throw new Error("Hoja de ruta no encontrada.");
     if (route.status !== ROUTE_STATUS.PLANNED) throw new Error("Solo se puede publicar una ruta planificada.");
     if (!route.driverUser) throw new Error("La ruta debe estar asignada a un usuario de reparto.");
-    route.stops.forEach((stop) => {
+    const orders = route.stops.map((stop) => {
       const order = findOrder(state, stop.orderCode);
       if (!order) throw new Error(`Pedido no encontrado: ${stop.orderCode}.`);
       if (!hasDestination(state, order)) throw new Error(`${order.code} - ${order.client} no tiene domicilio ni GPS cargado.`);
-      orderEngine.assertDispatchChecklist(order);
       if (!REPLANNABLE_STATUSES.has(order.status)) throw new Error(`${order.code} debe seguir listo o pendiente de reprogramacion para publicar la ruta.`);
+      orderEngine.assertDispatchChecklist({ ...order, status: STATUS.READY_DISPATCH });
+      return order;
+    });
+    orders.forEach((order) => {
       if (order.status !== STATUS.READY_DISPATCH) {
         updateOrderTrace(order, STATUS.READY_DISPATCH, context || {}, "Pedido reprogramado para nueva hoja de ruta");
       }
@@ -770,15 +907,32 @@
     const pendingTransferAmount = moneyValue(collection.transferPendingAmount);
     const accountCreditAmount = moneyValue(collection.creditAmount);
     const accountDebitAmount = moneyValue(collection.pendingAmount);
+    const customerCreditAmount = moneyValue(collection.customerCreditAmount);
 
     if (order.accountPosted) {
-      nextBalance = Math.max(0, previousBalance - collection.amountPaid);
+      nextBalance = Math.max(0, previousBalance - Math.min(collection.amountPaid, collection.collectibleAmount));
     } else {
       nextBalance = previousBalance + accountDebitAmount;
       order.accountPosted = accountDebitAmount > 0;
     }
     client.balance = nextBalance;
+    client.saldo_actual = nextBalance;
     client.saldo_inicial = nextBalance;
+    if (customerCreditAmount > 0) {
+      client.saldo_a_favor = moneyValue(moneyValue(client.saldo_a_favor) + customerCreditAmount);
+      state.accounts.unshift({
+        date: new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" }),
+        createdAt: nowIso(),
+        type: "Saldo a favor del cliente",
+        account: order.client,
+        method: collection.method,
+        debit: 0,
+        credit: customerCreditAmount,
+        balance: nextBalance,
+        customerCreditBalance: client.saldo_a_favor,
+        orderCode: order.code
+      });
+    }
 
     if (collection.amountPaid > 0) {
       state.accounts.unshift({
@@ -846,11 +1000,10 @@
     const attachment = validAttachment(receiptInput.attachment)
       ? receiptInput.attachment
       : (input.attachments && validAttachment(input.attachments.transfer) ? input.attachments.transfer : null);
-    const bank = String(receiptInput.bank || "").trim();
+    const bank = String(receiptInput.bank || "Mercado Pago").trim();
     const alias = String(receiptInput.alias || settings.bankAlias || "").trim();
     const cbu = String(receiptInput.cbu || settings.bankCbu || "").trim();
     if (amountPaid <= 0) throw new Error("La transferencia debe registrar un importe cobrado mayor a cero.");
-    if (!bank) throw new Error("Indicar banco del comprobante de transferencia.");
     if (!attachment) throw new Error("Adjuntar comprobante de transferencia para finalizar el pedido.");
     return {
       date: routeDay(),
@@ -1008,10 +1161,16 @@
         }))
     };
     const collectibleAmount = moneyValue(moneyValue(order.amount) - returnSummary.returnedAmount);
-    if (Math.abs(cashAmount + transferAmount + pendingAmount - collectibleAmount) > 0.01) {
-      throw new Error("Efectivo + transferencia + cuenta corriente debe coincidir con el total cobrable luego de devoluciones.");
+    const customerCreditAmount = signedMoneyValue(cashAmount + transferAmount + pendingAmount - collectibleAmount);
+    if (customerCreditAmount < -0.01) {
+      throw new Error("El faltante debe registrarse en cuenta corriente.");
     }
-    if (cashAmount + transferAmount > collectibleAmount) throw new Error("El importe cobrado no puede superar el total cobrable.");
+    if (customerCreditAmount > 0.01 && pendingAmount > 0) {
+      throw new Error("No se puede registrar saldo a favor y deuda nueva en el mismo pedido.");
+    }
+    if (customerCreditAmount > cashAmount + 0.01) {
+      throw new Error("El saldo a favor debe provenir del efectivo entregado; revisar la transferencia.");
+    }
     if (returnSummary.returnedQty > 0 && !String(input.returnReason || input.returnReasonText || "").trim()) {
       throw new Error("Indicar motivo de devolucion.");
     }
@@ -1025,12 +1184,13 @@
     const partialDelivery = deliveredItems.some((line) => line.pendingQty > 0);
     const collection = {
       method,
-      amountPaid,
+      amountPaid: moneyValue(amountPaid - customerCreditAmount),
       pendingAmount: accountPendingAmount,
       cashAmount,
       transferAmount,
       transferPendingAmount: pendingTransferAmount,
       creditAmount: creditAccountAmount,
+      customerCreditAmount: moneyValue(customerCreditAmount),
       collectibleAmount,
       at: nowIso(),
       user: context.user || "",
@@ -1053,6 +1213,7 @@
     order.collections = Array.isArray(order.collections) ? order.collections : [];
     order.collections.push(collection);
     order.collection = collection;
+    order.reprogrammingPending = false;
     order.collectionStatus = accountPendingAmount > 0 ? (amountPaid > 0 ? "Parcial" : "Pendiente") : "Cobrado";
     order.paymentMethod = method;
     order.deliveryGps = gps;
@@ -1159,6 +1320,9 @@
     const hasDifference = Math.abs(summary.cashDifference) > 0.01 || Math.abs(summary.transferDifference) > 0.01;
     if (hasDifference && !differenceReason) throw new Error("Indicar motivo de diferencia de caja.");
     if (hasDifference && !observations) throw new Error("Indicar observaciones para cerrar con diferencia.");
+    if (Math.abs(summary.cashDifference) > 1000 && context.role !== "admin") {
+      throw new Error("La diferencia de efectivo supera $1.000. Administracion debe autorizar y cerrar la rendicion.");
+    }
     const at = nowIso();
     const parts = localTraceParts(at);
     const closure = {
@@ -1177,6 +1341,7 @@
       gps,
       observations,
       differenceReason,
+      approvedBy: Math.abs(summary.cashDifference) > 1000 ? String(context.user || "Administracion") : "",
       cashBreakdown: Array.isArray(input && input.cashBreakdown)
         ? input.cashBreakdown.map((item) => ({
           denomination: moneyValue(item.denomination),
@@ -1213,9 +1378,23 @@
     ensureState(state);
     const bankAlias = String(input.bankAlias || "").trim();
     if (!bankAlias) throw new Error("El alias bancario es obligatorio.");
+    let accounts = state.deliverySettings.bankAccounts;
+    if (input.bankAccounts !== undefined) {
+      if (!Array.isArray(input.bankAccounts) || input.bankAccounts.length > 20) throw new Error("Lista de cuentas bancarias invalida.");
+      accounts = input.bankAccounts.map((account) => ({
+        bank: String(account.bank || "").trim().slice(0, 80),
+        alias: String(account.alias || "").trim().slice(0, 100),
+        cbu: String(account.cbu || "").trim().slice(0, 32)
+      }));
+      if (accounts.some((account) => !account.bank || !account.alias)) throw new Error("Completar banco y alias de cada cuenta.");
+      if (new Set(accounts.map((account) => `${normalizeText(account.bank)}|${normalizeText(account.alias)}`)).size !== accounts.length) {
+        throw new Error("Hay cuentas bancarias duplicadas.");
+      }
+    }
     state.deliverySettings.bankAlias = bankAlias;
     state.deliverySettings.bankAccountName = String(input.bankAccountName || state.deliverySettings.bankAccountName).trim();
     state.deliverySettings.bankCbu = String(input.bankCbu || "").trim();
+    state.deliverySettings.bankAccounts = accounts;
     state.deliverySettings.depotLat = numeric(input.depotLat, state.deliverySettings.depotLat);
     state.deliverySettings.depotLng = numeric(input.depotLng, state.deliverySettings.depotLng);
     appendAudit(state, "CONFIGURACION_COBRANZA", null, null, context);
@@ -1236,11 +1415,18 @@
     ensureState,
     ROUTE_STATUS,
     isEligibleForRoutePlanning,
+    isRepeatVisit,
+    matchesPlanningFilters,
+    routeAlreadyContainsOrder,
     migrateState,
     ensureRouteForOrder,
     createPlannedRoute,
+    appendOrdersToPlannedRoute,
+    assignPlannedRouteDriver,
+    routeDisplayName,
     removePlannedRoute,
     reorderRoute,
+    proposeRouteOrder,
     publishRoute,
     claimRoute,
     updateStopStatus,

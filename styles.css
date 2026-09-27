@@ -5589,8 +5589,34 @@ td small {
   padding: 3px;
 }
 
-.planner-route-summary-row > .mini-btn {
-  justify-self: start;
+.planner-route-summary strong {
+  overflow-wrap: anywhere;
+  line-height: 1.3;
+}
+
+.planner-route-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.route-optimization-preview {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.route-optimization-preview details ol {
+  max-height: 240px;
+  overflow: auto;
+  margin: 7px 0;
+  padding-left: 25px;
 }
 
 .planner-route-summary:hover {
@@ -6702,7 +6728,13 @@ td small {
 }
 
 .delivery-closure-form {
-  width: min(860px, calc(100vw - 24px));
+  width: 100%;
+  max-height: calc(100dvh - 20px);
+}
+
+#deliveryRouteClosureDialog {
+  width: min(1440px, calc(100vw - 20px));
+  max-height: calc(100dvh - 20px);
 }
 
 .delivery-closure-summary,

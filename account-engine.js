@@ -275,7 +275,7 @@
 
   function lastPayment(state, clientName) {
     const payments = accountEntries(state, clientName)
-      .filter((entry) => positive(entry.credit) > 0)
+      .filter((entry) => positive(entry.credit) > 0 && entry.type !== "Saldo a favor del cliente")
       .map((entry, index) => ({
         date: String(entry.date || entry.createdAt || ""),
         parsedDate: parseDate(entry.date || entry.createdAt),
@@ -348,6 +348,7 @@
       };
     }
     const currentBalance = positive(client.balance ?? client.saldo_actual ?? client.saldo_inicial);
+    const customerCredit = positive(client.saldo_a_favor);
     const creditLimit = positive(client.limit ?? client.limite_credito);
     const pendingExposure = pendingOrderExposure(state, client.name || client.nombre_comercial, options && options.excludeOrderCode);
     const orderAmount = positive(newOrderAmount);
@@ -367,6 +368,7 @@
       ok: true,
       clientName: client.name || client.nombre_comercial,
       currentBalance,
+      customerCredit,
       creditLimit,
       overdueDebt,
       totalDebt,
@@ -908,6 +910,7 @@
       },
       summary: {
         balance: positive(summary.currentBalance),
+        customerCredit: positive(summary.customerCredit),
         totalDebt: positive(summary.totalDebt),
         creditLimit: positive(summary.creditLimit),
         overdue: positive(summary.overdueDebt),
