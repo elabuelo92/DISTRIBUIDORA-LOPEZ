@@ -12747,6 +12747,66 @@ async function submitAuthorizedOffer(event) {
   }
 }
 
+let productPricesTarget = null;
+
+function syncProductPrices(form, source = "") {
+  const cost = Number(form.elements.costo.value);
+  for (let n = 1; n <= 5; n += 1) {
+    const price = form.elements[`price${n}`];
+    const pct = form.elements[`pct${n}`];
+    pct.disabled = !(cost > 0);
+    if ((source === `pct${n}` || source === "costo") && cost > 0 && pct.value !== "") {
+      price.value = Math.max(0, cost * (1 + Number(pct.value) / 100)).toFixed(2);
+    } else if (source === "" || source === `price${n}`) {
+      pct.value = cost > 0 && price.value !== "" ? ((Number(price.value) / cost - 1) * 100).toFixed(2) : "0.00";
+    }
+  }
+}
+
+function openProductPrices(code) {
+  if (!isAdminUser()) return;
+  const matches = state.products.filter((p) => String(p.codigo_producto) === String(code));
+  if (matches.length !== 1) { window.alert("Seleccionar un unico codigo de producto."); return; }
+  const product = matches[0];
+  const form = byId("productPricesForm");
+  form.reset();
+  productPricesTarget = { code: product.codigo_producto, name: product.name,
+    expected: { cost: Number(product.costo ?? product.cost ?? 0), prices: [1, 2, 3, 4, 5].map((n) => Number(product[`precio_lista_${n}`] ?? 0)) } };
+  form.elements.productLabel.value = `${product.codigo_producto} - ${product.name}`;
+  form.elements.costo.value = productPricesTarget.expected.cost.toFixed(2);
+  productPricesTarget.expected.prices.forEach((price, i) => { form.elements[`price${i + 1}`].value = price.toFixed(2); });
+  syncProductPrices(form);
+  byId("productPricesMessage").textContent = "";
+  byId("productPricesDialog").showModal();
+}
+
+async function submitProductPrices(event) {
+  event.preventDefault();
+  if (!isAdminUser() || !productPricesTarget) return;
+  const form = event.currentTarget;
+  const target = productPricesTarget;
+  const cost = Number(form.elements.costo.value);
+  const prices = [1, 2, 3, 4, 5].map((n) => Number(form.elements[`price${n}`].value));
+  const below = prices.some((p) => p > 0 && p < cost);
+  const details = prices.map((p, i) => `Lista ${i + 1}: ${money.format(target.expected.prices[i])} -> ${money.format(p)}`).join("\n");
+  if (!window.confirm(`${target.code} - ${target.name}\nCosto: ${money.format(target.expected.cost)} -> ${money.format(cost)}\n${details}${below ? "\nATENCION: hay precios inferiores al costo." : ""}\nGuardar solo este producto?`)) return;
+  const button = form.querySelector('[type="submit"]');
+  button.disabled = true;
+  try {
+    const payload = await postOperationalAction("api/price-lists/apply", {
+      operation: "product-columns", productCode: target.code, expected: target.expected, cost, prices,
+      motive: form.elements.motive.value.trim(), confirmed: true, allowBelowCost: below
+    });
+    if (payload.product) {
+      state.products = state.products.map((p) => String(p.codigo_producto) === String(target.code) ? normalizeProductRecord(payload.product) : p);
+    }
+    byId("productPricesDialog").close();
+    renderPriceLists();
+    showCompactNotice("Precios guardados", "ok");
+  } catch (error) { byId("productPricesMessage").textContent = error.message || "No se pudieron guardar los precios."; }
+  finally { button.disabled = false; }
+}
+
 function renderPriceLists() {
   if (!byId("priceListCards")) return;
   populatePriceListSelectors();
@@ -19580,6 +19640,8 @@ byId("selectVisibleStockProductsBtn").addEventListener("click", selectVisibleSto
 byId("activateSelectedProductsBtn").addEventListener("click", () => applySelectedProductStatus(true));
 byId("inactivateSelectedProductsBtn").addEventListener("click", () => applySelectedProductStatus(false));
 byId("stockEditForm").addEventListener("submit", submitStockEdit);
+byId("productPricesForm").addEventListener("submit", submitProductPrices);
+byId("productPricesForm").addEventListener("input", (event) => syncProductPrices(event.currentTarget, event.target.name));
 byId("priceListSearch").addEventListener("input", (event) => {
   priceListSearchTerm = event.target.value;
   priceListProductsExpanded = false;
@@ -19670,8 +19732,8 @@ byId("priceListProductsTable").addEventListener("click", (event) => {
   if (listButton) {
     const product = state.products.find((item) => priceProductKey(item) === listButton.dataset.editProductList);
     if (!product) return;
-    openStockEditDialog(product.name);
-    const target = byId("stockEditForm").elements[`precio_lista_${listButton.dataset.listNumber}`];
+    openProductPrices(product.codigo_producto);
+    const target = byId("productPricesForm").elements[`price${listButton.dataset.listNumber}`];
     if (target) {
       target.scrollIntoView({ block: "center" });
       target.focus();
@@ -19680,15 +19742,7 @@ byId("priceListProductsTable").addEventListener("click", (event) => {
   }
   const button = event.target.closest("[data-price-product]");
   if (!button) return;
-  const form = byId("priceListForm");
-  form.elements.operation.value = "individual";
-  form.elements.productKey.value = button.dataset.priceProduct;
-  form.elements.fixedPrice.value = "";
-  form.elements.increasePct.value = "0";
-  form.elements.marginPct.value = "0";
-  priceListLastSimulation = null;
-  renderPriceListOperationFields();
-  byId("priceListForm").scrollIntoView({ behavior: "smooth", block: "start" });
+  openProductPrices(button.dataset.priceProduct);
 });
 byId("commissionRulesSearch").addEventListener("input", (event) => {
   commissionSearchTerm = event.target.value;

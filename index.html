@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="es">
   <head>
     <meta charset="utf-8">
@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-159-r20260928a">
+    <link rel="manifest" href="manifest.json?v=8790-160-r20260928a">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-159-r20260928a">
+    <link rel="stylesheet" href="styles.css?v=8790-160-r20260928a">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -159,7 +159,7 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-159</strong>
+              <strong data-version-value>8790-160</strong>
               <small data-version-build>Actualizada 22/09/2026</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
@@ -2852,7 +2852,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-159</span>
+          <span id="appFooterVersion">Version del sistema: 8790-160</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -4033,6 +4033,25 @@
       </form>
     </dialog>
 
+    <dialog id="productPricesDialog">
+      <form id="productPricesForm" class="modal-card">
+        <div class="modal-header"><h2>Modificar precios</h2><button class="icon-btn" type="button" data-close-dialog aria-label="Cerrar">x</button></div>
+        <label>Producto<input name="productLabel" readonly></label>
+        <label>Costo<input name="costo" type="number" min="0" step="0.01" required></label>
+        <div class="price-list-editor-table">
+          <div class="price-list-editor-head"><span>Lista</span><span>% sobre costo</span><span>Precio final</span></div>
+          <label><span>Lista 1</span><input name="pct1" aria-label="Porcentaje lista 1" type="number" min="-100" step="0.01"><input name="price1" aria-label="Precio lista 1" type="number" min="0" step="0.01" required></label>
+          <label><span>Lista 2</span><input name="pct2" aria-label="Porcentaje lista 2" type="number" min="-100" step="0.01"><input name="price2" aria-label="Precio lista 2" type="number" min="0" step="0.01" required></label>
+          <label><span>Lista 3</span><input name="pct3" aria-label="Porcentaje lista 3" type="number" min="-100" step="0.01"><input name="price3" aria-label="Precio lista 3" type="number" min="0" step="0.01" required></label>
+          <label><span>Lista 4</span><input name="pct4" aria-label="Porcentaje lista 4" type="number" min="-100" step="0.01"><input name="price4" aria-label="Precio lista 4" type="number" min="0" step="0.01" required></label>
+          <label><span>Lista 5</span><input name="pct5" aria-label="Porcentaje lista 5" type="number" min="-100" step="0.01"><input name="price5" aria-label="Precio lista 5" type="number" min="0" step="0.01" required></label>
+        </div>
+        <label>Motivo<input name="motive" required maxlength="250"></label>
+        <p id="productPricesMessage" class="login-message" role="status"></p>
+        <menu><button type="button" class="ghost-btn" data-close-dialog>Cancelar</button><button type="submit" class="primary-btn">Guardar precios</button></menu>
+      </form>
+    </dialog>
+
     <dialog id="stockEditDialog">
       <form method="dialog" id="stockEditForm" class="modal-card">
         <div class="modal-header">
@@ -4578,20 +4597,20 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-159-r20260928a"></script>
-    <script src="maps-config.js?v=8790-159-r20260928a"></script>
-    <script src="order-engine.js?v=8790-159-r20260928a"></script>
-    <script src="account-engine.js?v=8790-159-r20260928a"></script>
-    <script src="route-optimizer.js?v=8790-159-r20260928a"></script>
-    <script src="delivery-engine.js?v=8790-159-r20260928a"></script>
-    <script src="sales-commission-report.js?v=8790-159-r20260928a"></script>
-    <script src="legal-engine.js?v=8790-159-r20260928a"></script>
-    <script src="client-portfolio-engine.js?v=8790-159-r20260928a"></script>
-    <script src="client-hours.js?v=8790-159-r20260928a"></script>
-    <script src="share-engine.js?v=8790-159-r20260928a"></script>
-    <script src="portfolio-export-engine.js?v=8790-159-r20260928a"></script>
-    <script src="progressive-list.js?v=8790-159-r20260928a"></script>
-    <script src="app.js?v=8790-159-r20260928a"></script>
+    <script src="config.js?v=8790-160-r20260928a"></script>
+    <script src="maps-config.js?v=8790-160-r20260928a"></script>
+    <script src="order-engine.js?v=8790-160-r20260928a"></script>
+    <script src="account-engine.js?v=8790-160-r20260928a"></script>
+    <script src="route-optimizer.js?v=8790-160-r20260928a"></script>
+    <script src="delivery-engine.js?v=8790-160-r20260928a"></script>
+    <script src="sales-commission-report.js?v=8790-160-r20260928a"></script>
+    <script src="legal-engine.js?v=8790-160-r20260928a"></script>
+    <script src="client-portfolio-engine.js?v=8790-160-r20260928a"></script>
+    <script src="client-hours.js?v=8790-160-r20260928a"></script>
+    <script src="share-engine.js?v=8790-160-r20260928a"></script>
+    <script src="portfolio-export-engine.js?v=8790-160-r20260928a"></script>
+    <script src="progressive-list.js?v=8790-160-r20260928a"></script>
+    <script src="app.js?v=8790-160-r20260928a"></script>
   </body>
 </html>
 
