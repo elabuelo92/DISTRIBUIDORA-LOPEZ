@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-160-r20260928a">
+    <link rel="manifest" href="manifest.json?v=8790-161-r20260928b">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-160-r20260928a">
+    <link rel="stylesheet" href="styles.css?v=8790-161-r20260928b">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -159,7 +159,7 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-160</strong>
+              <strong data-version-value>8790-161</strong>
               <small data-version-build>Actualizada 22/09/2026</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
@@ -192,10 +192,11 @@
         </div>
 
         <section class="view active" id="dashboard">
-          <div class="developer-home-badge">
-            <img src="icons/grupo-rocha-solutions.png" alt="Grupo Rocha Solutions">
-            <span>Powered by Grupo Rocha Solutions</span>
-          </div>
+          <header class="hub-welcome" id="homeWelcome">
+            <img class="hub-brand" src="icons/logo-distribuidora-lopez-192.png" alt="Distribuidora Lopez" width="64" height="64">
+            <div><p id="homeToday"></p><h2>Centro de operaciones</h2><span>Resumen de hoy</span></div>
+            <img class="hub-maker" src="icons/grupo-rocha-solutions.png" alt="Grupo Rocha Solutions" width="120" height="64">
+          </header>
           <div class="dashboard-version-strip" id="dashboardVersionStrip" aria-live="polite"></div>
           <div class="metrics-grid" id="metricsGrid"></div>
           <div class="dashboard-insights" id="dashboardInsights"></div>
@@ -1909,7 +1910,7 @@
             <section class="panel wide">
               <div class="panel-header">
                 <div>
-                  <h2>Rendicion por vendedor</h2>
+                  <h2>Control semanal de comisiones</h2>
                   <p>Comision calculada exclusivamente para el periodo seleccionado</p>
                 </div>
               </div>
@@ -1924,8 +1925,10 @@
                 <button class="primary-btn" id="commissionReportSettleBtn" type="button">Registrar pago</button>
               </div>
               <div class="table-actions">
-                <button class="secondary-btn" id="salesCommissionPdfBtn" type="button">Ventas y comisiones PDF</button>
-                <button class="secondary-btn" id="salesCommissionExcelBtn" type="button">Ventas y comisiones Excel</button>
+                <button class="secondary-btn" id="commissionThisWeekBtn" type="button">Esta semana</button>
+                <button class="secondary-btn" id="commissionLastWeekBtn" type="button">Semana anterior</button>
+                <button class="secondary-btn" id="salesCommissionPdfBtn" type="button">Sabana PDF</button>
+                <button class="secondary-btn" id="salesCommissionExcelBtn" type="button">Sabana Excel</button>
               </div>
               <div class="responsive-table"><table><thead><tr><th>Vendedor</th><th>Clientes</th><th>Pedidos</th><th>Unidades</th><th>Bruto</th><th>General</th><th>Cigarrillos</th><th>% aplicado</th><th>Comision</th></tr></thead><tbody id="salesCommissionSummaryTable"></tbody></table></div>
               <details id="salesCommissionDetails"><summary>Detalle de pedidos y productos</summary><div class="responsive-table"><table><thead><tr><th>Vendedor</th><th>Pedido</th><th>Cliente</th><th>Producto</th><th>Cantidad</th><th>Bruto</th><th>%</th><th>Comision</th><th>Regla</th></tr></thead><tbody id="salesCommissionDetailTable"></tbody></table></div><button class="secondary-btn" id="salesCommissionMoreBtn" type="button" hidden>Ver mas</button></details>
@@ -2852,7 +2855,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-160</span>
+          <span id="appFooterVersion">Version del sistema: 8790-161</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -4597,20 +4600,20 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-160-r20260928a"></script>
-    <script src="maps-config.js?v=8790-160-r20260928a"></script>
-    <script src="order-engine.js?v=8790-160-r20260928a"></script>
-    <script src="account-engine.js?v=8790-160-r20260928a"></script>
-    <script src="route-optimizer.js?v=8790-160-r20260928a"></script>
-    <script src="delivery-engine.js?v=8790-160-r20260928a"></script>
-    <script src="sales-commission-report.js?v=8790-160-r20260928a"></script>
-    <script src="legal-engine.js?v=8790-160-r20260928a"></script>
-    <script src="client-portfolio-engine.js?v=8790-160-r20260928a"></script>
-    <script src="client-hours.js?v=8790-160-r20260928a"></script>
-    <script src="share-engine.js?v=8790-160-r20260928a"></script>
-    <script src="portfolio-export-engine.js?v=8790-160-r20260928a"></script>
-    <script src="progressive-list.js?v=8790-160-r20260928a"></script>
-    <script src="app.js?v=8790-160-r20260928a"></script>
+    <script src="config.js?v=8790-161-r20260928b"></script>
+    <script src="maps-config.js?v=8790-161-r20260928b"></script>
+    <script src="order-engine.js?v=8790-161-r20260928b"></script>
+    <script src="account-engine.js?v=8790-161-r20260928b"></script>
+    <script src="route-optimizer.js?v=8790-161-r20260928b"></script>
+    <script src="delivery-engine.js?v=8790-161-r20260928b"></script>
+    <script src="sales-commission-report.js?v=8790-161-r20260928b"></script>
+    <script src="legal-engine.js?v=8790-161-r20260928b"></script>
+    <script src="client-portfolio-engine.js?v=8790-161-r20260928b"></script>
+    <script src="client-hours.js?v=8790-161-r20260928b"></script>
+    <script src="share-engine.js?v=8790-161-r20260928b"></script>
+    <script src="portfolio-export-engine.js?v=8790-161-r20260928b"></script>
+    <script src="progressive-list.js?v=8790-161-r20260928b"></script>
+    <script src="app.js?v=8790-161-r20260928b"></script>
   </body>
 </html>
 

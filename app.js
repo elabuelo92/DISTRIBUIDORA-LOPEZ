@@ -4032,6 +4032,7 @@ function updateDynamicFilter(id, values, selectedValue, allLabel) {
 }
 
 function renderAll() {
+  renderDashboardWorkspace();
   renderVersionStatus();
   renderThemeControls();
   renderMetrics();
@@ -4066,6 +4067,7 @@ function isOperationalMobileUser() {
 }
 
 function renderDashboardView() {
+  renderDashboardWorkspace();
   renderVersionStatus();
   renderThemeControls();
   renderMetrics();
@@ -4121,8 +4123,6 @@ function renderActiveView(viewId = activeViewId()) {
       break;
     case "estadisticas":
       renderAnalytics();
-      renderRoutes();
-      renderRouteSalesReport();
       break;
     case "diagnostico":
       renderDiagnostics();
@@ -6109,6 +6109,7 @@ async function copyTextToClipboard(text, successMessage = "Copiado.") {
 }
 
 function renderDashboardPresence() {
+  if (activeViewId() !== "dashboard" || operationalWorkspaces.get("dashboard")?.selected !== "map") return;
   const mapElement = byId("dashboardLivePresenceMap");
   const listElement = byId("dashboardLivePresenceList");
   if (!mapElement || !listElement || !isAdminUser()) return;
@@ -6322,6 +6323,7 @@ function routeReportTimeLabel(value) {
 }
 
 function renderDashboardDailyRoutes() {
+  if (activeViewId() !== "dashboard" || operationalWorkspaces.get("dashboard")?.selected !== "journeys") return;
   const panel = byId("gpsDailyRoutesPanel");
   if (!panel || !isAdminUser()) return;
   const dateInput = byId("gpsRouteReportDate");
@@ -9021,6 +9023,10 @@ function openOperationalTool(moduleId, toolId = "", focus = false) {
   workspace.select.value = workspace.selected;
   workspace.panels.forEach((panel, id) => { panel.hidden = id !== workspace.selected; });
   workspace.root.dataset.operationalTool = workspace.selected || "home";
+  if (moduleId === "dashboard") {
+    byId("homeWelcome").hidden = Boolean(tool);
+    byId("metricsGrid").hidden = Boolean(tool);
+  }
   if (focus) {
     (tool ? workspace.title : workspace.home.querySelector("h2"))?.focus({ preventScroll: true });
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -9028,6 +9034,12 @@ function openOperationalTool(moduleId, toolId = "", focus = false) {
   if (focus && moduleId === "reparto" && tool?.id === "deliveries" && deliveryMapVisible) {
     renderDeliveryRouteMap(activeRouteForDelivery(visibleDeliveryRoutes()));
   }
+  if (focus && moduleId === "estadisticas" && tool) renderAnalytics();
+  if (focus && moduleId === "dashboard" && tool?.id === "map") {
+    dashboardPresenceLastRenderAt = 0;
+    renderDashboardPresence();
+  }
+  if (focus && moduleId === "dashboard" && tool?.id === "journeys") renderDashboardDailyRoutes();
 }
 
 // Move the existing controls so their listeners, selections and form values survive navigation.
@@ -9067,7 +9079,7 @@ function renderOperationalWorkspace(moduleId, root, title, tools) {
       button.className = "ops-tool-card";
       button.dataset.toolId = tool.id;
       button.setAttribute("aria-controls", panel.id);
-      button.innerHTML = `<span class="ops-tool-number" aria-hidden="true">${String(visibleIndex).padStart(2, "0")}</span><strong>${escapeHtml(tool.title)}</strong><span class="ops-tool-count"></span><span class="ops-tool-arrow" aria-hidden="true">\u2192</span>`;
+      button.innerHTML = `${tool.icon ? `<span class="hub-icon"><img src="icons/tools/${escapeHtml(tool.icon)}.svg" alt="" width="26" height="26"></span>` : `<span class="ops-tool-number" aria-hidden="true">${String(visibleIndex).padStart(2, "0")}</span>`}<strong>${escapeHtml(tool.title)}</strong><span class="ops-tool-count"></span><span class="ops-tool-arrow" aria-hidden="true">\u2192</span>`;
       button.addEventListener("click", () => openOperationalTool(moduleId, tool.id, true));
       grid.append(button);
       select.add(new Option(tool.title, tool.id));
@@ -9086,6 +9098,80 @@ function renderOperationalWorkspace(moduleId, root, title, tools) {
     if (count) count.textContent = tool.summary || "";
   });
   openOperationalTool(moduleId, workspace.selected);
+}
+
+function markWorkspacePanel(contentId, panelId) {
+  const panel = byId(contentId)?.closest("section.panel");
+  if (panel) panel.id = panelId;
+  return `#${panelId}`;
+}
+
+function renderStatisticsWorkspace() {
+  const root = byId("estadisticas");
+  if (!root) return;
+  renderOperationalWorkspace("estadisticas", root, "Herramientas de analisis", [
+    { id: "sales", title: "Ventas y consumo", icon: "chart-column", summary: "Vendedores, productos y ventas registradas", selectors: [markWorkspacePanel("analyticsKpis", "statsSalesPanel")] },
+    { id: "finance", title: "Ingresos y egresos", icon: "wallet", summary: "Cobros, deudas y balance operativo", selectors: [markWorkspacePanel("incomeExpenseChart", "statsFinancePanel")] },
+    { id: "restock", title: "Reposicion", icon: "boxes", summary: "Stock, consumo y prioridades de compra", selectors: [markWorkspacePanel("restockTable", "statsRestockPanel")] },
+    { id: "shortages", title: "Faltantes", icon: "triangle-alert", summary: "Mercaderia pendiente y pedidos afectados", selectors: [markWorkspacePanel("shortageStatsTable", "statsShortagesPanel")] },
+    { id: "routes", title: "Ventas por ruta", icon: "truck", summary: "Productos por dia, vendedor y zona", selectors: [markWorkspacePanel("routeSalesTable", "statsRoutesPanel")] },
+    { id: "assets", title: "Clientes y capital", icon: "users", summary: "Cuentas, limites y capital en stock", selectors: [markWorkspacePanel("assetSignals", "statsAssetsPanel")] }
+  ]);
+  root.querySelector(":scope > .analytics-grid").hidden = true;
+}
+
+function renderDashboardWorkspace() {
+  const root = byId("dashboard");
+  if (!root) return;
+  renderOperationalWorkspace("dashboard", root, "Mi operacion", [
+    { id: "operation", title: "Estado de pedidos", icon: "clipboard-list", summary: "Del ingreso al cierre de la entrega", selectors: ["#dashboardInsights", markWorkspacePanel("flowGrid", "homeFlowPanel")] },
+    { id: "alerts", title: "Atencion pendiente", icon: "triangle-alert", summary: "Demoras y alertas de la operacion", selectors: [markWorkspacePanel("alertsList", "homeAlertsPanel")] },
+    { id: "map", title: "Equipo en vivo", icon: "map-pinned", summary: "Ubicacion de vendedores y repartidores", allowed: isAdminUser(), selectors: [markWorkspacePanel("dashboardLivePresenceMap", "homeMapPanel")] },
+    { id: "journeys", title: "Recorridos del dia", icon: "truck", summary: "Jornadas, distancias y puntos GPS", allowed: isAdminUser(), selectors: ["#gpsDailyRoutesPanel"] },
+    { id: "activity", title: "Actividad reciente", icon: "history", summary: "Pedidos, cobros y movimientos", selectors: [markWorkspacePanel("activityList", "homeActivityPanel")] },
+    { id: "commissions", title: "Comisiones", icon: "coins", summary: "Resumen de liquidaciones por vendedor", selectors: [markWorkspacePanel("commissionList", "homeCommissionPanel")] }
+  ]);
+  root.querySelector(":scope > .dashboard-grid").hidden = true;
+  root.prepend(byId("homeWelcome"), byId("metricsGrid"));
+  const date = byId("homeToday");
+  if (date) date.textContent = new Intl.DateTimeFormat("es-AR", { weekday: "long", day: "numeric", month: "long", timeZone: "America/Argentina/Buenos_Aires" }).format(new Date());
+  const home = operationalWorkspaces.get("dashboard").home;
+  let shortcuts = home.querySelector(".hub-shortcuts");
+  if (!shortcuts) {
+    shortcuts = document.createElement("section");
+    shortcuts.className = "hub-shortcuts";
+    shortcuts.setAttribute("aria-label", "Accesos a modulos");
+    home.prepend(shortcuts);
+    shortcuts.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-hub-view]");
+      if (button && canUseView(button.dataset.hubView)) { switchView(button.dataset.hubView); window.scrollTo({ top: 0 }); }
+    });
+  }
+  const links = [
+    ["pedidos", "Pedidos", "clipboard-list"], ["armado", "Armado", "package"],
+    ["reparto", "Reparto", "truck"], ["cuentas", "Cuentas", "wallet"],
+    ["clientes", "Clientes", "users"], ["stock", "Inventario", "boxes"],
+    ["precios", "Precios", "coins"], ["estadisticas", "Estadisticas", "chart-column"]
+  ].filter(([id]) => canUseView(id));
+  const signature = links.map(([id]) => id).join("|");
+  if (shortcuts.dataset.signature !== signature) {
+    shortcuts.dataset.signature = signature;
+    shortcuts.innerHTML = `<h2>Accesos directos</h2><div class="hub-shortcut-grid">${links.map(([id, label, icon]) => `<button type="button" data-hub-view="${id}"><span class="hub-icon"><img src="icons/tools/${icon}.svg" width="26" height="26" alt=""></span><strong>${label}</strong><span aria-hidden="true">\u2192</span></button>`).join("")}</div>`;
+  }
+  for (const id of ["homeActivityPanel", "homeCommissionPanel"]) {
+    const details = byId(id)?.querySelector("details");
+    if (details) details.open = true;
+  }
+  const commissionPanel = byId("homeCommissionPanel");
+  if (commissionPanel && !byId("commissionWeeklyAccess")) {
+    const button = document.createElement("button");
+    button.id = "commissionWeeklyAccess";
+    button.type = "button";
+    button.className = "primary-btn";
+    button.textContent = "Abrir control semanal de comisiones";
+    button.addEventListener("click", () => { switchView("comisiones"); window.scrollTo({ top: 0 }); });
+    commissionPanel.prepend(button);
+  }
 }
 
 function renderAssemblyDepot() {
@@ -13126,6 +13212,31 @@ function commissionReportDateKey(value) {
   return date.toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
+function commissionWeekRange(offset = 0, today = commissionReportDateKey(new Date())) {
+  const start = new Date(`${today}T12:00:00Z`);
+  start.setUTCDate(start.getUTCDate() - (start.getUTCDay() + 6) % 7 + offset * 7);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 6);
+  return { from: start.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10) };
+}
+
+function setCommissionWeek(offset = 0) {
+  const range = commissionWeekRange(offset);
+  byId("commissionReportFrom").value = range.from;
+  byId("commissionReportTo").value = range.to;
+  salesCommissionDetailLimit = 50;
+}
+
+function promoteCommissionReport() {
+  const panel = byId("commissionReportSeller")?.closest("section.panel");
+  if (!panel || panel.dataset.weeklyReady) return;
+  panel.dataset.weeklyReady = "true";
+  panel.parentElement.prepend(panel);
+  panel.insertBefore(byId("commissionAccountCards"), byId("salesCommissionSummaryTable").closest(".responsive-table"));
+  if (!byId("commissionReportFrom").value && !byId("commissionReportTo").value) setCommissionWeek();
+  byId("salesCommissionDetails").open = true;
+}
+
 function commissionReportData() {
   const seller = byId("commissionReportSeller") ? byId("commissionReportSeller").value : "all";
   const from = byId("commissionReportFrom") ? byId("commissionReportFrom").value : "";
@@ -13175,6 +13286,10 @@ function renderSalesCommissionReport() {
     <td>${row.units}</td><td>${money.format(row.gross)}</td><td>${money.format(row.general)}</td>
     <td>${money.format(row.cigarettes)}</td><td>${row.percent.toFixed(2)}%</td><td><strong>${money.format(row.commission)}</strong></td>
   </tr>`).join("") : '<tr><td colspan="9">Sin ventas en el periodo.</td></tr>';
+  if (summary && report.sellers.length) {
+    const total = report.sellers.reduce((sum, row) => sum + row.commission, 0);
+    summary.insertAdjacentHTML("beforeend", `<tr class="commission-grand-total"><td colspan="8"><strong>Total comisiones generadas del periodo</strong></td><td><strong>${money.format(total)}</strong></td></tr>`);
+  }
   const detail = byId("salesCommissionDetailTable");
   if (!detail || !byId("salesCommissionDetails")?.open) {
     if (detail) detail.innerHTML = "";
@@ -13218,6 +13333,7 @@ async function exportSalesCommissionExcel() {
 }
 
 function commissionAccountData(report = commissionReportData()) {
+  if (report.from && report.to && report.from > report.to) return null;
   if (report.seller === "all" || !OrderEngine || typeof OrderEngine.commissionAccountStatement !== "function") return null;
   return OrderEngine.commissionAccountStatement(state, {
     seller: report.seller,
@@ -13290,6 +13406,7 @@ function renderCommissionSummary() {
   const list = byId("commissionSummaryList");
   if (!list) return;
   const report = commissionReportData();
+  byId("commissionReportSettleBtn").disabled = report.seller === "all" || Boolean(report.from && report.to && report.from > report.to);
   renderSalesCommissionReport();
   const rows = report.users;
   list.innerHTML = rows.length ? rows.map((row) => `
@@ -13427,6 +13544,7 @@ function renderCommissionAudit() {
 
 function renderCommissionsModule() {
   if (!byId("commissionCards")) return;
+  promoteCommissionReport();
   renderCommissionOptions();
   renderCommissionScopeFields();
   renderCommissionCards();
@@ -16433,6 +16551,11 @@ function exportRouteSalesPdf() {
 }
 
 function renderAnalytics() {
+  renderStatisticsWorkspace();
+  const selected = operationalWorkspaces.get("estadisticas")?.selected;
+  if (!selected) return;
+  if (selected === "routes") { renderRouteSalesReport(); return; }
+  if (selected === "shortages") { renderShortageStats(); return; }
   const analytics = buildAnalytics();
   byId("analyticsKpis").innerHTML = [
     { label: "Ventas registradas", value: money.format(analytics.totalSales), hint: `${state.orders.length} pedidos` },
@@ -16491,7 +16614,6 @@ function renderAnalytics() {
     { title: "Reposicion urgente", text: `${analytics.restock.filter((item) => item.priority === "Urgente").length} productos sin cobertura.`, tone: analytics.restock.some((item) => item.priority === "Urgente") ? "danger" : "ok" },
     { title: "Base estadistica futura", text: "Cuando haya historial diario, el modulo calculara rotacion y compra sugerida por semana.", tone: "ok" }
   ].map(renderSignal).join("");
-  renderShortageStats();
 }
 
 function renderSignal(item) {
@@ -19773,7 +19895,8 @@ byId("commissionRuleForm").elements.role.addEventListener("change", () => {
   renderCommissionScopeFields();
 });
 byId("exportCommissionsCsvBtn").addEventListener("click", exportCommissionsCsv);
-["commissionReportSeller", "commissionReportFrom", "commissionReportTo"].forEach((id) => byId(id).addEventListener("change", renderCommissionSummary));
+["commissionReportSeller", "commissionReportFrom", "commissionReportTo"].forEach((id) => byId(id).addEventListener("change", () => { salesCommissionDetailLimit = 50; renderCommissionSummary(); }));
+[["commissionThisWeekBtn", 0], ["commissionLastWeekBtn", -1]].forEach(([id, offset]) => byId(id).addEventListener("click", () => { setCommissionWeek(offset); renderCommissionSummary(); }));
 ["commissionSimulatorSeller", "commissionSimulatorProduct", "commissionSimulatorBase"].forEach((id) => {
   byId(id).addEventListener(id === "commissionSimulatorProduct" ? "input" : "change", renderCommissionSimulator);
 });
