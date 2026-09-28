@@ -1,3 +1,42 @@
+.ops-workspace { width: 100%; min-width: 0; }
+.ops-workspace [hidden], #assemblyDepotWorkspace > [hidden], #reparto > .delivery-layout[hidden] { display: none !important; }
+.ops-home { max-width: 1180px; padding: 12px 0 32px; }
+.ops-home-heading { padding: 8px 0 22px; border-bottom: 1px solid var(--line); margin-bottom: 22px; }
+.ops-home-heading h2 { margin: 0; font-size: 22px; letter-spacing: 0; }
+.ops-tool-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.ops-tool-grid .ops-tool-card { position: relative; display: grid; align-content: start; gap: 12px; min-height: 178px; padding: 22px 44px 22px 22px; border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: 8px; background: var(--surface); color: var(--ink); text-align: left; cursor: pointer; white-space: normal; box-shadow: none; }
+.ops-tool-grid .ops-tool-card:nth-child(3n + 2) { border-top-color: #4278ab; }
+.ops-tool-grid .ops-tool-card:nth-child(3n) { border-top-color: #b18a35; }
+.ops-tool-card:hover { background: var(--surface-2); border-color: var(--accent); }
+.ops-tool-card:focus-visible, .ops-tool-bar button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.ops-tool-card strong { font-size: 18px; line-height: 1.35; overflow-wrap: anywhere; letter-spacing: 0; }
+.ops-tool-number { color: var(--muted); font-size: 12px; font-weight: 700; }
+.ops-tool-count { color: var(--muted); font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.ops-tool-arrow { position: absolute; right: 20px; top: 22px; font-size: 22px; color: var(--accent); }
+.ops-tool-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 12px 0 18px; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
+.ops-tool-bar h2 { font-size: 20px; margin: 0; flex: 1; letter-spacing: 0; }
+.ops-tool-bar label { display: grid; gap: 4px; max-width: 100%; font-size: 12px; color: var(--muted); }
+.ops-tool-bar select { min-height: 42px; max-width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: var(--surface); }
+.ops-tool-panel { min-width: 0; display: grid; gap: 18px; }
+.ops-tool-panel > .panel, .ops-tool-panel > .table-panel { margin: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent; padding: 0; min-width: 0; }
+.ops-tool-panel .delivery-planner-form input, .ops-tool-panel .delivery-planner-form select { min-height: 42px; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; }
+.ops-tool-panel .delivery-planner-filters { gap: 12px; }
+.ops-tool-panel .delivery-planner-filters label { display: grid; gap: 5px; min-width: 0; }
+.ops-tool-panel .delivery-planner-actions { gap: 8px; flex-wrap: wrap; }
+.ops-tool-panel .delivery-planner-actions button { min-height: 42px; white-space: normal; }
+@media (max-width: 1000px) {
+  .ops-tool-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  #armado .ops-workspace, #reparto .ops-workspace { padding: 0 12px; box-sizing: border-box; }
+  .ops-tool-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .ops-tool-grid .ops-tool-card { min-height: 130px; padding: 16px 44px 16px 16px; gap: 8px; }
+  .ops-tool-bar h2 { flex-basis: calc(100% - 150px); font-size: 18px; }
+  .ops-tool-bar label { width: 100%; }
+  .ops-tool-panel .delivery-planner-filters { grid-template-columns: minmax(0, 1fr); }
+  .ops-tool-panel .delivery-planner-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 :root {
   --bg: #f6f7f9;
   --surface: #ffffff;

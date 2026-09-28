@@ -1108,6 +1108,10 @@ function navigateBackInApp() {
   }
   const home = appHomeView();
   const current = activeViewId();
+  if (operationalWorkspaces.get(current)?.selected) {
+    openOperationalTool(current, "", true);
+    return true;
+  }
   const previous = popPreviousView();
   if (previous) {
     switchView(previous, { skipHistory: true, replaceHistory: true });
@@ -9001,6 +9005,87 @@ async function runAssemblyDepotBulkAction(action) {
   renderAssemblyDepot();
 }
 
+const operationalWorkspaces = new Map();
+
+function openOperationalTool(moduleId, toolId = "", focus = false) {
+  const workspace = operationalWorkspaces.get(moduleId);
+  if (!workspace) return;
+  const tool = workspace.tools.find((item) => item.id === toolId && item.allowed !== false);
+  if (moduleId === "armado" && workspace.selected !== tool?.id) assemblyFastScanBuffer = "";
+  workspace.selected = tool?.id || "";
+  workspace.home.hidden = Boolean(tool);
+  workspace.bar.hidden = !tool;
+  workspace.title.textContent = tool?.title || "";
+  workspace.select.value = workspace.selected;
+  workspace.panels.forEach((panel, id) => { panel.hidden = id !== workspace.selected; });
+  workspace.root.dataset.operationalTool = workspace.selected || "home";
+  if (focus) {
+    (tool ? workspace.title : workspace.home.querySelector("h2"))?.focus({ preventScroll: true });
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }
+  if (focus && moduleId === "reparto" && tool?.id === "deliveries" && deliveryMapVisible) {
+    renderDeliveryRouteMap(activeRouteForDelivery(visibleDeliveryRoutes()));
+  }
+}
+
+// Move the existing controls so their listeners, selections and form values survive navigation.
+function renderOperationalWorkspace(moduleId, root, title, tools) {
+  const owner = `${currentUser?.username || ""}:${currentUser?.role || ""}`;
+  const previous = operationalWorkspaces.get(moduleId);
+  let workspace = previous;
+  const signature = tools.map((tool) => `${tool.id}:${tool.allowed !== false}`).join("|");
+  if (!workspace || !root.contains(workspace.home) || workspace.owner !== owner || workspace.signature !== signature) {
+    const shell = root.querySelector(":scope > .ops-workspace") || document.createElement("div");
+    shell.className = "ops-workspace";
+    const home = document.createElement("section");
+    home.className = "ops-home";
+    home.innerHTML = `<div class="ops-home-heading"><h2 tabindex="-1">${escapeHtml(title)}</h2></div><div class="ops-tool-grid"></div>`;
+    const bar = document.createElement("div");
+    bar.className = "ops-tool-bar";
+    bar.innerHTML = `<button type="button" class="secondary-btn ops-home-button">\u2190 Herramientas</button><h2 tabindex="-1"></h2><label><span>Herramienta</span><select aria-label="Cambiar herramienta"><option value="">Inicio</option></select></label>`;
+    const panels = new Map();
+    const grid = home.querySelector(".ops-tool-grid");
+    const select = bar.querySelector("select");
+    let visibleIndex = 0;
+    tools.forEach((tool) => {
+      const panel = document.createElement("section");
+      panel.className = "ops-tool-panel";
+      panel.id = `ops-${moduleId}-${tool.id}`;
+      panel.setAttribute("aria-label", tool.title);
+      panel.hidden = true;
+      tool.selectors.forEach((selector) => {
+        const node = root.querySelector(selector);
+        if (node) panel.append(node);
+      });
+      panels.set(tool.id, panel);
+      if (tool.allowed === false) return;
+      visibleIndex += 1;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "ops-tool-card";
+      button.dataset.toolId = tool.id;
+      button.setAttribute("aria-controls", panel.id);
+      button.innerHTML = `<span class="ops-tool-number" aria-hidden="true">${String(visibleIndex).padStart(2, "0")}</span><strong>${escapeHtml(tool.title)}</strong><span class="ops-tool-count"></span><span class="ops-tool-arrow" aria-hidden="true">\u2192</span>`;
+      button.addEventListener("click", () => openOperationalTool(moduleId, tool.id, true));
+      grid.append(button);
+      select.add(new Option(tool.title, tool.id));
+    });
+    shell.replaceChildren(home, bar, ...panels.values());
+    root.prepend(shell);
+    workspace = { root, home, bar, title: bar.querySelector("h2"), select, panels, tools, owner, signature,
+      selected: previous?.owner === owner ? previous.selected : "" };
+    operationalWorkspaces.set(moduleId, workspace);
+    bar.querySelector("button").addEventListener("click", () => openOperationalTool(moduleId, "", true));
+    select.addEventListener("change", () => openOperationalTool(moduleId, select.value, true));
+  }
+  workspace.tools = tools;
+  tools.forEach((tool) => {
+    const count = workspace.home.querySelector(`[data-tool-id="${tool.id}"] .ops-tool-count`);
+    if (count) count.textContent = tool.summary || "";
+  });
+  openOperationalTool(moduleId, workspace.selected);
+}
+
 function renderAssemblyDepot() {
   const workspace = byId("assemblyDepotWorkspace");
   if (!workspace) return;
@@ -9088,6 +9173,12 @@ function renderAssemblyDepot() {
       </div>
     </section>
   `;
+  renderOperationalWorkspace("armado", workspace, "Herramientas de armado", [
+    { id: "orders", title: "Pedidos y etiquetas", summary: `${orders.length} pedidos en la cola`, selectors: [".assembly-depot-hero-actions", ".assembly-depot-board"] },
+    { id: "control", title: "Control de armado", summary: `${stats.readyDispatch} listos para despacho`, selectors: [".assembly-control-panel"] },
+    { id: "summary", title: "Resumen del depósito", summary: `${stats.packagesToday} bultos hoy`, selectors: [".assembly-depot-metrics"] }
+  ]);
+  workspace.querySelector(".assembly-depot-hero").hidden = true;
 }
 
 function routeDayToday() {
@@ -9746,7 +9837,7 @@ function renderDeliveryActivePanel(route, routes) {
   const mapShell = byId("deliveryRouteMap")?.closest(".delivery-route-map-shell");
   if (mapShell) mapShell.hidden = !showMap;
   mapShell?.closest(".delivery-active-grid")?.classList.toggle("map-hidden", !showMap);
-  if (showMap) renderDeliveryRouteMap(route);
+  if (showMap && operationalWorkspaces.get("reparto")?.selected === "deliveries") renderDeliveryRouteMap(route);
   else deliveryMapRenderToken += 1;
 }
 
@@ -10049,6 +10140,15 @@ function renderDelivery() {
     renderDeliveryAudit();
     renderDeliveryClosures();
   }
+  renderOperationalWorkspace("reparto", byId("reparto"), "Herramientas de reparto", [
+    { id: "planning", title: "Planificar rutas", summary: `${routes.filter((route) => route.status === "Planificada").length} rutas por publicar`, allowed: canPlanDeliveryRoutes(), selectors: [".delivery-planner-panel"] },
+    { id: "deliveries", title: "Entregar y cobrar", summary: `${allStops.length - delivered} paradas pendientes`, selectors: [".delivery-active-panel", "#deliveryKpis", ".delivery-stops-panel"] },
+    { id: "routes", title: "Hojas de ruta y rendición", summary: `${routes.length} ${routes.length === 1 ? "ruta disponible" : "rutas disponibles"}`, selectors: [".delivery-routes-panel"] },
+    { id: "collections", title: "Cierres y cobros", summary: "Rendiciones y manifiestos", allowed: isAdminUser(), selectors: [".delivery-closures-panel"] },
+    { id: "audit", title: "Auditoría de reparto", summary: "Entregas, GPS y movimientos", allowed: isAdminUser(), selectors: [".delivery-audit-panel"] },
+    { id: "settings", title: isAdminUser() ? "Configuración y equipo" : "Mi equipo", summary: deliveryDevice.label || "Dispositivo operativo", selectors: [".delivery-settings-panel", ".delivery-device-bar"] }
+  ]);
+  byId("reparto").querySelector(".delivery-layout").hidden = true;
 }
 
 function renderDeliveryStops(route) {
@@ -22468,6 +22568,7 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("keydown", (event) => {
   if (!location.hash.includes("armado")) return;
+  if (operationalWorkspaces.get("armado")?.selected !== "control") return;
   const editable = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement;
   const scannerInput = event.target?.id === "assemblyFastScanInput";
   if (editable && !scannerInput) return;
@@ -22715,6 +22816,7 @@ document.addEventListener("click", async (event) => {
     deliveryStopFilter = "pending";
     deliveryStopPageSize = 15;
     renderDelivery();
+    openOperationalTool("reparto", "deliveries", true);
     return;
   }
   const publish = event.target.closest("[data-publish-route]");
