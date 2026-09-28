@@ -326,6 +326,8 @@ let mobileClientHistoryExpandedOrder = "";
 let mobileClientHistoryOrderDetails = new Map();
 let lastMobileConsultationAuditKey = "";
 let syncVersion = 0;
+// A partial order response does not acknowledge the seller's complete catalog.
+let sellerCatalogVersion = 0;
 let syncReady = false;
 let saveTimer = null;
 let geoWatchId = null;
@@ -1972,8 +1974,7 @@ function priceListProductMatches(product, input = {}) {
   const productKey = normalizeSearchText(input.productKey || input.productCode || input.product || "");
   if (operation === "individual") {
     if (!productKey) return false;
-    return [product.codigo_producto, product.codigo_barras, product.name, product.descripcion]
-      .some((value) => normalizeSearchText(value) === productKey || normalizeSearchText(value).includes(productKey));
+    return normalizeSearchText(priceProductKey(product)) === productKey;
   }
   if (operation === "rubro") return normalizeSearchText(product.rubro) === normalizeSearchText(input.rubro);
   if (operation === "marca") return normalizeSearchText(product.marca) === normalizeSearchText(input.marca);
@@ -2391,6 +2392,7 @@ function applyServerStatePayload(payload) {
     syncVersion = payload.version || syncVersion;
   }
   if (!payload.state) return;
+  if (currentUser?.role === "seller") sellerCatalogVersion = Number(payload.version || 0);
   applyPresencePayload(payload);
   const nextState = normalizeState(payload.state);
   trackIncomingNotifications(nextState);
@@ -4802,7 +4804,7 @@ function renderMobileSeller() {
       <span>Ultimo pago: ${escapeHtml(formatLastPayment(credit.lastPayment))}</span>
       <span>Horario de hoy: ${escapeHtml(ClientHours ? ClientHours.today(selectedClient.horarios_atencion) || selectedClient.horario_atencion || "No informado" : selectedClient.horario_atencion || "No informado")}</span>
       ${selectedClient.horario_observacion ? `<span>${escapeHtml(selectedClient.horario_observacion)}</span>` : ""}
-      <span class="account-inline-status ${accountStatusTone(credit.status)}">${escapeHtml(credit.warning)}</span>
+      <span class="account-inline-status ${["needs_correction", "pending_validation", "rejected"].includes(selectedClient.gpsReview?.status) ? "danger" : accountStatusTone(credit.status)}">${escapeHtml(["needs_correction", "pending_validation", "rejected"].includes(selectedClient.gpsReview?.status) ? "UBICACION PENDIENTE DE ACTUALIZACION. Nuevas ventas inhabilitadas." : credit.warning)}</span>
     `;
   } else {
     byId("mobileClientName").textContent = "Seleccionar cliente";
@@ -23068,7 +23070,8 @@ async function pullStateFromServer() {
   syncPullInFlight = true;
   try {
     const deferState = activeViewId() === "clientes" ? "&deferState=clients" : "";
-    const response = await fetchWithTimeout(apiUrl(`api/state?version=${encodeURIComponent(syncVersion || 0)}${deferState}`), { cache: "no-store" }, STATE_SYNC_TIMEOUT_MS);
+    const catalogVersion = currentUser?.role === "seller" ? sellerCatalogVersion : syncVersion;
+    const response = await fetchWithTimeout(apiUrl(`api/state?version=${encodeURIComponent(catalogVersion || 0)}${deferState}`), { cache: "no-store" }, STATE_SYNC_TIMEOUT_MS);
     if (response.status === 401) {
       stopRealtimeChannels();
       currentUser = null;
@@ -23085,7 +23088,7 @@ async function pullStateFromServer() {
       return;
     }
     const payload = await response.json();
-    const previousSyncVersion = syncVersion || 0;
+    const previousSyncVersion = currentUser?.role === "seller" ? sellerCatalogVersion : syncVersion || 0;
     applyPresencePayload(payload);
     syncReady = true;
     setSyncStatus(`Conectado con distribuidora - ${new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`, "ok");
@@ -23098,7 +23101,7 @@ async function pullStateFromServer() {
     });
     if (payload.deferred && !payload.state) return;
     if (payload.unchanged && !payload.state) {
-      if (payload.version) syncVersion = Math.max(previousSyncVersion, Number(payload.version) || 0);
+      if (payload.version) syncVersion = Math.max(syncVersion || 0, Number(payload.version) || 0);
       const now = Date.now();
       if (now - lastPresenceRenderAt > 5000) {
         applyPresenceToState();
@@ -23109,6 +23112,8 @@ async function pullStateFromServer() {
       }
       return;
     }
+    // Do not replace a newer local mutation with an older in-flight snapshot.
+    if (currentUser?.role === "seller" && payload.state && Number(payload.version) < Number(syncVersion)) return;
     if (payload.state && payload.version > previousSyncVersion) {
       const nextState = normalizeState(payload.state);
       trackIncomingNotifications(nextState);
@@ -23116,6 +23121,7 @@ async function pullStateFromServer() {
       applyPresenceToState();
       mergeOwnLocationIntoState();
       syncVersion = payload.version;
+      if (currentUser?.role === "seller") sellerCatalogVersion = Number(payload.version);
       persistLocalMeta("pullStateFromServer");
       scheduleRenderForCurrentUser();
     } else if (payload.state) {

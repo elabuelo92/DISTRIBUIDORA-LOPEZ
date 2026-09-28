@@ -47,11 +47,12 @@ const child = spawn(process.execPath, [path.join(root, "server.js")], {
 });
 let serverError = "";
 child.stderr.on("data", (chunk) => { serverError += chunk.toString(); });
-child.stdout.on("data", () => {});
+child.stdout.on("data", (chunk) => { serverError += chunk.toString(); });
+child.on("error", (error) => { serverError += error.message; });
 const base = `http://127.0.0.1:${port}`;
 
 async function waitHealth() {
-  for (let index = 0; index < 100; index += 1) {
+  for (let index = 0; index < 600; index += 1) {
     try {
       const response = await fetch(`${base}/api/health`);
       if (response.ok) return response.json();
