@@ -1,14 +1,14 @@
-﻿(function () {
+(function () {
   window.DL_CONNECTION_CONFIG = {
     API_BASE_URL: "",
     API_PORT: 8790,
     SOCKET_URL: "",
     SERVER_NAME: "SERVIDOR_UNICO_8790",
     MAGIC_DNS_HOST: "desktop-c2c0q4v.tail6f19de.ts.net",
-    VERSION: "8790-159",
-    BUILD_LABEL: "27/09/2026",
-    BUILD_AT: "2026-09-27T17:35:00-03:00",
-    RELEASE_CHANNEL: "Prueba local",
+    VERSION: "8790-160",
+    BUILD_LABEL: "28/09/2026 18:50 ART",
+    BUILD_AT: "2026-09-28T18:50:00-03:00",
+    RELEASE_CHANNEL: "Produccion",
     TIMEOUTS: {
       server: 7000,
       stateSync: 45000,

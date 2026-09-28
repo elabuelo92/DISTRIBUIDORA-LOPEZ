@@ -7560,6 +7560,34 @@ dialog::backdrop {
   width: min(980px, calc(100vw - 24px));
 }
 
+#productPricesForm {
+  min-width: 0;
+  gap: 10px;
+}
+
+#productPricesForm .price-list-editor-head,
+#productPricesForm .price-list-editor-table label {
+  grid-template-columns: minmax(48px, 0.65fr) minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 6px;
+}
+
+#productPricesForm input,
+#productPricesForm label,
+#productPricesForm .price-list-editor-table {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+#productPricesForm menu {
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+#productPricesForm menu button { min-width: 0; white-space: normal; }
+
 .modal-card {
   display: grid;
   gap: 14px;

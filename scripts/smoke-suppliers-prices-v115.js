@@ -86,6 +86,24 @@ async function post(cookie, endpoint, body, expectedStatus = 200) {
   assert.equal(health.version, "8790-115");
   const cookie = await login();
 
+  const initialState = (await (await fetch(`${base}/api/state`, { headers: { Cookie: cookie } })).json()).state;
+  const target = initialState.products.find((p) => p.codigo_producto === "P-2");
+  const columns = { operation: "product-columns", productCode: "P-2", confirmed: true, motive: "Smoke five lists",
+    expected: { cost: Number(target.costo ?? target.cost ?? 0), prices: [1, 2, 3, 4, 5].map((n) => Number(target[`precio_lista_${n}`] ?? 0)) },
+    cost: 1000, prices: [2100, 2200, 2300, 2400, 2500] };
+  await post(cookie, "api/price-lists/apply", { ...columns, productCode: "P-" }, 400);
+  await post(cookie, "api/price-lists/apply", { ...columns, prices: [900, 2200, 2300, 2400, 2500] }, 400);
+  const changed = await post(cookie, "api/price-lists/apply", columns);
+  assert.equal(changed.product.precio_lista_2, 2200);
+  assert.equal(changed.product.precio_lista_5, 2500);
+  assert.equal(changed.product.costo, 1000);
+  assert.equal(changed.product.stock, target.stock);
+  await post(cookie, "api/price-lists/apply", columns, 400);
+  const afterColumns = (await (await fetch(`${base}/api/state`, { headers: { Cookie: cookie } })).json()).state;
+  assert.deepEqual(afterColumns.orders, initialState.orders);
+  assert.deepEqual(afterColumns.products.find((p) => p.codigo_producto === "P-1"), initialState.products.find((p) => p.codigo_producto === "P-1"));
+  assert.equal(afterColumns.priceListAudit.filter((a) => a.operation === "producto_listas").length, 5);
+
   const createdSupplier = await post(cookie, "api/suppliers", { razon_social: "Proveedor Codigo Uno" });
   assert.match(createdSupplier.supplier.codigo_proveedor, /^PRV-[A-F0-9]{10}$/);
   const editedSupplier = await post(cookie, "api/suppliers", {
@@ -114,7 +132,7 @@ async function post(cookie, endpoint, body, expectedStatus = 200) {
     increasePct: -10,
     rounding: 1,
     status: "Activa",
-    effectiveAt: new Date().toISOString(),
+    effectiveAt: new Date(Date.now() - 10000).toISOString(),
     motive: "Prueba automatizada de descuento por proveedor",
     confirmed: true
   });
@@ -147,7 +165,7 @@ async function post(cookie, endpoint, body, expectedStatus = 200) {
 
   const persisted = JSON.parse(fs.readFileSync(stateFile, "utf8")).state;
   assert.equal(persisted.products.find((item) => item.codigo_producto === "P-1").price, 900);
-  assert.equal(persisted.products.find((item) => item.codigo_producto === "P-2").price, 2000);
+  assert.equal(persisted.products.find((item) => item.codigo_producto === "P-2").price, 2200);
   assert.equal(persisted.suppliers.find((item) => item.name === "Proveedor Legal SA").estado_operativo, "Inactivo");
   assert.equal(persisted.suppliers.some((item) => item.name === "Proveedor Limpio"), false);
   assert.equal(persisted.supplierMovements.length, 1);

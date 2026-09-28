@@ -1,4 +1,4 @@
-﻿const fs = require("fs");
+const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const crypto = require("crypto");
@@ -22,7 +22,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-159";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-160";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -4996,6 +4996,39 @@ function appendPriceListAudit(state, list, simulation, input, userName) {
   return entries;
 }
 
+function applyProductPriceColumns(state, input, user) {
+  const matches = (state.products || []).filter((p) => String(p.codigo_producto || "") === String(input.productCode || ""));
+  if (!input.productCode || matches.length !== 1) throw new Error("Seleccionar un unico codigo de producto.");
+  if (input.confirmed !== true || !String(input.motive || "").trim()) throw new Error("Confirmar cambios e indicar motivo.");
+  const product = matches[0];
+  const before = { cost: Number(product.costo ?? product.cost ?? 0), prices: [1, 2, 3, 4, 5].map((n) => Number(product[`precio_lista_${n}`] ?? 0)) };
+  if (!input.expected || JSON.stringify(before) !== JSON.stringify({ cost: input.expected.cost, prices: input.expected.prices })) {
+    throw new Error("El precio o costo cambio mientras editaba. Cierre y vuelva a abrir el producto.");
+  }
+  if (typeof input.cost !== "number" || !Number.isFinite(input.cost) || input.cost < 0 || !Array.isArray(input.prices) || input.prices.length !== 5
+    || input.prices.some((price) => typeof price !== "number" || !Number.isFinite(price) || price < 0)) throw new Error("Costo y cinco precios deben ser numeros validos no negativos.");
+  if (input.prices.some((price) => price > 0 && price < input.cost) && input.allowBelowCost !== true) throw new Error("Hay precios inferiores al costo. Se requiere confirmacion explicita.");
+  const at = new Date().toISOString();
+  const actor = user.name || user.username;
+  const rows = input.prices.flatMap((price, index) => Math.abs(price - before.prices[index]) < 0.005 ? [] : [{
+    id: crypto.randomUUID(), at, ...auditLocalParts(at), user: actor, username: user.username,
+    operation: "producto_listas", motive: input.motive, listId: `PL-L${index + 1}`, listNumber: index + 1,
+    listName: `Lista ${index + 1}`, productCode: product.codigo_producto, productName: product.name,
+    previousPrice: before.prices[index], newPrice: price, difference: price - before.prices[index]
+  }]);
+  product.costo = product.cost = input.cost;
+  input.prices.forEach((price, index) => {
+    product[`precio_lista_${index + 1}`] = price;
+    product[`margen_lista_${index + 1}`] = input.cost > 0 ? Math.round((price / input.cost - 1) * 10000) / 100 : 0;
+  });
+  product.price = input.prices[1];
+  product.priceUpdatedAt = at;
+  product.priceUpdatedBy = actor;
+  state.priceListAudit = [...rows, ...(state.priceListAudit || [])].slice(0, 10000);
+  ensurePriceListsState(state);
+  return { product, before, after: { cost: input.cost, prices: input.prices } };
+}
+
 function applyPriceListChange(state, input, user) {
   ensurePriceListsState(state);
   if (!input || input.confirmed !== true) throw new Error("La modificacion de precios requiere confirmacion administrativa.");
@@ -6122,6 +6155,16 @@ const server = http.createServer(async (req, res) => {
       const input = JSON.parse(body || "{}");
       const currentPayload = readStateFileCached();
       const currentState = currentPayload.state || {};
+      if (input.operation === "product-columns") {
+        try {
+          const result = applyProductPriceColumns(currentState, input, sessionUser);
+          writeCompactStateResponse(res, currentState, { product: result.product, refreshRequired: true }, auditEntry(req, sessionUser, input, {
+            action: "PRODUCTO_PRECIOS_ACTUALIZADOS", entityType: "producto", entityId: input.productCode,
+            entityLabel: result.product.name, previousValue: result.before, newValue: result.after, note: input.motive
+          }), null, { atomic: true });
+        } catch (error) { sendJson(res, 400, { ok: false, error: error.message }); }
+        return;
+      }
       orderEngine.migrateState(currentState);
       ensurePriceListsState(currentState);
       const previousList = entitySnapshot(currentState, "lista-precios", input.listId || input.name || input.listName || "");

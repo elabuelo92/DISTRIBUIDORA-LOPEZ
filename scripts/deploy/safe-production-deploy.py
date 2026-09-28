@@ -64,9 +64,10 @@ echo __MEMORY__; free -h
     print(out)
 
 
-def deploy(client, version, allow_operational_archive=False):
+def deploy(client, version, allow_operational_archive=False, recover_price_incident=False):
     version_q = shlex.quote(version)
     archive_review = "1" if allow_operational_archive else "0"
+    price_recovery = "1" if recover_price_incident else "0"
     command = rf"""
 set -euo pipefail
 cd {APP_DIR}
@@ -115,7 +116,7 @@ fi
 enable_maintenance
 sudo tar -C /opt/distribuidora-lopez -czf "$BACKUP_DIR/app.tar.gz" app
 sudo systemctl stop {SERVICE}
-if ! sudo tar -C /opt/distribuidora-lopez -czf "$BACKUP_DIR/data.tar.gz" data; then
+if ! sudo tar -C /opt/distribuidora-lopez -czf "$BACKUP_DIR/data.tar.gz" data || ! sudo gzip -t "$BACKUP_DIR/data.tar.gz"; then
   sudo systemctl start {SERVICE}
   disable_maintenance
   echo 'ERROR: DATA_BACKUP_FAILED'
@@ -154,6 +155,11 @@ git merge --ff-only origin/main
 node --check server.js
 node --check app.js
 node --check order-engine.js
+if [ "{price_recovery}" = "1" ]; then
+  if ! sudo node scripts/recover-price-incident-20260928.js {DATA_DIR}/demo-state.json --apply --expect-31 > "$BACKUP_DIR/price-recovery.json"; then
+    rollback_deploy 43 'PRICE_RECOVERY_PRECONDITION_FAILED'
+  fi
+fi
 if grep -q '^DL_VERSION=' /etc/distribuidora-lopez.env; then
   sudo sed -i "s/^DL_VERSION=.*/DL_VERSION={version_q}/" /etc/distribuidora-lopez.env
 else
@@ -198,13 +204,14 @@ def main():
     parser.add_argument("action", choices=["inspect", "deploy"])
     parser.add_argument("--version", default="8790-127")
     parser.add_argument("--allow-operational-archive", action="store_true")
+    parser.add_argument("--recover-price-incident", action="store_true", help="Restore reviewed 20260928 incident while ERP is stopped")
     args = parser.parse_args()
     client = connect()
     try:
         if args.action == "inspect":
             inspect(client)
         else:
-            deploy(client, args.version, args.allow_operational_archive)
+            deploy(client, args.version, args.allow_operational_archive, args.recover_price_incident)
     finally:
         client.close()
 
