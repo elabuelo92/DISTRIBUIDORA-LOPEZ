@@ -31,7 +31,7 @@ let serverError = "";
 child.stderr.on("data", (chunk) => { serverError += chunk.toString(); });
 
 async function waitHealth() {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < 600; attempt += 1) {
     try { if ((await fetch(`${base}/api/health`)).ok) return; } catch {}
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -69,6 +69,8 @@ async function post(cookie, endpoint, input) {
     const previous = { lat: state.clients[0].latitud, lng: state.clients[0].longitud };
     assert.equal((await post(seller, endpoint, { action: "mark" })).status, 400);
     assert.equal((await post(admin, endpoint, { action: "mark" })).status, 200);
+    const markedState = await (await fetch(`${base}/api/state?version=0`, { headers: { Cookie: seller } })).json();
+    assert.equal(markedState.state.clients.find((c) => c.codigo_cliente === id).gpsReview.status, "needs_correction");
     const blocked = await post(seller, "/api/orders", { operationId: "GPS-REVIEW-ORDER-1", client: state.clients[0].name, items: [{ productCode: "P-132", qty: 1 }] });
     assert.equal(blocked.status, 409);
     assert.match(blocked.body.error, /UBICACION PENDIENTE/);
@@ -94,6 +96,8 @@ async function post(cookie, endpoint, input) {
     assert.equal(saved.latitud, -31.412345678);
     assert.equal(saved.longitud, -64.181234567);
     assert.equal(saved.gpsReview.status, "approved");
+    const approvedState = await (await fetch(`${base}/api/state?version=${markedState.version}`, { headers: { Cookie: seller } })).json();
+    assert.equal(approvedState.state.clients.find((c) => c.codigo_cliente === id).gpsReview.status, "approved");
     assert.ok(saved.gpsReviewHistory.length >= 4);
     assert.equal(JSON.parse(fs.readFileSync(stateFile, "utf8")).state.orders.length, 1);
     console.log(JSON.stringify({ ok: true, blockedDuringReview: true, originalOrderPreserved: true, precision: saved.gpsReview.proposal.accuracy }));

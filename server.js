@@ -22,7 +22,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-158";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-159";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -4852,12 +4852,7 @@ function priceListProductMatches(state, product, input = {}) {
   const productKey = normalizeSearchText(input.productKey || input.productCode || input.product || "");
   if (operation === "individual") {
     if (!productKey) return false;
-    return [
-      product.codigo_producto,
-      product.codigo_barras,
-      product.name,
-      product.descripcion
-    ].some((value) => normalizeSearchText(value) === productKey || normalizeSearchText(value).includes(productKey));
+    return normalizeSearchText(priceProductKey(product)) === productKey;
   }
   if (operation === "rubro") return sameText(product.rubro, input.rubro);
   if (operation === "marca") return sameText(product.marca, input.marca);
@@ -4878,6 +4873,9 @@ function computePriceListSimulation(state, input = {}) {
   const marginPct = numeric(input.marginPct ?? input.porcentaje_margen, 0);
   const fixedPrice = numeric(input.fixedPrice ?? input.price ?? input.precio_venta, NaN);
   const products = (Array.isArray(state.products) ? state.products : []).filter((product) => priceListProductMatches(state, product, { ...input, operation }));
+  if (operation === "individual" && products.length !== 1) {
+    throw new Error("La modificacion individual requiere un unico producto con codigo exacto. Vuelva a seleccionarlo.");
+  }
   const selectedSupplier = String(input.proveedor || input.supplier || "").trim();
   const items = products.map((product) => {
     const previousPrice = currentProductPrice(product);
