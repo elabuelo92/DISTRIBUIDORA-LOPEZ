@@ -1,0 +1,750 @@
+{
+  "version": "8790-163-simulation",
+  "startedAt": "2026-09-29T02:53:42.683Z",
+  "durationMs": 180000,
+  "targetOrders": 100,
+  "deliverAll": true,
+  "actors": {
+    "sellers": 10,
+    "admins": 4,
+    "depot": 1,
+    "drivers": 4,
+    "receivers": 1
+  },
+  "allReaders": true,
+  "incrementalReads": true,
+  "sectionSync": true,
+  "clientCount": 1315,
+  "historyCount": 1020,
+  "simulateGps": true,
+  "readerIntervalMs": 5000,
+  "syntheticStateBytes": 44269296,
+  "transport": "pooled-connection",
+  "productionWrites": 0,
+  "recoveredNetworkCuts": 0,
+  "operations": {
+    "simHealth": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 1613,
+      "decodedBytes": 1613,
+      "count": 1,
+      "p50Ms": 226,
+      "p95Ms": 226,
+      "p99Ms": 226,
+      "maxMs": 226
+    },
+    "login": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 61321,
+      "decodedBytes": 308913,
+      "count": 40,
+      "p50Ms": 66,
+      "p95Ms": 289,
+      "p99Ms": 329,
+      "maxMs": 329
+    },
+    "seller.gps": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 155616,
+      "decodedBytes": 1415913,
+      "count": 60,
+      "p50Ms": 1480,
+      "p95Ms": 5423,
+      "p99Ms": 5693,
+      "maxMs": 5693
+    },
+    "driver.concurrentRead": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 145210,
+      "decodedBytes": 2005517,
+      "count": 40,
+      "p50Ms": 2447,
+      "p95Ms": 4886,
+      "p99Ms": 6381,
+      "maxMs": 6381
+    },
+    "createOrder": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 155872,
+      "decodedBytes": 643774,
+      "count": 100,
+      "p50Ms": 1388,
+      "p95Ms": 4662,
+      "p99Ms": 5523,
+      "maxMs": 7310
+    },
+    "seller.concurrentRead": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 4888364,
+      "decodedBytes": 126102517,
+      "partialResponses": 90,
+      "count": 100,
+      "p50Ms": 2819,
+      "p95Ms": 6005,
+      "p99Ms": 7663,
+      "maxMs": 7980
+    },
+    "driver.gps": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 158131,
+      "decodedBytes": 1439103,
+      "count": 60,
+      "p50Ms": 1506,
+      "p95Ms": 4773,
+      "p99Ms": 5301,
+      "maxMs": 5301
+    },
+    "admin.concurrentRead": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 11642133,
+      "decodedBytes": 524271157,
+      "partialResponses": 36,
+      "count": 40,
+      "p50Ms": 5128,
+      "p95Ms": 8435,
+      "p99Ms": 8835,
+      "maxMs": 8835
+    },
+    "workflow.assembly": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 62682,
+      "decodedBytes": 640005,
+      "count": 23,
+      "p50Ms": 604,
+      "p95Ms": 2638,
+      "p99Ms": 2706,
+      "maxMs": 2706
+    },
+    "admin.clients": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 49666,
+      "decodedBytes": 757845,
+      "count": 40,
+      "p50Ms": 2181,
+      "p95Ms": 4218,
+      "p99Ms": 5936,
+      "maxMs": 5936
+    },
+    "workflow.labels": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 68431,
+      "decodedBytes": 702771,
+      "count": 23,
+      "p50Ms": 505,
+      "p95Ms": 3229,
+      "p99Ms": 4156,
+      "maxMs": 4156
+    },
+    "depot.concurrentRead": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 708681,
+      "decodedBytes": 16235390,
+      "partialResponses": 12,
+      "count": 13,
+      "p50Ms": 2895,
+      "p95Ms": 7330,
+      "p99Ms": 7330,
+      "maxMs": 7330
+    },
+    "receiver.concurrentRead": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 1471577,
+      "decodedBytes": 75278537,
+      "partialResponses": 12,
+      "count": 13,
+      "p50Ms": 3711,
+      "p95Ms": 8691,
+      "p99Ms": 8691,
+      "maxMs": 8691
+    },
+    "workflow.verify-ready": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 70914,
+      "decodedBytes": 736406,
+      "count": 23,
+      "p50Ms": 706,
+      "p95Ms": 3266,
+      "p99Ms": 4744,
+      "maxMs": 4744
+    },
+    "route.plan": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 13294,
+      "decodedBytes": 148894,
+      "count": 5,
+      "p50Ms": 622,
+      "p95Ms": 1442,
+      "p99Ms": 1442,
+      "maxMs": 1442
+    },
+    "route.reorder": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 13276,
+      "decodedBytes": 148889,
+      "count": 5,
+      "p50Ms": 649,
+      "p95Ms": 1357,
+      "p99Ms": 1357,
+      "maxMs": 1357
+    },
+    "route.publish": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 54428,
+      "decodedBytes": 886570,
+      "count": 5,
+      "p50Ms": 734,
+      "p95Ms": 788,
+      "p99Ms": 788,
+      "maxMs": 788
+    },
+    "route.claim": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 12931,
+      "decodedBytes": 145907,
+      "count": 5,
+      "p50Ms": 624,
+      "p95Ms": 1148,
+      "p99Ms": 1148,
+      "maxMs": 1148
+    },
+    "delivery.collect": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 667697,
+      "decodedBytes": 8697457,
+      "count": 100,
+      "p50Ms": 624,
+      "p95Ms": 3989,
+      "p99Ms": 4516,
+      "maxMs": 5915
+    },
+    "sync.catchup": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 3161649,
+      "decodedBytes": 83184345,
+      "partialResponses": 16,
+      "count": 20,
+      "p50Ms": 73,
+      "p95Ms": 2283,
+      "p99Ms": 2466,
+      "maxMs": 2466
+    },
+    "performance": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 1330,
+      "decodedBytes": 5859,
+      "count": 1,
+      "p50Ms": 5,
+      "p95Ms": 5,
+      "p99Ms": 5,
+      "maxMs": 5
+    }
+  },
+  "failures": [],
+  "hostSamples": [
+    {
+      "at": "2026-09-29T02:53:51.285Z",
+      "load1": 0,
+      "freeMemMb": 4793
+    },
+    {
+      "at": "2026-09-29T02:54:06.327Z",
+      "load1": 0,
+      "freeMemMb": 4198
+    },
+    {
+      "at": "2026-09-29T02:54:21.337Z",
+      "load1": 0,
+      "freeMemMb": 4560
+    },
+    {
+      "at": "2026-09-29T02:54:36.346Z",
+      "load1": 0,
+      "freeMemMb": 4532
+    },
+    {
+      "at": "2026-09-29T02:54:51.356Z",
+      "load1": 0,
+      "freeMemMb": 4442
+    },
+    {
+      "at": "2026-09-29T02:55:06.356Z",
+      "load1": 0,
+      "freeMemMb": 4405
+    },
+    {
+      "at": "2026-09-29T02:55:21.357Z",
+      "load1": 0,
+      "freeMemMb": 4417
+    },
+    {
+      "at": "2026-09-29T02:55:36.369Z",
+      "load1": 0,
+      "freeMemMb": 4305
+    },
+    {
+      "at": "2026-09-29T02:55:51.374Z",
+      "load1": 0,
+      "freeMemMb": 4123
+    },
+    {
+      "at": "2026-09-29T02:56:06.388Z",
+      "load1": 0,
+      "freeMemMb": 4133
+    },
+    {
+      "at": "2026-09-29T02:56:21.400Z",
+      "load1": 0,
+      "freeMemMb": 4315
+    },
+    {
+      "at": "2026-09-29T02:56:36.413Z",
+      "load1": 0,
+      "freeMemMb": 4423
+    }
+  ],
+  "publicHealth": {
+    "checks": 0,
+    "failures": 0,
+    "slow": 0,
+    "maxMs": 0
+  },
+  "abortedForProductionHealth": false,
+  "abortedForHostPressure": false,
+  "convergence": {
+    "targetVersion": 1790650682379,
+    "elapsedMs": 5875,
+    "failedTasks": 0,
+    "laggingUsers": []
+  },
+  "serverPerformance": {
+    "ok": true,
+    "generatedAt": "2026-09-29T02:58:09.349Z",
+    "eventLoopDelayP95Ms": 681,
+    "eventLoopDelayMaxMs": 2684,
+    "stateWrites": {
+      "count": 309,
+      "totalMs": 142445.65389999992,
+      "maxMs": 1069.8293999999878,
+      "lastMs": 551.6577999999863,
+      "lastMigrationMs": 0.0031000000017229468,
+      "lastSerializationMs": 258.046800000011,
+      "lastDiskMs": 293.01329999999143,
+      "lastBytes": 59569390,
+      "lastAt": "2026-09-29T02:58:03.014Z",
+      "averageMs": 461,
+      "sampleCount": 64,
+      "p95Ms": 724,
+      "p95SerializationMs": 309,
+      "p95DiskMs": 414
+    },
+    "stateReadMigration": {
+      "count": 1,
+      "p95Ms": 1906,
+      "maxMs": 1906
+    },
+    "stateSync": {
+      "inFlight": 0,
+      "maxConcurrent": 4,
+      "rejectedSinceStart": 0,
+      "queued": 0
+    },
+    "slowThresholdMs": 1000,
+    "requests": [
+      {
+        "key": "GET /api/state",
+        "count": 186,
+        "errors": 0,
+        "slow": 126,
+        "totalMs": 373371.79020000016,
+        "maxMs": 6324,
+        "lastMs": 1011,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:58:09.268Z",
+        "averageMs": 2007
+      },
+      {
+        "key": "GET /api/delivery",
+        "count": 40,
+        "errors": 0,
+        "slow": 19,
+        "totalMs": 66867.22769999999,
+        "maxMs": 5016,
+        "lastMs": 1927,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:56:46.804Z",
+        "averageMs": 1672
+      },
+      {
+        "key": "POST /api/orders",
+        "count": 100,
+        "errors": 0,
+        "slow": 50,
+        "totalMs": 137261.05800000002,
+        "maxMs": 4966,
+        "lastMs": 1253,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:56:51.279Z",
+        "averageMs": 1373
+      },
+      {
+        "key": "POST /api/presence/location",
+        "count": 120,
+        "errors": 0,
+        "slow": 61,
+        "totalMs": 138024.7157999999,
+        "maxMs": 4609,
+        "lastMs": 2896,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:56:43.899Z",
+        "averageMs": 1150
+      },
+      {
+        "key": "POST /api/delivery/orders/:id/collect",
+        "count": 100,
+        "errors": 0,
+        "slow": 28,
+        "totalMs": 99785.8158,
+        "maxMs": 4422,
+        "lastMs": 645,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:58:03.015Z",
+        "averageMs": 998
+      },
+      {
+        "key": "GET /api/clients",
+        "count": 40,
+        "errors": 0,
+        "slow": 21,
+        "totalMs": 45826.16280000007,
+        "maxMs": 4287,
+        "lastMs": 1341,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:56:49.282Z",
+        "averageMs": 1146
+      },
+      {
+        "key": "POST /api/orders/:id",
+        "count": 69,
+        "errors": 0,
+        "slow": 13,
+        "totalMs": 55027.61510000004,
+        "maxMs": 2951,
+        "lastMs": 607,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:57:21.941Z",
+        "averageMs": 798
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION/reorder",
+        "count": 1,
+        "errors": 0,
+        "slow": 1,
+        "totalMs": 1352.9717999999993,
+        "maxMs": 1353,
+        "lastMs": 1353,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:55:29.491Z",
+        "averageMs": 1353
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-2/claim",
+        "count": 1,
+        "errors": 0,
+        "slow": 1,
+        "totalMs": 1144.6520000000019,
+        "maxMs": 1145,
+        "lastMs": 1145,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:56:14.297Z",
+        "averageMs": 1145
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-2/reorder",
+        "count": 1,
+        "errors": 0,
+        "slow": 1,
+        "totalMs": 1141.5915000000095,
+        "maxMs": 1142,
+        "lastMs": 1142,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:56:12.469Z",
+        "averageMs": 1142
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION/claim",
+        "count": 1,
+        "errors": 0,
+        "slow": 1,
+        "totalMs": 1047.913400000005,
+        "maxMs": 1048,
+        "lastMs": 1048,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:55:31.239Z",
+        "averageMs": 1048
+      },
+      {
+        "key": "POST /api/delivery/routes/plan",
+        "count": 5,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 3274.8884000000107,
+        "maxMs": 802,
+        "lastMs": 621,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:58:00.308Z",
+        "averageMs": 655
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-5/publish",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 785.2907000000123,
+        "maxMs": 785,
+        "lastMs": 785,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:58:01.744Z",
+        "averageMs": 785
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-4/publish",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 742.3618000000133,
+        "maxMs": 742,
+        "lastMs": 742,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:57:42.680Z",
+        "averageMs": 742
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-3/publish",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 728.5228000000061,
+        "maxMs": 729,
+        "lastMs": 729,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:57:23.891Z",
+        "averageMs": 729
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION/publish",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 691.7870000000112,
+        "maxMs": 692,
+        "lastMs": 692,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:55:30.186Z",
+        "averageMs": 692
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-2/publish",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 673.3688000000257,
+        "maxMs": 673,
+        "lastMs": 673,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:56:13.146Z",
+        "averageMs": 673
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-5/reorder",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 647.2973000000056,
+        "maxMs": 647,
+        "lastMs": 647,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:58:00.957Z",
+        "averageMs": 647
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-5/claim",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 621.2826000000059,
+        "maxMs": 621,
+        "lastMs": 621,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:58:02.368Z",
+        "averageMs": 621
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-3/reorder",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 608.8827999999921,
+        "maxMs": 609,
+        "lastMs": 609,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:57:23.160Z",
+        "averageMs": 609
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-4/reorder",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 607.5127999999968,
+        "maxMs": 608,
+        "lastMs": 608,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:57:41.936Z",
+        "averageMs": 608
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-4/claim",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 599.8695999999763,
+        "maxMs": 600,
+        "lastMs": 600,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:57:43.285Z",
+        "averageMs": 600
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-3/claim",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 577.7455000000191,
+        "maxMs": 578,
+        "lastMs": 578,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:57:24.474Z",
+        "averageMs": 578
+      },
+      {
+        "key": "POST /api/login",
+        "count": 40,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 6263.436200000003,
+        "maxMs": 325,
+        "lastMs": 284,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:53:51.255Z",
+        "averageMs": 157
+      },
+      {
+        "key": "GET /api/health",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 178.20859999999993,
+        "maxMs": 178,
+        "lastMs": 178,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:53:44.828Z",
+        "averageMs": 178
+      }
+    ]
+  },
+  "created": 100,
+  "ready": 100,
+  "planned": 100,
+  "routes": 5,
+  "finalOrders": 1120,
+  "finalLabeled": 100,
+  "finalDelivered": 100,
+  "integrity": {
+    "historicalOrdersUnchanged": true,
+    "originalClientsPreserved": true,
+    "originalProductsPreserved": true,
+    "createdUnique": true,
+    "lineCount": 500,
+    "stockDifferenceProducts": 0,
+    "routeStops": 100,
+    "routeStopsUnique": true,
+    "bultos": 100,
+    "totalSold": 874650,
+    "totalCollected": 874650
+  },
+  "elapsedMs": 258697,
+  "completedAt": "2026-09-29T02:58:09.957Z",
+  "runtime": {
+    "node": "v24.16.0",
+    "platform": "win32",
+    "cpus": 4,
+    "totalMemoryMb": 14297
+  },
+  "performanceGate": {
+    "limitMs": 5000,
+    "exceeded": [
+      {
+        "operation": "seller.gps",
+        "maxMs": 5693
+      },
+      {
+        "operation": "driver.concurrentRead",
+        "maxMs": 6381
+      },
+      {
+        "operation": "createOrder",
+        "maxMs": 7310
+      },
+      {
+        "operation": "seller.concurrentRead",
+        "maxMs": 7980
+      },
+      {
+        "operation": "driver.gps",
+        "maxMs": 5301
+      },
+      {
+        "operation": "admin.concurrentRead",
+        "maxMs": 8835
+      },
+      {
+        "operation": "admin.clients",
+        "maxMs": 5936
+      },
+      {
+        "operation": "depot.concurrentRead",
+        "maxMs": 7330
+      },
+      {
+        "operation": "receiver.concurrentRead",
+        "maxMs": 8691
+      },
+      {
+        "operation": "delivery.collect",
+        "maxMs": 5915
+      }
+    ]
+  },
+  "ok": false
+}

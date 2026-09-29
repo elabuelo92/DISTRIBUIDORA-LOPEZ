@@ -87,22 +87,22 @@ async function login() {
     assert.ok(stateVersion > 0);
     const fullRequests = Array.from({ length: 12 }, () => fetch(`${base}/api/state?version=0`, {
       headers: { Cookie: cookie, "Accept-Encoding": "gzip" }
-    }));
+    }).then(async response => { await response.arrayBuffer(); return response.status; }));
     await new Promise((resolve) => setTimeout(resolve, 25));
     const fastPath = await fetch(`${base}/api/state?version=${stateVersion}`, { headers: { Cookie: cookie } });
     const live = await fetch(`${base}/api/health/live`);
-    const responses = await Promise.all(fullRequests);
-    const statuses = responses.map((response) => response.status);
+    const statuses = await Promise.all(fullRequests);
     const accepted = statuses.filter((status) => status === 200).length;
     const busy = statuses.filter((status) => status === 503).length;
-    assert.equal(accepted, 1);
-    assert.equal(busy, 11);
+    assert.ok(accepted > 1, "Queued requests should be admitted after a slot is released");
+    assert.equal(accepted + busy, 12);
     assert.equal(fastPath.status, 200);
     assert.equal((await fastPath.json()).unchanged, true);
     assert.equal(live.status, 200);
     const health = await (await fetch(`${base}/api/health`)).json();
     assert.equal(health.stateSync.maxConcurrent, 1);
-    assert.equal(health.stateSync.rejectedSinceStart, 11);
+    assert.equal(health.stateSync.rejectedSinceStart, busy);
+    assert.equal(health.stateSync.queued, 0);
     console.log(JSON.stringify({ ok: true, requests: statuses.length, accepted, busy, liveResponsive: true, unchangedFastPath: true }));
   } finally {
     child.kill("SIGTERM");

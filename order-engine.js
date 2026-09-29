@@ -147,16 +147,16 @@
     return Number.isNaN(date.getTime()) ? (fallback || nowIso()) : date.toISOString();
   }
 
+  const traceDateFormatter = new Intl.DateTimeFormat("es-AR", { timeZone: "America/Argentina/Buenos_Aires" });
+  const traceTimeFormatter = new Intl.DateTimeFormat("es-AR", {
+    timeZone: "America/Argentina/Buenos_Aires", hour: "2-digit", minute: "2-digit", second: "2-digit"
+  });
+
   function localTraceParts(value) {
     const date = new Date(validIso(value));
     return {
-      date: date.toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" }),
-      time: date.toLocaleTimeString("es-AR", {
-        timeZone: "America/Argentina/Buenos_Aires",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit"
-      })
+      date: traceDateFormatter.format(date),
+      time: traceTimeFormatter.format(date)
     };
   }
 

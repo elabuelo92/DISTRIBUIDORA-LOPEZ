@@ -5,9 +5,9 @@
     SOCKET_URL: "",
     SERVER_NAME: "SERVIDOR_UNICO_8790",
     MAGIC_DNS_HOST: "desktop-c2c0q4v.tail6f19de.ts.net",
-    VERSION: "8790-162",
-    BUILD_LABEL: "28/09/2026 21:15 ART",
-    BUILD_AT: "2026-09-28T21:15:00-03:00",
+    VERSION: "8790-163",
+    BUILD_LABEL: "29/09/2026 00:15 ART",
+    BUILD_AT: "2026-09-29T00:15:00-03:00",
     RELEASE_CHANNEL: "Produccion",
     TIMEOUTS: {
       server: 7000,
@@ -28,7 +28,5 @@
 
   window.DL_SUPPORT_WHATSAPP_PHONE = "5493512410535";
 })();
-
-
 
 

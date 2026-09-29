@@ -14,14 +14,30 @@ const targetOrders = Number(process.env.DL_SIM_ORDERS || 100);
 const targetBytes = Number(process.env.DL_SIM_STATE_BYTES || 44269298);
 const sellerCount = Number(process.env.DL_SIM_SELLERS || 10);
 const adminCount = Number(process.env.DL_SIM_ADMINS || 4);
+const driverCount = Number(process.env.DL_SIM_DRIVERS || 1);
+const receiverCount = Number(process.env.DL_SIM_RECEIVERS || 0);
+const clientCount = Number(process.env.DL_SIM_CLIENTS || 300);
+const historyCount = Number(process.env.DL_SIM_HISTORY || 254);
+const simulateGps = process.env.DL_SIM_GPS === "1";
+const cpuProfile = process.env.DL_SIM_CPU_PROFILE === "1";
 const publicHealthUrl = String(process.env.DL_SIM_PUBLIC_HEALTH_URL || "");
 const connectionClose = process.env.DL_SIM_CONNECTION_CLOSE === "1";
 const deliverAll = process.env.DL_SIM_DELIVER_ALL === "1";
+const allReaders = process.env.DL_SIM_ALL_READERS === "1";
+const incrementalReads = process.env.DL_SIM_INCREMENTAL_READS === "1";
+const sectionSync = process.env.DL_SIM_SECTION_SYNC === "1";
+const readerIntervalMs = Number(process.env.DL_SIM_READER_INTERVAL_MS || 5000);
+const reportPath = process.env.DL_SIM_REPORT_PATH || "";
+assert.ok(readerIntervalMs >= 1000 && readerIntervalMs <= 60000);
 assert.ok(durationMs >= 10000 && durationMs <= 900000);
 assert.ok(targetOrders >= 1 && targetOrders <= 200);
 assert.ok(targetBytes >= 1000000 && targetBytes <= 60000000);
 assert.ok(sellerCount >= 1 && sellerCount <= 20);
 assert.ok(adminCount >= 1 && adminCount <= 10);
+assert.ok(driverCount >= 1 && driverCount <= 10);
+assert.ok(receiverCount >= 0 && receiverCount <= 5);
+assert.ok(Number.isInteger(clientCount) && clientCount >= 100 && clientCount <= 5000);
+assert.ok(Number.isInteger(historyCount) && historyCount >= 0 && historyCount <= 5000);
 
 const tempRoot = path.resolve(os.tmpdir());
 const tempDir = fs.mkdtempSync(path.join(tempRoot, "dl-operational-sim-"));
@@ -30,12 +46,20 @@ const usersFile = path.join(tempDir, "users.json");
 const password = `Sim-${crypto.randomBytes(12).toString("hex")}`;
 const startedAt = new Date().toISOString();
 const report = {
-  version: "8790-146-simulation",
+  version: "8790-163-simulation",
   startedAt,
   durationMs,
   targetOrders,
   deliverAll,
-  actors: { sellers: sellerCount, admins: adminCount, depot: 1, drivers: 1 },
+  actors: { sellers: sellerCount, admins: adminCount, depot: 1, drivers: driverCount, receivers: receiverCount },
+  allReaders,
+  incrementalReads,
+  sectionSync,
+  clientCount,
+  historyCount,
+  simulateGps,
+  cpuProfile,
+  readerIntervalMs,
   syntheticStateBytes: 0,
   transport: connectionClose ? "new-connection" : "pooled-connection",
   productionWrites: 0,
@@ -50,6 +74,7 @@ const report = {
 
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms))); }
 function actorName(index) { return `Vendedor Sim ${index + 1}`; }
+function driverName(index) { return index === 0 ? "simdriver" : `simdriver${index + 1}`; }
 function summarize(values) {
   const sorted = [...values].sort((a, b) => a - b);
   const at = (percent) => sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * percent) - 1)] || 0;
@@ -65,7 +90,7 @@ function record(name, ms, status, error) {
   }
 }
 function fixture() {
-  const clients = Array.from({ length: 300 }, (_, index) => ({
+  const clients = Array.from({ length: clientCount }, (_, index) => ({
     codigo_cliente: `SIM-C${index + 1}`,
     name: `Cliente Sim ${index + 1}`,
     domicilio: `Calle Sim ${index + 1}`,
@@ -88,9 +113,9 @@ function fixture() {
     stock_fisico: 10000,
     price: 1000 + index
   }));
-  const orders = Array.from({ length: 254 }, (_, index) => ({
+  const orders = Array.from({ length: historyCount }, (_, index) => ({
     code: `PED-SIM-H${index + 1}`,
-    client: clients[index].name,
+    client: clients[index % clients.length].name,
     seller: actorName(index % sellerCount),
     amount: 5000,
     status: "Cobrado",
@@ -114,7 +139,8 @@ function createUsers() {
     ...Array.from({ length: sellerCount }, (_, index) => entry(`simseller${index + 1}`, actorName(index), "seller", { sellerName: actorName(index) })),
     ...Array.from({ length: adminCount }, (_, index) => entry(`simadmin${index + 1}`, `Admin Sim ${index + 1}`, "admin")),
     entry("simdepot", "Deposito Sim", "depot"),
-    entry("simdriver", "Reparto Sim", "driver")
+    ...Array.from({ length: driverCount }, (_, index) => entry(driverName(index), `Reparto Sim ${index + 1}`, "driver")),
+    ...Array.from({ length: receiverCount }, (_, index) => entry(`simreceiver${index + 1}`, `Recepcion Sim ${index + 1}`, "receiver"))
   ] };
 }
 async function freePort() {
@@ -146,6 +172,8 @@ function hostSample(childPid) {
 
 async function main() {
   const state = fixture();
+  const sectionManifests = new Map();
+  const stateEndpoint = (user, version) => `api/state?version=${version}${sectionSync ? "&syncFormat=sections-v1" : ""}${sectionSync && sectionManifests.has(user) ? `&sections=${encodeURIComponent(JSON.stringify(sectionManifests.get(user)))}` : ""}`;
   let raw = JSON.stringify({ version: Date.now(), state });
   state.performanceFixture = "x".repeat(Math.max(0, targetBytes - Buffer.byteLength(raw) - 2));
   raw = JSON.stringify({ version: Date.now(), state });
@@ -153,7 +181,8 @@ async function main() {
   report.syntheticStateBytes = Buffer.byteLength(raw);
   fs.writeFileSync(usersFile, JSON.stringify(createUsers()), "utf8");
   const port = await freePort();
-  const child = spawn(process.execPath, ["--max-old-space-size=768", path.join(root, "server.js")], {
+  const child = spawn(process.execPath, ["--max-old-space-size=768",
+    ...(cpuProfile ? ["--require", path.join(__dirname, "profile-isolated-server.js")] : []), path.join(root, "server.js")], {
     cwd: root,
     env: {
       ...process.env,
@@ -161,7 +190,7 @@ async function main() {
       DATA_DIR: tempDir, STATE_FILE: stateFile, USERS_FILE: usersFile,
       DL_VERSION: report.version, DL_LICENSE_ENFORCEMENT: "disabled", DL_INTEGRITY_ENFORCE: "warn"
     },
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: cpuProfile ? ["ignore", "pipe", "pipe", "ipc"] : ["ignore", "pipe", "pipe"]
   });
   let output = "";
   child.stdout.on("data", (chunk) => { output = (output + chunk.toString()).slice(-4000); });
@@ -173,6 +202,7 @@ async function main() {
   const base = `http://127.0.0.1:${port}`;
   let stop = false;
   const cookies = new Map();
+  const readVersions = new Map();
   const created = [];
   const ready = [];
   const queued = [];
@@ -204,7 +234,11 @@ async function main() {
       const expectedLegalGate = name === "login" && response.status === 428;
       record(name, performance.now() - start, expectedLegalGate ? 200 : response.status,
         response.status >= 400 && !expectedLegalGate ? payload.error || text.slice(0, 180) : "");
-      return { status: response.status, payload, cookie: String(response.headers.get("set-cookie") || "").split(";")[0] };
+      const metric = report.operations[name];
+      metric.wireBytes = (metric.wireBytes || 0) + (Number(response.headers.get("Content-Length")) || 0);
+      metric.decodedBytes = (metric.decodedBytes || 0) + Buffer.byteLength(text);
+      if (payload.partial) metric.partialResponses = (metric.partialResponses || 0) + 1;
+      return { status: response.status, payload, retryAfterSeconds: Number(response.headers.get("Retry-After")) || 5, cookie: String(response.headers.get("set-cookie") || "").split(";")[0] };
     } catch (error) {
       const detail = [error.message, error.cause?.code, error.cause?.message].filter(Boolean).join(" | ");
       if (name !== "simHealth") record(name, performance.now() - start, 0, detail);
@@ -232,7 +266,7 @@ async function main() {
       const elapsed = Math.round(performance.now() - start);
       report.publicHealth.checks += 1;
       report.publicHealth.maxMs = Math.max(report.publicHealth.maxMs, elapsed);
-      if (!response.ok || !body.ok || body.runtimeVersion !== "8790-146") {
+      if (!response.ok || !body.ok || (process.env.DL_SIM_EXPECTED_PUBLIC_VERSION && body.runtimeVersion !== process.env.DL_SIM_EXPECTED_PUBLIC_VERSION)) {
         report.publicHealth.failures += 1;
         healthConsecutive += 1;
       } else if (elapsed > 8000) {
@@ -288,9 +322,16 @@ async function main() {
   }
   async function publishRoute(codes, force = false) {
     if (!codes.length || (stop && !force)) return;
+    const batchSize = Math.ceil(targetOrders / driverCount);
+    if (driverCount > 1 && codes.length > batchSize) {
+      for (let offset = 0; offset < codes.length; offset += batchSize) await publishRoute(codes.slice(offset, offset + batchSize), force);
+      return;
+    }
+    const driver = driverName(routes.length % driverCount);
+    const deviceId = `SIM-${driver}`;
     const planned = await request("route.plan", "api/delivery/routes/plan", {
       actor: "simadmin1", method: "POST", body: {
-        orderCodes: codes, day: "2026-09-16", zone: "Simulacion", driverUser: "simdriver", driverLabel: "Reparto Sim"
+        orderCodes: codes, day: "2026-09-16", zone: "Simulacion", driverUser: driver, driverLabel: driver
       }
     });
     if (planned.status !== 200 || !planned.payload.route?.id) return;
@@ -305,7 +346,7 @@ async function main() {
     });
     if (published.status === 200) {
       const claimed = await request("route.claim", `api/delivery/routes/${encodeURIComponent(routeId)}/claim`, {
-        actor: "simdriver", method: "POST", body: { deviceId: "SIM-DRIVER", deviceLabel: "Reparto Sim" }
+        actor: driver, method: "POST", body: { deviceId, deviceLabel: driver }
       });
       if (claimed.status === 200 && deliverAll) {
         const orderByCode = new Map((published.payload.orders || []).map((order) => [order.code, order]));
@@ -317,8 +358,8 @@ async function main() {
             break;
           }
           const result = await request("delivery.collect", `api/delivery/orders/${encodeURIComponent(order.code)}/collect`, {
-            actor: "simdriver", method: "POST", body: {
-              method: "Efectivo", amountPaid: order.amount, deviceId: "SIM-DRIVER", gps
+            actor: driver, method: "POST", body: {
+              method: "Efectivo", amountPaid: order.amount, deviceId, gps
             }
           });
           if (result.status !== 200) break;
@@ -327,13 +368,13 @@ async function main() {
         const first = codes.at(-1);
         const gps = { lat: -31.4, lng: -64.18, accuracy: 10, source: "simulation" };
         const status = await request("delivery.status", `api/delivery/orders/${encodeURIComponent(first)}/status`, {
-          actor: "simdriver", method: "POST", body: { status: "En Reparto", deviceId: "SIM-DRIVER", gps }
+          actor: driver, method: "POST", body: { status: "En Reparto", deviceId, gps }
         });
         if (status.status === 200) {
           const order = status.payload.order;
           await request("delivery.collect", `api/delivery/orders/${encodeURIComponent(first)}/collect`, {
-            actor: "simdriver", method: "POST", body: {
-              method: "Efectivo", amountPaid: order.amount, deviceId: "SIM-DRIVER", gps
+            actor: driver, method: "POST", body: {
+              method: "Efectivo", amountPaid: order.amount, deviceId, gps
             }
           });
         }
@@ -353,10 +394,23 @@ async function main() {
     for (const user of createUsers().users) await login(user.username);
     const testStart = performance.now();
     const deadline = testStart + durationMs;
+    const gpsTasks = simulateGps ? Promise.allSettled(createUsers().users
+      .filter(user => ["seller", "driver"].includes(user.role)).map(async (user, index) => {
+        await sleep(index * 200);
+        while (!stop && performance.now() < deadline) {
+          await request(`${user.role}.gps`, "api/presence/location", {
+            actor: user.username, method: "POST",
+            body: { gps: { lat: -31.4 + index / 100000, lng: -64.18, accuracy: 10,
+              deviceAt: new Date().toISOString(), source: "gps" } }
+          });
+          await sleep(user.role === "driver" ? 10000 : 30000);
+        }
+      })) : Promise.resolve([]);
     const background = (async () => {
       let lowMemoryConsecutive = 0;
       while (!stop && performance.now() < deadline) {
         const sample = hostSample(child.pid);
+        console.error(JSON.stringify({ progressSeconds: Math.round((performance.now() - testStart) / 1000), created: created.length, ready: ready.length, planned: routeCodes.size, failures: report.failures.length, freeMemMb: sample.freeMemMb }));
         lowMemoryConsecutive = sample.availableMemMb !== undefined && sample.availableMemMb < 800
           ? lowMemoryConsecutive + 1 : 0;
         if (lowMemoryConsecutive >= 2) {
@@ -368,7 +422,20 @@ async function main() {
         await sleep(15000);
       }
     })();
-    const reader = (async () => {
+    const reader = allReaders ? Promise.allSettled(createUsers().users.map(async (user) => {
+      if (incrementalReads) await sleep(Math.random() * 3000);
+      while (!stop && performance.now() < deadline) {
+        const version = incrementalReads ? readVersions.get(user.username) || 0 : 0;
+        const endpoint = user.role === "driver" ? "api/delivery" : stateEndpoint(user.username, version);
+        const result = await request(`${user.role}.concurrentRead`, endpoint, { actor: user.username, parse: incrementalReads });
+        if (result.status === 200 && result.payload.sections) sectionManifests.set(user.username, result.payload.sections);
+        if (incrementalReads && result.status === 200 && result.payload.version) readVersions.set(user.username, Number(result.payload.version));
+        if (user.role === "admin") await request("admin.clients", "api/clients?page=1&limit=25", { actor: user.username });
+        const interval = incrementalReads ? (user.role === "seller" || user.role === "driver" ? 15000 : 10000) : readerIntervalMs;
+        const retry = result.status === 503 ? result.retryAfterSeconds * 1000 : 0;
+        await sleep(Math.max(interval, retry) + (incrementalReads ? Math.random() * 2000 : 0));
+      }
+    })) : (async () => {
       let cycle = 0;
       while (!stop && performance.now() < deadline) {
         const seller = `simseller${cycle % sellerCount + 1}`;
@@ -401,9 +468,31 @@ async function main() {
     await Promise.allSettled([...inFlight]);
     stop = true;
     await Promise.allSettled([background, reader, worker]);
-    if (!report.abortedForProductionHealth) {
+    const gpsResults = await gpsTasks;
+    assert.equal(gpsResults.filter(result => result.status === "rejected").length, 0, "Fallo del generador GPS aislado");
+    if (!report.abortedForProductionHealth && !report.abortedForHostPressure) {
       while (queued.length) await processBatch(true);
       await publishRoute(ready.filter((code) => !routeCodes.has(code)), true);
+    }
+    if (incrementalReads) {
+      const finalVersion = Number(JSON.parse(fs.readFileSync(stateFile, "utf8")).version);
+      const catchupStart = performance.now();
+      const catchupDeadline = Date.now() + 60000;
+      const actors = createUsers().users;
+      const catchups = await Promise.allSettled(actors.map(async (user, index) => {
+        await sleep(index * 250);
+        while ((readVersions.get(user.username) || 0) < finalVersion && Date.now() < catchupDeadline) {
+          const result = await request("sync.catchup", stateEndpoint(user.username, readVersions.get(user.username) || 0), { actor: user.username });
+          if (result.status === 200 && result.payload.sections) sectionManifests.set(user.username, result.payload.sections);
+          if (result.status === 200 && result.payload.version) readVersions.set(user.username, Number(result.payload.version));
+          if ((readVersions.get(user.username) || 0) < finalVersion) await sleep(Math.min(60000, result.retryAfterSeconds * 1000 || 5000) + Math.random() * 2000);
+        }
+      }));
+      report.convergence = {
+        targetVersion: finalVersion, elapsedMs: Math.round(performance.now() - catchupStart),
+        failedTasks: catchups.filter((item) => item.status === "rejected").length,
+        laggingUsers: actors.filter((user) => (readVersions.get(user.username) || 0) < finalVersion).map((user) => user.username)
+      };
     }
     const performanceResult = await request("performance", "api/admin/performance", { actor: "simadmin1" });
     report.serverPerformance = performanceResult.payload;
@@ -454,12 +543,20 @@ async function main() {
     };
     report.elapsedMs = Math.round(performance.now() - testStart);
     report.completedAt = new Date().toISOString();
+    report.runtime = { node: process.version, platform: process.platform, cpus: os.cpus().length, totalMemoryMb: Math.round(os.totalmem() / 1048576) };
     if (report.failures.length) report.serverLogTail = output;
     for (const entry of Object.values(report.operations)) {
       Object.assign(entry, summarize(entry.durations));
       delete entry.durations;
     }
+    report.performanceGate = {
+      limitMs: 5000,
+      exceeded: Object.entries(report.operations).filter(([, entry]) => entry.maxMs > 5000)
+        .map(([operation, entry]) => ({ operation, maxMs: entry.maxMs }))
+    };
     report.ok = !report.abortedForProductionHealth && !report.abortedForHostPressure && report.failures.length === 0 &&
+      report.performanceGate.exceeded.length === 0 &&
+      (!incrementalReads || (report.convergence?.failedTasks === 0 && report.convergence?.laggingUsers?.length === 0)) &&
       report.created === targetOrders && report.ready === targetOrders &&
       report.planned === targetOrders && report.finalLabeled === targetOrders &&
       (deliverAll ? report.finalDelivered === targetOrders : (targetOrders < 5 || report.finalDelivered >= 1)) &&
@@ -467,6 +564,15 @@ async function main() {
       report.integrity.createdUnique && report.integrity.lineCount === targetOrders * 5 && report.integrity.stockDifferenceProducts === 0 &&
       report.integrity.routeStops === targetOrders && report.integrity.routeStopsUnique && report.integrity.bultos === targetOrders &&
       (!deliverAll || Math.abs(report.integrity.totalSold - report.integrity.totalCollected) < 0.01);
+    if (cpuProfile) await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("CPU profile timed out")), 15000);
+      child.once("message", message => {
+        clearTimeout(timeout);
+        if (message.error) reject(new Error(message.error)); else resolve();
+      });
+      child.send("finish-profile");
+    });
+    if (reportPath) fs.writeFileSync(path.resolve(reportPath), JSON.stringify(report, null, 2));
     console.log(JSON.stringify(report, null, 2));
     if (!report.ok) process.exitCode = 1;
   } finally {

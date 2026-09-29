@@ -360,6 +360,9 @@ let systemMonitorData = null;
 let systemMonitorLatencyMs = null;
 let systemMonitorLoading = false;
 let syncPullInFlight = false;
+let syncPullRetryAt = 0;
+let syncSections = null;
+let syncSectionsVersion = 0;
 let syncPushInFlight = false;
 let pendingPullAfterPush = false;
 let activeRenderFrame = null;
@@ -3417,6 +3420,9 @@ async function submitLogin(event) {
 }
 
 function stopRealtimeChannels() {
+  syncPullRetryAt = 0;
+  syncSections = null;
+  syncSectionsVersion = 0;
   if (syncIntervalId) {
     clearTimeout(syncIntervalId);
     syncIntervalId = null;
@@ -9040,6 +9046,10 @@ function openOperationalTool(moduleId, toolId = "", focus = false) {
     renderDeliveryRouteMap(activeRouteForDelivery(visibleDeliveryRoutes()));
   }
   if (focus && moduleId === "estadisticas" && tool) renderAnalytics();
+  if (focus && tool) {
+    const renderers = { cuentas: renderAccounts, stock: renderStock, precios: renderPriceLists, "control-stock": renderPhysicalStockControl };
+    renderers[moduleId]?.();
+  }
   if (focus && moduleId === "dashboard") {
     if (tool?.id === "map") dashboardPresenceLastRenderAt = 0;
     renderDashboardView();
@@ -9108,6 +9118,50 @@ function markWorkspacePanel(contentId, panelId) {
   const panel = byId(contentId)?.closest("section.panel");
   if (panel) panel.id = panelId;
   return `#${panelId}`;
+}
+
+function renderInventoryFinanceWorkspace(moduleId) {
+  const root = byId(moduleId);
+  if (!root) return "";
+  const admin = isAdminUser();
+  const definitions = {
+    cuentas: [
+      ["accounts", "Cuentas y pagos", "wallet", ["clientAccountsTable"]],
+      ["bank", "Conciliacion bancaria", "coins", ["bankList"]]
+    ],
+    stock: [
+      ["products", "Inventario de productos", "boxes", ["stockTable"]],
+      ["overview", "Resumen de stock", "chart-column", ["stockKpis"], admin],
+      ["supply", "Abastecimiento", "package", ["shortageList"]],
+      ["ledger", "Movimientos de stock", "history", ["stockLedgerTable"], admin]
+    ],
+    precios: [
+      ["products", "Productos y listas", "clipboard-list", ["priceListCards", "priceListProductsTable"]],
+      ["edit", "Modificar y simular precios", "coins", ["priceListForm", "priceListSimulation"], admin],
+      ["portfolio", "Carteras y vendedores", "users", ["productPortfolioPanel"], admin],
+      ["offers", "Ofertas autorizadas", "package", ["authorizedOffersTable"], admin],
+      ["history", "Listas e historial", "history", ["priceListDirectory", "priceListAuditList"]]
+    ],
+    "control-stock": [
+      ["count", "Conteo y trazabilidad", "boxes", ["physicalStockTable", "physicalStockTraceList"]],
+      ["history", "Cortes y ajustes", "history", ["physicalStockHistoryList"]]
+    ]
+  };
+  const titles = { cuentas: "Cuentas", stock: "Stock e inventario", precios: "Precios", "control-stock": "Control fisico" };
+  const tools = definitions[moduleId].map(([id, title, icon, anchors, allowed]) => ({
+    id, title, icon, allowed,
+    selectors: anchors.map((anchor) => {
+      const panel = byId(anchor)?.closest(".panel, .table-panel");
+      const panelId = `workspace-panel-${anchor}`;
+      if (panel) panel.id = panelId;
+      return `#${panelId}`;
+    })
+  }));
+  renderOperationalWorkspace(moduleId, root, titles[moduleId], tools);
+  Array.from(root.children).forEach((child) => {
+    if (!child.classList.contains("ops-workspace")) child.hidden = true;
+  });
+  return operationalWorkspaces.get(moduleId)?.selected || "";
 }
 
 function renderStatisticsWorkspace() {
@@ -11866,9 +11920,15 @@ function renderAccountPaymentChoices() {
 }
 
 function renderAccounts() {
+  const tool = renderInventoryFinanceWorkspace("cuentas");
+  if (!tool) return;
   const globalTerms = [];
   const localTerms = searchTerms(accountSearchTerm);
-  const summaries = state.clients.map((client) => clientAccountSummary(client.name, 0)).filter((summary) => summary.ok);
+  if (tool === "bank") {
+    renderBankReconciliationList(globalTerms, []);
+    return;
+  }
+  const summaries = AccountEngine.accountSummaries(state).filter((summary) => summary.ok);
   accountStatusFilter = updateDynamicFilter("accountsStatusFilter", summaries.map((summary) => summary.status), accountStatusFilter, "Todos los estados");
   const filteredSummaries = summaries.filter((summary) => {
     const text = [
@@ -11961,18 +12021,22 @@ function renderAccounts() {
     </tr>
   `).join("") : '<tr><td class="stock-empty" colspan="7">No hay movimientos para los filtros seleccionados.</td></tr>';
 
-  renderBankReconciliationList(globalTerms, localTerms);
 }
 
 function renderStock() {
+  const tool = renderInventoryFinanceWorkspace("stock");
+  if (!tool) return;
+  if (tool === "overview") return renderStockCharts();
+  if (tool === "ledger") return renderStockLedger();
+  if (tool === "supply") return renderStockSupply();
   renderStockProductOptions();
-  renderStockCharts();
   stockRubricFilter = updateDynamicFilter("stockRubricFilter", state.products.map((product) => product.rubro), stockRubricFilter, "Todos los rubros");
   stockBrandFilter = updateDynamicFilter("stockBrandFilter", state.products.map((product) => product.marca), stockBrandFilter, "Todas las marcas");
   const products = getFilteredStockProducts();
+  const traceIndex = buildPhysicalStockTraceIndex();
   byId("stockTable").innerHTML = products.length ? products.map((product) => {
     const status = stockStatus(product);
-    const row = physicalStockRow(product);
+    const row = physicalStockRow(product, traceIndex);
     const inventory = OrderEngine.inventory(product);
     const updatedAt = product.updatedAt || product.updated_at || product.priceUpdatedAt || "";
     return `
@@ -12008,6 +12072,9 @@ function renderStock() {
   `;
   }).join("") : '<tr><td class="stock-empty" colspan="12">No hay productos para el filtro seleccionado.</td></tr>';
 
+}
+
+function renderStockSupply() {
   byId("stockMovements").innerHTML = (state.stockMovements || []).slice(0, 8).map((item) => `
     <article class="activity">
       <span class="tag">${escapeHtml(item.type)}</span>
@@ -12026,7 +12093,6 @@ function renderStock() {
     </article>
   `).join("") : '<article class="activity"><span class="tag ok">Completo</span><strong>Sin faltantes comprometidos</strong><p>Todos los pedidos activos tienen stock reservado.</p></article>';
   renderSupplyPlanner(shortages);
-  renderStockLedger();
 }
 
 function selectVisibleStockProducts() {
@@ -12121,9 +12187,9 @@ function stockMovementRows() {
     .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
 }
 
-function filteredStockMovementRows() {
+function filteredStockMovementRows(allRows = stockMovementRows()) {
   const terms = searchTerms(stockLedgerSearchTerm);
-  return stockMovementRows()
+  return allRows
     .filter((row) => !terms.length || matchesSearch(row.search, terms))
     .filter((row) => stockLedgerTypeFilter === "all" || row.type === stockLedgerTypeFilter)
     .filter((row) => stockLedgerUserFilter === "all" || row.user === stockLedgerUserFilter)
@@ -12136,7 +12202,7 @@ function renderStockLedger() {
   const allRows = stockMovementRows();
   stockLedgerTypeFilter = updateDynamicFilter("stockLedgerTypeFilter", allRows.map((row) => row.type), stockLedgerTypeFilter, "Todos los tipos");
   stockLedgerUserFilter = updateDynamicFilter("stockLedgerUserFilter", allRows.map((row) => row.user).filter(Boolean), stockLedgerUserFilter, "Todos los usuarios");
-  const rows = filteredStockMovementRows();
+  const rows = filteredStockMovementRows(allRows);
   const count = byId("stockLedgerCount");
   if (count) count.textContent = `${rows.length} movimientos`;
   table.innerHTML = rows.length ? rows.slice(0, 300).map((row) => `
@@ -12159,7 +12225,7 @@ function focusStockLedgerProduct(productKey) {
   stockLedgerSearchTerm = String(productKey || "").trim();
   const input = byId("stockLedgerSearch");
   if (input) input.value = stockLedgerSearchTerm;
-  renderStockLedger();
+  openOperationalTool("stock", "ledger", true);
   const table = byId("stockLedgerTable");
   if (table) table.scrollIntoView({ behavior: "smooth", block: "center" });
 }
@@ -12899,14 +12965,23 @@ async function submitProductPrices(event) {
 
 function renderPriceLists() {
   if (!byId("priceListCards")) return;
-  populatePriceListSelectors();
-  renderPriceListOperationFields();
-  renderPriceListCards();
-  renderProductPortfolioPanel();
+  const tool = renderInventoryFinanceWorkspace("precios");
+  if (!tool) return;
+  if (tool === "products") {
+    populatePriceListSelectors();
+    renderPriceListCards();
+    renderPriceListProductsTable();
+    return;
+  }
+  if (tool === "edit") {
+    populatePriceListSelectors();
+    renderPriceListOperationFields();
+    renderPriceListSimulation();
+    return;
+  }
+  if (tool === "portfolio") return renderProductPortfolioPanel();
+  if (tool === "offers") return renderAuthorizedOffers();
   renderPriceListDirectory();
-  renderPriceListProductsTable();
-  renderPriceListSimulation();
-  renderAuthorizedOffers();
   const latestAudit = byId("priceListAuditList");
   if (latestAudit) {
     const rows = (state.priceListAudit || []).slice(0, 8);
@@ -13990,7 +14065,43 @@ function itemReservedForPhysicalStock(item) {
   return Math.max(0, numeric(item && (item.qty ?? item.requestedQty), 0) - numeric(item && item.missingQty, 0));
 }
 
-function physicalStockTraceForProduct(product) {
+// Render-local index: no retained cache, and code/name matches keep their original order.
+function buildPhysicalStockTraceIndex() {
+  const byCode = new Map();
+  const byName = new Map();
+  let sequence = 0;
+  const append = (map, key, entry) => {
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(entry);
+  };
+  (state.orders || []).forEach((order) => {
+    if (order.inventoryMode !== "reservation" || !PHYSICAL_STOCK_PRE_DISPATCH_STATUSES.has(order.status)) return;
+    let date;
+    (order.items || []).forEach((item) => {
+      const qty = itemReservedForPhysicalStock(item);
+      if (!(qty > 0)) return;
+      if (date === undefined) date = formatOrderTime(order.createdAt || order.receivedAt || order.updatedAt);
+      const entry = { sequence: sequence++, trace: {
+        orderCode: order.code, client: order.client, status: order.status, seller: order.seller,
+        date, user: order.seller || order.source || "Preventa", qty,
+        requestedQty: numeric(item.requestedQty ?? item.qty, 0)
+      } };
+      const code = String(item && (item.productCode || item.codigo_producto || item.code) || "").trim();
+      if (code) append(byCode, code, entry);
+      append(byName, normalizeSearchText(item && item.name), entry);
+    });
+  });
+  return { byCode, byName };
+}
+
+function physicalStockTraceForProduct(product, traceIndex) {
+  if (traceIndex) {
+    const matches = new Set([
+      ...(traceIndex.byCode.get(productInventoryKey(product)) || []),
+      ...(traceIndex.byName.get(normalizeSearchText(product && product.name)) || [])
+    ]);
+    return Array.from(matches).sort((a, b) => a.sequence - b.sequence).map((entry) => entry.trace);
+  }
   return (state.orders || [])
     .filter((order) => order.inventoryMode === "reservation" && PHYSICAL_STOCK_PRE_DISPATCH_STATUSES.has(order.status))
     .flatMap((order) => (order.items || []).filter((item) => orderItemMatchesProduct(item, product)).map((item) => ({
@@ -14006,7 +14117,7 @@ function physicalStockTraceForProduct(product) {
     .filter((entry) => entry.qty > 0);
 }
 
-function physicalStockBreakdown(product) {
+function physicalStockBreakdown(product, traceIndex) {
   const buckets = {
     committed: 0,
     preparing: 0,
@@ -14014,7 +14125,7 @@ function physicalStockBreakdown(product) {
     labeled: 0,
     readyDispatch: 0
   };
-  const traces = physicalStockTraceForProduct(product);
+  const traces = physicalStockTraceForProduct(product, traceIndex);
   traces.forEach((trace) => {
     const bucket = PHYSICAL_STOCK_BUCKETS.find((item) => item.statuses.includes(trace.status));
     if (bucket) buckets[bucket.key] += trace.qty;
@@ -14045,9 +14156,9 @@ function lastPhysicalStockCount(product) {
     .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0))[0] || null;
 }
 
-function physicalStockRow(product) {
+function physicalStockRow(product, traceIndex) {
   const inventory = OrderEngine.inventory(product);
-  const breakdown = physicalStockBreakdown(product);
+  const breakdown = physicalStockBreakdown(product, traceIndex);
   const expected = inventory.available + breakdown.totalPreDispatch;
   const count = lastPhysicalStockCount(product);
   const counted = count ? numeric(count.countedQty, 0) : null;
@@ -14074,7 +14185,8 @@ function physicalStockRow(product) {
 }
 
 function physicalStockRows(allProducts = state.products || []) {
-  return allProducts.map(physicalStockRow);
+  const traceIndex = buildPhysicalStockTraceIndex();
+  return allProducts.map((product) => physicalStockRow(product, traceIndex));
 }
 
 function physicalStockSearchText(row) {
@@ -14091,10 +14203,10 @@ function physicalStockSearchText(row) {
   ].join(" ");
 }
 
-function filteredPhysicalStockRows() {
+function filteredPhysicalStockRows(allRows = physicalStockRows()) {
   const globalTerms = [];
   const localTerms = searchTerms(physicalStockSearchTerm);
-  return physicalStockRows()
+  return allRows
     .filter((row) => !globalTerms.length || matchesSearch(physicalStockSearchText(row), globalTerms))
     .filter((row) => !localTerms.length || matchesSearch(physicalStockSearchText(row), localTerms))
     .filter((row) => physicalStockRubricFilter === "all" || row.rubric === physicalStockRubricFilter)
@@ -14122,11 +14234,14 @@ function formatPhysicalDifference(row) {
 }
 
 function renderPhysicalStockControl() {
+  const tool = renderInventoryFinanceWorkspace("control-stock");
+  if (!tool) return;
+  if (tool === "history") return renderPhysicalStockHistory();
   const kpis = byId("physicalStockKpis");
   const table = byId("physicalStockTable");
   if (!kpis || !table) return;
   const allRows = physicalStockRows();
-  const rows = filteredPhysicalStockRows();
+  const rows = filteredPhysicalStockRows(allRows);
   physicalStockRubricFilter = updateDynamicFilter("physicalStockRubricFilter", allRows.map((row) => row.rubric), physicalStockRubricFilter, "Todos los rubros");
   physicalStockBrandFilter = updateDynamicFilter("physicalStockBrandFilter", allRows.map((row) => row.brand), physicalStockBrandFilter, "Todas las marcas");
   physicalStockSupplierFilter = updateDynamicFilter("physicalStockSupplierFilter", allRows.map((row) => row.supplier), physicalStockSupplierFilter, "Todos los proveedores");
@@ -14191,7 +14306,6 @@ function renderPhysicalStockControl() {
   `).join("") : '<tr><td class="stock-empty" colspan="11">No hay productos para los filtros seleccionados.</td></tr>';
 
   renderPhysicalStockTrace(rows[0] || null);
-  renderPhysicalStockHistory();
 }
 
 function renderPhysicalStockTrace(row) {
@@ -23246,6 +23360,7 @@ if ("serviceWorker" in navigator) {
 }
 
 async function pullStateFromServer() {
+  if (!currentUser || Date.now() < syncPullRetryAt) return;
   if (syncPullInFlight || syncPushInFlight) {
     pendingPullAfterPush = true;
     return;
@@ -23254,7 +23369,11 @@ async function pullStateFromServer() {
   try {
     const deferState = activeViewId() === "clientes" ? "&deferState=clients" : "";
     const catalogVersion = currentUser?.role === "seller" ? sellerCatalogVersion : syncVersion;
-    const response = await fetchWithTimeout(apiUrl(`api/state?version=${encodeURIComponent(catalogVersion || 0)}${deferState}`), { cache: "no-store" }, STATE_SYNC_TIMEOUT_MS);
+    const encodedSections = syncSections && syncSectionsVersion === Number(catalogVersion)
+      ? encodeURIComponent(JSON.stringify(syncSections)) : "";
+    const sectionQuery = encodedSections.length <= 6000 && encodedSections
+      ? `&sections=${encodedSections}` : "";
+    const response = await fetchWithTimeout(apiUrl(`api/state?version=${encodeURIComponent(catalogVersion || 0)}${deferState}&syncFormat=sections-v1${sectionQuery}`), { cache: "no-store" }, STATE_SYNC_TIMEOUT_MS);
     if (response.status === 401) {
       stopRealtimeChannels();
       currentUser = null;
@@ -23262,6 +23381,9 @@ async function pullStateFromServer() {
       return;
     }
     if (response.status === 503 && response.headers.get("X-State-Sync-Busy") === "1") {
+      const retrySeconds = Number(response.headers.get("Retry-After"));
+      const delay = Number.isFinite(retrySeconds) && retrySeconds > 0 ? retrySeconds * 1000 : 5000;
+      syncPullRetryAt = Date.now() + Math.min(60000, Math.max(1000, delay)) + Math.floor(Math.random() * 2000);
       setSyncStatus("Servidor ocupado; sincronizacion en espera automatica.", "warn");
       return;
     }
@@ -23272,6 +23394,19 @@ async function pullStateFromServer() {
     }
     const payload = await response.json();
     const previousSyncVersion = currentUser?.role === "seller" ? sellerCatalogVersion : syncVersion || 0;
+    if (payload.partial) {
+      if (!syncSections || Number(payload.baseVersion) !== syncSectionsVersion
+        || Number(payload.baseVersion) !== Number(previousSyncVersion)
+        || syncPushInFlight) {
+        syncSections = null;
+        syncSectionsVersion = 0;
+        return;
+      }
+      const merged = { ...state, ...payload.state };
+      for (const key of payload.removed || []) delete merged[key];
+      payload.state = merged;
+    }
+    syncPullRetryAt = 0;
     applyPresencePayload(payload);
     syncReady = true;
     setSyncStatus(`Conectado con distribuidora - ${new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`, "ok");
@@ -23305,6 +23440,8 @@ async function pullStateFromServer() {
       mergeOwnLocationIntoState();
       syncVersion = payload.version;
       if (currentUser?.role === "seller") sellerCatalogVersion = Number(payload.version);
+      syncSections = payload.sections || null;
+      syncSectionsVersion = Number(payload.version);
       persistLocalMeta("pullStateFromServer");
       scheduleRenderForCurrentUser();
     } else if (payload.state) {
@@ -23426,6 +23563,3 @@ function bootApp() {
 }
 
 bootApp();
-
-
-

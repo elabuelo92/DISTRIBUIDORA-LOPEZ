@@ -11,9 +11,11 @@ const start = source.indexOf("function stateForUser(state, user) {");
 const end = source.indexOf('  if (user && user.role === "depot")', start);
 assert.ok(start >= 0 && end > start);
 const context = vm.createContext({
-  legalEngine: { migrateState() {} }, normalizeSearchText: portfolio.normalize
+  legalEngine: { migrateState() {} }, normalizeSearchText: portfolio.normalize,
+  crypto: require("node:crypto"), Buffer
 });
 vm.runInContext(source.slice(start, end) + "\n}", context);
+vm.runInContext(source.slice(source.indexOf("function stateSectionsResponse("), source.indexOf("function sendProjectedStateResponse(")), context);
 
 const clients = Array.from({ length: 3000 }, (_, index) => ({
   codigo_cliente: `CAT-${index}`, name: `Cliente ${index}`,
@@ -29,6 +31,13 @@ const state = {
 for (const name of ["Vendedor A", "Vendedor B", "Sin asignaciones"]) {
   const user = { username: name, name, role: "seller" };
   const projected = context.stateForUser(state, user);
+  const baseline = JSON.parse(context.stateSectionsResponse({ version: 1, state }, user, null, 0));
+  const changedState = { ...state, clients: state.clients.map((client, index) => index === 0 ? { ...client, gpsReview: { status: "needs_correction" } } : client) };
+  const patch = JSON.parse(context.stateSectionsResponse({ version: 2, state: changedState }, user, baseline.sections, 1));
+  const merged = { ...baseline.state, ...patch.state };
+  patch.removed.forEach(key => delete merged[key]);
+  assert.deepEqual(merged, JSON.parse(JSON.stringify(context.stateForUser(changedState, user))));
+  assert.equal(merged.clients[0].gpsReview.status, "needs_correction");
   assert.equal(projected.clients.length, 3001);
   assert.ok(projected.orders.every((order) => order.seller === name));
   assert.ok(projected.archivedOrders.every((order) => order.seller === name));

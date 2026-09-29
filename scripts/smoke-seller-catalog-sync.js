@@ -11,6 +11,7 @@ let requested;
 let renders = 0;
 const context = vm.createContext({
   currentUser: { role: "seller" }, syncVersion: 100, sellerCatalogVersion: 100,
+  syncPullRetryAt: 0, syncSections: null, syncSectionsVersion: 0,
   syncPullInFlight: false, syncPushInFlight: false, pendingPullAfterPush: false,
   state: { clients: [{ name: "Cliente", gpsReview: null }], orders: [] },
   STATE_SYNC_TIMEOUT_MS: 45000, lastPresenceRenderAt: 0,

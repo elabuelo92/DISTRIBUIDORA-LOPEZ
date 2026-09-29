@@ -398,6 +398,30 @@
     return summary;
   }
 
+  // Read-only batch view: reuse the existing rules with just each client's records.
+  function accountSummaries(state) {
+    const clients = new Map();
+    const orders = new Map();
+    const accounts = new Map();
+    const append = (map, key, value) => {
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(value);
+    };
+    (state.clients || []).forEach((client) => {
+      const key = normalizeText(client.name || client.nombre_comercial);
+      if (!clients.has(key)) clients.set(key, client);
+    });
+    historicalOrders(state).forEach((order) => append(orders, normalizeText(order.client), order));
+    (state.accounts || []).forEach((entry) => append(accounts, normalizeText(entry.account), entry));
+    return (state.clients || []).map((client) => {
+      if (!client.name) return accountSummary(state, client.name, 0);
+      const key = normalizeText(client.name);
+      return accountSummary({
+        orders: orders.get(key) || [], archivedOrders: [], accounts: accounts.get(key) || []
+      }, clients.get(key), 0);
+    });
+  }
+
   function migrateState(state) {
     if (!state || typeof state !== "object") return state;
     state.clients = Array.isArray(state.clients) ? state.clients : [];
@@ -989,6 +1013,7 @@
     migrateState,
     refreshClientAccount,
     accountSummary,
+    accountSummaries,
     pendingOrderExposure,
     lastPayment,
     ensureTransferReconciliation,

@@ -1,5 +1,6 @@
 .ops-workspace { width: 100%; min-width: 0; }
-#dashboard > [hidden], #estadisticas > [hidden] { display: none !important; }
+#dashboard > [hidden], #estadisticas > [hidden],
+#cuentas > [hidden], #stock > [hidden], #precios > [hidden], #control-stock > [hidden] { display: none !important; }
 .hub-welcome { display: flex; align-items: center; gap: 18px; padding: 20px 0 24px; border-bottom: 1px solid var(--line); margin-bottom: 22px; }
 .hub-welcome h2 { margin: 4px 0 8px; font-size: 26px; letter-spacing: 0; line-height: 1.2; }
 .hub-welcome p { margin: 0; color: var(--muted); text-transform: capitalize; font-size: 13px; }
@@ -71,7 +72,9 @@
   .ops-tool-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 600px) {
-  #armado .ops-workspace, #reparto .ops-workspace { padding: 0 12px; box-sizing: border-box; }
+  #armado .ops-workspace, #reparto .ops-workspace,
+  #cuentas .ops-workspace, #stock .ops-workspace, #precios .ops-workspace,
+  #control-stock .ops-workspace { padding: 0 12px; box-sizing: border-box; }
   .ops-tool-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .ops-tool-grid .ops-tool-card { min-height: 130px; padding: 16px 44px 16px 16px; gap: 8px; }
   .ops-tool-bar h2 { flex-basis: calc(100% - 150px); font-size: 18px; }

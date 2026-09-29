@@ -22,7 +22,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-162";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-163";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -75,6 +75,9 @@ const productPortfolioPreviews = new Map();
 const clientPortfolioPreviews = new Map();
 let fullStateResponsesInFlight = 0;
 let fullStateResponsesRejected = 0;
+const pendingStateResponses = [];
+const MAX_PENDING_STATE_RESPONSES = 24;
+const STATE_RESPONSE_QUEUE_TIMEOUT_MS = 5000;
 let projectedStateCacheVersion = 0;
 const projectedStateResponseCache = new Map();
 const runtimeLogChecks = new Map();
@@ -187,7 +190,8 @@ function sendJsonBuffer(res, status, payload, headers, prepared = null) {
       return;
     }
     if (prepared) prepared.gzipWaiters = [finish];
-    zlib.gzip(payload, (error, compressed) => {
+    // Larger output chunks avoid many main-loop callbacks during large snapshots.
+    zlib.gzip(payload, { chunkSize: payload.length >= 262144 ? 262144 : 16384 }, (error, compressed) => {
       if (prepared) {
         const waiters = prepared.gzipWaiters || [];
         prepared.gzipWaiters = null;
@@ -199,7 +203,7 @@ function sendJsonBuffer(res, status, payload, headers, prepared = null) {
     });
     return;
   } else if (payload.length > 2048 && acceptEncoding.includes("deflate")) {
-    zlib.deflate(payload, (error, compressed) => finish(error ? payload : compressed, error ? "" : "deflate"));
+    zlib.deflate(payload, { chunkSize: payload.length >= 262144 ? 262144 : 16384 }, (error, compressed) => finish(error ? payload : compressed, error ? "" : "deflate"));
     return;
   }
   finish(payload);
@@ -212,6 +216,27 @@ function sendJson(res, status, data, headers) {
 function projectedStateCacheKey(user) {
   if (!user || !["admin", "depot", "receiver"].includes(user.role)) return "";
   return user.role;
+}
+
+function stateSectionsResponse(currentPayload, user, previousSections, baseVersion) {
+  // Project permissions before hashing: fingerprints never expose another role's data.
+  const projected = stateForUser(currentPayload.state, user);
+  const sections = {};
+  const pairs = [];
+  const previous = previousSections && typeof previousSections === "object" && !Array.isArray(previousSections)
+    ? previousSections : null;
+  for (const key of Object.keys(projected || {})) {
+    const value = JSON.stringify(projected[key]);
+    if (value === undefined) continue;
+    const hash = crypto.createHash("sha256").update(value).digest("hex");
+    Object.defineProperty(sections, key, { value: hash, enumerable: true });
+    if (!previous || !Object.hasOwn(previous, key) || previous[key] !== hash) {
+      pairs.push(`${JSON.stringify(key)}:${value}`);
+    }
+  }
+  const removed = previous ? Object.keys(previous).filter(key => !Object.hasOwn(sections, key)) : [];
+  const metadata = JSON.stringify({ version: currentPayload.version, sections, partial: !!previous, baseVersion, removed });
+  return Buffer.from(`${metadata.slice(0, -1)},"state":{${pairs.join(",")}}}`, "utf8");
 }
 
 function sendProjectedStateResponse(res, currentPayload, user) {
@@ -243,21 +268,49 @@ function sendProjectedStateResponse(res, currentPayload, user) {
   sendJsonBuffer(res, 200, prepared.payload, null, prepared);
 }
 
-function reserveFullStateResponse(res) {
-  if (fullStateResponsesInFlight >= MAX_FULL_STATE_RESPONSES) {
-    fullStateResponsesRejected += 1;
-    return false;
-  }
+function activateFullStateResponse(res) {
   fullStateResponsesInFlight += 1;
   let released = false;
   const release = () => {
     if (released) return;
     released = true;
     fullStateResponsesInFlight = Math.max(0, fullStateResponsesInFlight - 1);
+    while (pendingStateResponses.length && fullStateResponsesInFlight < MAX_FULL_STATE_RESPONSES) {
+      pendingStateResponses.shift().grant();
+    }
   };
   res.once("finish", release);
   res.once("close", release);
   return true;
+}
+
+function reserveFullStateResponse(res) {
+  if (res.destroyed || res.writableEnded) return Promise.resolve(false);
+  if (fullStateResponsesInFlight < MAX_FULL_STATE_RESPONSES && !pendingStateResponses.length) {
+    return Promise.resolve(activateFullStateResponse(res));
+  }
+  if (pendingStateResponses.length >= MAX_PENDING_STATE_RESPONSES) {
+    fullStateResponsesRejected += 1;
+    return Promise.resolve(false);
+  }
+  return new Promise(resolve => {
+    let settled = false;
+    const complete = (granted, rejected = false) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      res.removeListener("close", closed);
+      const index = pendingStateResponses.indexOf(entry);
+      if (index >= 0) pendingStateResponses.splice(index, 1);
+      if (rejected) fullStateResponsesRejected += 1;
+      resolve(granted && !res.destroyed && !res.writableEnded ? activateFullStateResponse(res) : false);
+    };
+    const closed = () => complete(false);
+    const entry = { grant: () => complete(true) };
+    const timer = setTimeout(() => complete(false, true), STATE_RESPONSE_QUEUE_TIMEOUT_MS);
+    res.once("close", closed);
+    pendingStateResponses.push(entry);
+  });
 }
 
 function requestMetricPath(req) {
@@ -10077,7 +10130,8 @@ const server = http.createServer(async (req, res) => {
         stateSync: {
           inFlight: fullStateResponsesInFlight,
           maxConcurrent: MAX_FULL_STATE_RESPONSES,
-          rejectedSinceStart: fullStateResponsesRejected
+          rejectedSinceStart: fullStateResponsesRejected,
+          queued: pendingStateResponses.length
         },
         slowThresholdMs: SLOW_REQUEST_THRESHOLD_MS,
         requests: requestPerformanceSnapshot(50)
@@ -10118,7 +10172,8 @@ const server = http.createServer(async (req, res) => {
         stateSync: {
           inFlight: fullStateResponsesInFlight,
           maxConcurrent: MAX_FULL_STATE_RESPONSES,
-          rejectedSinceStart: fullStateResponsesRejected
+          rejectedSinceStart: fullStateResponsesRejected,
+          queued: pendingStateResponses.length
         },
         security: publicSecurityStatus(securityEngine.verifyRuntime(false), false),
         orders: Array.isArray(currentState.orders) ? currentState.orders.length : 0,
@@ -10160,9 +10215,32 @@ const server = http.createServer(async (req, res) => {
       const user = session.user;
       if (req.method === "GET") {
         const clientVersion = Number(requestUrl.searchParams.get("version") || req.headers["x-state-version"] || 0);
+        const deferClients = requestUrl.searchParams.get("deferState") === "clients";
+        const needsFullState = (() => {
+          const payload = readStateFileCached();
+          const lists = Array.isArray(payload.state?.priceLists) ? payload.state.priceLists : [];
+          const due = lists.some(list => list.status === "Programada"
+            && priceListNumberFromRecord(list) !== 2 && new Date(list.effectiveAt).getTime() <= Date.now());
+          return !deferClients && (!clientVersion || clientVersion < payload.version || due);
+        })();
+        if (needsFullState && !await reserveFullStateResponse(res)) {
+          if (res.destroyed || res.writableEnded) return;
+          sendJson(res, 503, {
+            ok: false, code: "STATE_SYNC_BUSY",
+            error: "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.",
+            retryAfterSeconds: 5
+          }, { "Retry-After": "5", "X-State-Sync-Busy": "1" });
+          return;
+        }
+        if (res.destroyed || res.writableEnded) return;
+        const admittedSession = getSession(req);
+        if (!admittedSession || admittedSession.user.username !== user.username || admittedSession.user.role !== user.role) {
+          sendJson(res, 401, { ok: false, error: "SESSION_REQUIRED" });
+          return;
+        }
+        // Re-read after admission: queued requests must not serialize an old snapshot.
         let currentPayload = readStateFileCached();
         const storedVersion = currentPayload.version || readStateVersionFast();
-        const deferClients = requestUrl.searchParams.get("deferState") === "clients";
         const now = Date.now();
         const duePriceList = Array.isArray(currentPayload.state && currentPayload.state.priceLists)
           && currentPayload.state.priceLists.some((list) => list.status === "Programada"
@@ -10172,19 +10250,6 @@ const server = http.createServer(async (req, res) => {
           (clientVersion && storedVersion && clientVersion >= storedVersion)
           || (deferClients && (!clientVersion || clientVersion < storedVersion))
         );
-        const needsFullState = !deferClients && (!clientVersion || clientVersion < storedVersion || duePriceList);
-        if (needsFullState && !reserveFullStateResponse(res)) {
-          sendJson(res, 503, {
-            ok: false,
-            code: "STATE_SYNC_BUSY",
-            error: "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.",
-            retryAfterSeconds: 5
-          }, {
-            "Retry-After": "5",
-            "X-State-Sync-Busy": "1"
-          });
-          return;
-        }
         if (currentPayload.state && !skipMigration && (lastReadMigratedPayload !== currentPayload || duePriceList)) {
           const migrationStartedAt = performance.now();
           ensureGlobalAudit(currentPayload.state);
@@ -10239,7 +10304,22 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         session.lastSyncAt = new Date().toISOString();
-        sendProjectedStateResponse(res, currentPayload, user);
+        if (requestUrl.searchParams.get("syncFormat") === "sections-v1") {
+          let previousSections = null;
+          const rawSections = requestUrl.searchParams.get("sections") || "";
+          if (clientVersion > 0 && rawSections.length <= 10000) {
+            try {
+              const parsed = JSON.parse(rawSections);
+              if (parsed && !Array.isArray(parsed) && typeof parsed === "object"
+                && Object.values(parsed).every(value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value))) {
+                previousSections = parsed;
+              }
+            } catch {}
+          }
+          sendJsonBuffer(res, 200, stateSectionsResponse(currentPayload, user, previousSections, clientVersion));
+        } else {
+          sendProjectedStateResponse(res, currentPayload, user);
+        }
         return;
       }
       if (req.method === "POST") {
@@ -10377,7 +10457,3 @@ server.listen(PORT, HOST, () => {
 
 server.keepAliveTimeout = Math.max(5000, Number(process.env.DL_HTTP_KEEP_ALIVE_TIMEOUT_MS || 10000));
 server.headersTimeout = Math.max(server.keepAliveTimeout + 1000, Number(process.env.DL_HTTP_HEADERS_TIMEOUT_MS || 15000));
-
-
-
-

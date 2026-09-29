@@ -1,0 +1,875 @@
+{
+  "version": "8790-163-simulation",
+  "startedAt": "2026-09-29T02:29:40.306Z",
+  "durationMs": 180000,
+  "targetOrders": 100,
+  "deliverAll": true,
+  "actors": {
+    "sellers": 10,
+    "admins": 4,
+    "depot": 1,
+    "drivers": 4,
+    "receivers": 1
+  },
+  "allReaders": true,
+  "incrementalReads": true,
+  "readerIntervalMs": 5000,
+  "syntheticStateBytes": 44269296,
+  "transport": "pooled-connection",
+  "productionWrites": 0,
+  "recoveredNetworkCuts": 0,
+  "operations": {
+    "simHealth": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 1,
+      "p50Ms": 188,
+      "p95Ms": 188,
+      "p99Ms": 188,
+      "maxMs": 188
+    },
+    "login": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 40,
+      "p50Ms": 64,
+      "p95Ms": 301,
+      "p99Ms": 324,
+      "maxMs": 324
+    },
+    "createOrder": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 100,
+      "p50Ms": 739,
+      "p95Ms": 1928,
+      "p99Ms": 3083,
+      "maxMs": 3243
+    },
+    "driver.concurrentRead": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 44,
+      "p50Ms": 593,
+      "p95Ms": 3414,
+      "p99Ms": 3619,
+      "maxMs": 3619
+    },
+    "depot.concurrentRead": {
+      "httpErrors": 3,
+      "timeouts": 0,
+      "count": 15,
+      "p50Ms": 390,
+      "p95Ms": 1953,
+      "p99Ms": 1953,
+      "maxMs": 1953
+    },
+    "seller.concurrentRead": {
+      "httpErrors": 38,
+      "timeouts": 0,
+      "count": 110,
+      "p50Ms": 640,
+      "p95Ms": 2226,
+      "p99Ms": 5468,
+      "maxMs": 5518
+    },
+    "admin.concurrentRead": {
+      "httpErrors": 8,
+      "timeouts": 0,
+      "count": 49,
+      "p50Ms": 2435,
+      "p95Ms": 12420,
+      "p99Ms": 14696,
+      "maxMs": 14696
+    },
+    "receiver.concurrentRead": {
+      "httpErrors": 1,
+      "timeouts": 0,
+      "count": 12,
+      "p50Ms": 2683,
+      "p95Ms": 10770,
+      "p99Ms": 10770,
+      "maxMs": 10770
+    },
+    "workflow.assembly": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 31,
+      "p50Ms": 634,
+      "p95Ms": 1366,
+      "p99Ms": 2271,
+      "maxMs": 2271
+    },
+    "admin.clients": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 49,
+      "p50Ms": 303,
+      "p95Ms": 1558,
+      "p99Ms": 2052,
+      "maxMs": 2052
+    },
+    "workflow.labels": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 31,
+      "p50Ms": 362,
+      "p95Ms": 1280,
+      "p99Ms": 1381,
+      "maxMs": 1381
+    },
+    "workflow.verify-ready": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 31,
+      "p50Ms": 382,
+      "p95Ms": 1367,
+      "p99Ms": 2040,
+      "maxMs": 2040
+    },
+    "route.plan": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 5,
+      "p50Ms": 1079,
+      "p95Ms": 1950,
+      "p99Ms": 1950,
+      "maxMs": 1950
+    },
+    "route.reorder": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 5,
+      "p50Ms": 627,
+      "p95Ms": 1035,
+      "p99Ms": 1035,
+      "maxMs": 1035
+    },
+    "route.publish": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 5,
+      "p50Ms": 687,
+      "p95Ms": 1380,
+      "p99Ms": 1380,
+      "maxMs": 1380
+    },
+    "route.claim": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 5,
+      "p50Ms": 545,
+      "p95Ms": 1067,
+      "p99Ms": 1067,
+      "maxMs": 1067
+    },
+    "delivery.collect": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 100,
+      "p50Ms": 665,
+      "p95Ms": 1887,
+      "p99Ms": 3038,
+      "maxMs": 3484
+    },
+    "sync.catchup": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 20,
+      "p50Ms": 37,
+      "p95Ms": 1655,
+      "p99Ms": 1657,
+      "maxMs": 1657
+    },
+    "performance": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 1,
+      "p50Ms": 4,
+      "p95Ms": 4,
+      "p99Ms": 4,
+      "maxMs": 4
+    }
+  },
+  "failures": [
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "receiver.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "admin.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "admin.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "depot.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "admin.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "admin.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "admin.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "admin.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "depot.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "admin.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "depot.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    },
+    {
+      "operation": "admin.concurrentRead",
+      "status": 503,
+      "error": "El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente."
+    }
+  ],
+  "hostSamples": [
+    {
+      "at": "2026-09-29T02:29:49.036Z",
+      "load1": 0,
+      "freeMemMb": 4587
+    },
+    {
+      "at": "2026-09-29T02:30:04.082Z",
+      "load1": 0,
+      "freeMemMb": 4172
+    },
+    {
+      "at": "2026-09-29T02:30:19.083Z",
+      "load1": 0,
+      "freeMemMb": 3992
+    },
+    {
+      "at": "2026-09-29T02:30:34.106Z",
+      "load1": 0,
+      "freeMemMb": 4156
+    },
+    {
+      "at": "2026-09-29T02:30:49.118Z",
+      "load1": 0,
+      "freeMemMb": 4119
+    },
+    {
+      "at": "2026-09-29T02:31:04.122Z",
+      "load1": 0,
+      "freeMemMb": 4080
+    },
+    {
+      "at": "2026-09-29T02:31:19.130Z",
+      "load1": 0,
+      "freeMemMb": 4213
+    },
+    {
+      "at": "2026-09-29T02:31:34.130Z",
+      "load1": 0,
+      "freeMemMb": 4449
+    },
+    {
+      "at": "2026-09-29T02:31:49.140Z",
+      "load1": 0,
+      "freeMemMb": 4171
+    },
+    {
+      "at": "2026-09-29T02:32:04.146Z",
+      "load1": 0,
+      "freeMemMb": 3959
+    },
+    {
+      "at": "2026-09-29T02:32:19.153Z",
+      "load1": 0,
+      "freeMemMb": 3932
+    },
+    {
+      "at": "2026-09-29T02:32:34.165Z",
+      "load1": 0,
+      "freeMemMb": 3880
+    }
+  ],
+  "publicHealth": {
+    "checks": 0,
+    "failures": 0,
+    "slow": 0,
+    "maxMs": 0
+  },
+  "abortedForProductionHealth": false,
+  "abortedForHostPressure": false,
+  "convergence": {
+    "targetVersion": 1790649220308,
+    "elapsedMs": 6289,
+    "failedTasks": 0,
+    "laggingUsers": []
+  },
+  "serverPerformance": {
+    "ok": true,
+    "generatedAt": "2026-09-29T02:33:47.629Z",
+    "eventLoopDelayP95Ms": 554,
+    "eventLoopDelayMaxMs": 1517,
+    "stateWrites": {
+      "count": 333,
+      "totalMs": 135383.9901999999,
+      "maxMs": 890.4321999999811,
+      "lastMs": 562.8862000000081,
+      "lastMigrationMs": 0.0046999999904073775,
+      "lastSerializationMs": 257.731300000014,
+      "lastDiskMs": 304.7817000000214,
+      "lastBytes": 56954351,
+      "lastAt": "2026-09-29T02:33:40.909Z",
+      "averageMs": 407,
+      "sampleCount": 64,
+      "p95Ms": 667,
+      "p95SerializationMs": 283,
+      "p95DiskMs": 414
+    },
+    "stateReadMigration": {
+      "count": 1,
+      "p95Ms": 350,
+      "maxMs": 350
+    },
+    "stateSync": {
+      "inFlight": 0,
+      "maxConcurrent": 4,
+      "rejectedSinceStart": 50
+    },
+    "slowThresholdMs": 1000,
+    "requests": [
+      {
+        "key": "GET /api/state",
+        "count": 206,
+        "errors": 50,
+        "slow": 51,
+        "totalMs": 237318.07439999992,
+        "maxMs": 13774,
+        "lastMs": 1039,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:33:47.333Z",
+        "averageMs": 1152
+      },
+      {
+        "key": "POST /api/delivery/orders/:id/collect",
+        "count": 100,
+        "errors": 0,
+        "slow": 25,
+        "totalMs": 84273.29629999987,
+        "maxMs": 3031,
+        "lastMs": 625,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:33:40.924Z",
+        "averageMs": 843
+      },
+      {
+        "key": "GET /api/delivery",
+        "count": 44,
+        "errors": 0,
+        "slow": 15,
+        "totalMs": 37644.347600000016,
+        "maxMs": 2893,
+        "lastMs": 2191,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:32:45.225Z",
+        "averageMs": 856
+      },
+      {
+        "key": "GET /api/clients",
+        "count": 49,
+        "errors": 0,
+        "slow": 5,
+        "totalMs": 13539.330999999967,
+        "maxMs": 2038,
+        "lastMs": 15,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:32:51.768Z",
+        "averageMs": 276
+      },
+      {
+        "key": "POST /api/orders/:id",
+        "count": 93,
+        "errors": 0,
+        "slow": 5,
+        "totalMs": 49274.02000000008,
+        "maxMs": 2026,
+        "lastMs": 618,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:33:05.807Z",
+        "averageMs": 530
+      },
+      {
+        "key": "POST /api/orders",
+        "count": 100,
+        "errors": 0,
+        "slow": 20,
+        "totalMs": 65411.02029999999,
+        "maxMs": 1965,
+        "lastMs": 605,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:32:48.888Z",
+        "averageMs": 654
+      },
+      {
+        "key": "POST /api/delivery/routes/plan",
+        "count": 5,
+        "errors": 0,
+        "slow": 2,
+        "totalMs": 4291.594199999992,
+        "maxMs": 1269,
+        "lastMs": 540,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:33:24.477Z",
+        "averageMs": 858
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-3/claim",
+        "count": 1,
+        "errors": 0,
+        "slow": 1,
+        "totalMs": 1065.8817999999737,
+        "maxMs": 1066,
+        "lastMs": 1066,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:32:30.050Z",
+        "averageMs": 1066
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION/publish",
+        "count": 1,
+        "errors": 0,
+        "slow": 1,
+        "totalMs": 1042.838300000003,
+        "maxMs": 1043,
+        "lastMs": 1043,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:31:23.398Z",
+        "averageMs": 1043
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-2/claim",
+        "count": 1,
+        "errors": 0,
+        "slow": 1,
+        "totalMs": 1005.891100000008,
+        "maxMs": 1006,
+        "lastMs": 1006,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:31:54.248Z",
+        "averageMs": 1006
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-5/publish",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 679.322599999985,
+        "maxMs": 679,
+        "lastMs": 679,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:33:25.703Z",
+        "averageMs": 679
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-4/reorder",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 658.8231000000087,
+        "maxMs": 659,
+        "lastMs": 659,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:33:07.155Z",
+        "averageMs": 659
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-2/reorder",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 622.6168999999936,
+        "maxMs": 623,
+        "lastMs": 623,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:31:52.686Z",
+        "averageMs": 623
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-4/publish",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 610.1148000000103,
+        "maxMs": 610,
+        "lastMs": 610,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:33:07.768Z",
+        "averageMs": 610
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-2/publish",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 551.405299999984,
+        "maxMs": 551,
+        "lastMs": 551,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:31:53.237Z",
+        "averageMs": 551
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-5/reorder",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 542.5948999999964,
+        "maxMs": 543,
+        "lastMs": 543,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:33:25.022Z",
+        "averageMs": 543
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-5/claim",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 542.9896000000008,
+        "maxMs": 543,
+        "lastMs": 543,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:33:26.254Z",
+        "averageMs": 543
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-3/publish",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 536.2808000000077,
+        "maxMs": 536,
+        "lastMs": 536,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:32:28.982Z",
+        "averageMs": 536
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-4/claim",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 528.6270999999833,
+        "maxMs": 529,
+        "lastMs": 529,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:33:08.306Z",
+        "averageMs": 529
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-3/reorder",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 505.60050000000047,
+        "maxMs": 506,
+        "lastMs": 506,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:32:27.603Z",
+        "averageMs": 506
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION/claim",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 463.6530000000057,
+        "maxMs": 464,
+        "lastMs": 464,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:31:23.870Z",
+        "averageMs": 464
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION/reorder",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 455.0917999999947,
+        "maxMs": 455,
+        "lastMs": 455,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:31:22.352Z",
+        "averageMs": 455
+      },
+      {
+        "key": "POST /api/login",
+        "count": 40,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 6332.847800000001,
+        "maxMs": 320,
+        "lastMs": 286,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:29:49.038Z",
+        "averageMs": 158
+      },
+      {
+        "key": "GET /api/health",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 151.22000000000003,
+        "maxMs": 151,
+        "lastMs": 151,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:29:42.544Z",
+        "averageMs": 151
+      }
+    ]
+  },
+  "created": 100,
+  "ready": 100,
+  "planned": 100,
+  "routes": 5,
+  "finalOrders": 354,
+  "finalLabeled": 100,
+  "finalDelivered": 100,
+  "integrity": {
+    "historicalOrdersUnchanged": true,
+    "originalClientsPreserved": true,
+    "originalProductsPreserved": true,
+    "createdUnique": true,
+    "lineCount": 500,
+    "stockDifferenceProducts": 0,
+    "routeStops": 100,
+    "routeStopsUnique": true,
+    "bultos": 100,
+    "totalSold": 874650,
+    "totalCollected": 874650
+  },
+  "elapsedMs": 239002,
+  "completedAt": "2026-09-29T02:33:48.029Z",
+  "runtime": {
+    "node": "v24.16.0",
+    "platform": "win32",
+    "cpus": 4,
+    "totalMemoryMb": 14297
+  },
+  "serverLogTail": "Distribuidora Lopez SERVIDOR_UNICO_8790 8790-163-simulation listening on 127.0.0.1:57287\n",
+  "ok": false
+}

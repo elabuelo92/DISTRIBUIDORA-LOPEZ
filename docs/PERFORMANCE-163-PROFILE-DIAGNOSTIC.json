@@ -1,0 +1,661 @@
+{
+  "version": "8790-163-simulation",
+  "startedAt": "2026-09-29T02:59:27.532Z",
+  "durationMs": 30000,
+  "targetOrders": 15,
+  "deliverAll": true,
+  "actors": {
+    "sellers": 10,
+    "admins": 4,
+    "depot": 1,
+    "drivers": 4,
+    "receivers": 1
+  },
+  "allReaders": true,
+  "incrementalReads": true,
+  "sectionSync": true,
+  "clientCount": 1315,
+  "historyCount": 1020,
+  "simulateGps": true,
+  "cpuProfile": true,
+  "readerIntervalMs": 5000,
+  "syntheticStateBytes": 44269296,
+  "transport": "pooled-connection",
+  "productionWrites": 0,
+  "recoveredNetworkCuts": 0,
+  "operations": {
+    "simHealth": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 1613,
+      "decodedBytes": 1613,
+      "count": 1,
+      "p50Ms": 199,
+      "p95Ms": 199,
+      "p99Ms": 199,
+      "maxMs": 199
+    },
+    "login": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 61397,
+      "decodedBytes": 308916,
+      "count": 40,
+      "p50Ms": 63,
+      "p95Ms": 296,
+      "p99Ms": 355,
+      "maxMs": 355
+    },
+    "driver.concurrentRead": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 6838,
+      "decodedBytes": 31260,
+      "count": 8,
+      "p50Ms": 4281,
+      "p95Ms": 6103,
+      "p99Ms": 6103,
+      "maxMs": 6103
+    },
+    "seller.gps": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 23475,
+      "decodedBytes": 213506,
+      "count": 10,
+      "p50Ms": 6863,
+      "p95Ms": 7659,
+      "p99Ms": 7659,
+      "maxMs": 7659
+    },
+    "createOrder": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 23317,
+      "decodedBytes": 96198,
+      "count": 15,
+      "p50Ms": 1898,
+      "p95Ms": 6767,
+      "p99Ms": 6767,
+      "maxMs": 6767
+    },
+    "seller.concurrentRead": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 933643,
+      "decodedBytes": 24243043,
+      "partialResponses": 10,
+      "count": 20,
+      "p50Ms": 5468,
+      "p95Ms": 8115,
+      "p99Ms": 8790,
+      "maxMs": 8790
+    },
+    "receiver.concurrentRead": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 89393,
+      "decodedBytes": 44160587,
+      "partialResponses": 1,
+      "count": 2,
+      "p50Ms": 3953,
+      "p95Ms": 7178,
+      "p99Ms": 7178,
+      "maxMs": 7178
+    },
+    "driver.gps": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 23521,
+      "decodedBytes": 214075,
+      "count": 9,
+      "p50Ms": 1580,
+      "p95Ms": 6309,
+      "p99Ms": 6309,
+      "maxMs": 6309
+    },
+    "admin.concurrentRead": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 1460510,
+      "decodedBytes": 216037393,
+      "partialResponses": 4,
+      "count": 8,
+      "p50Ms": 6984,
+      "p95Ms": 8959,
+      "p99Ms": 8959,
+      "maxMs": 8959
+    },
+    "workflow.assembly": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 10100,
+      "decodedBytes": 96488,
+      "count": 4,
+      "p50Ms": 390,
+      "p95Ms": 1740,
+      "p99Ms": 1740,
+      "maxMs": 1740
+    },
+    "admin.clients": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 9939,
+      "decodedBytes": 151572,
+      "count": 8,
+      "p50Ms": 990,
+      "p95Ms": 1625,
+      "p99Ms": 1625,
+      "maxMs": 1625
+    },
+    "depot.concurrentRead": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 35410,
+      "decodedBytes": 495060,
+      "partialResponses": 1,
+      "count": 2,
+      "p50Ms": 5671,
+      "p95Ms": 6884,
+      "p99Ms": 6884,
+      "maxMs": 6884
+    },
+    "workflow.labels": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 11026,
+      "decodedBytes": 105904,
+      "count": 4,
+      "p50Ms": 361,
+      "p95Ms": 687,
+      "p99Ms": 687,
+      "maxMs": 687
+    },
+    "workflow.verify-ready": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 11446,
+      "decodedBytes": 110953,
+      "count": 4,
+      "p50Ms": 474,
+      "p95Ms": 663,
+      "p99Ms": 663,
+      "maxMs": 663
+    },
+    "route.plan": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 4691,
+      "decodedBytes": 24366,
+      "count": 4,
+      "p50Ms": 499,
+      "p95Ms": 1241,
+      "p99Ms": 1241,
+      "maxMs": 1241
+    },
+    "route.reorder": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 4687,
+      "decodedBytes": 24362,
+      "count": 4,
+      "p50Ms": 468,
+      "p95Ms": 1166,
+      "p99Ms": 1166,
+      "maxMs": 1166
+    },
+    "route.publish": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 13493,
+      "decodedBytes": 135367,
+      "count": 4,
+      "p50Ms": 545,
+      "p95Ms": 6092,
+      "p99Ms": 6092,
+      "maxMs": 6092
+    },
+    "route.claim": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 4599,
+      "decodedBytes": 23898,
+      "count": 4,
+      "p50Ms": 474,
+      "p95Ms": 1896,
+      "p99Ms": 1896,
+      "maxMs": 1896
+    },
+    "delivery.collect": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 50438,
+      "decodedBytes": 491185,
+      "count": 15,
+      "p50Ms": 505,
+      "p95Ms": 1383,
+      "p99Ms": 1383,
+      "maxMs": 1383
+    },
+    "sync.catchup": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 1438376,
+      "decodedBytes": 41266608,
+      "partialResponses": 16,
+      "count": 20,
+      "p50Ms": 46,
+      "p95Ms": 580,
+      "p99Ms": 601,
+      "maxMs": 601
+    },
+    "performance": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "wireBytes": 1211,
+      "decodedBytes": 5149,
+      "count": 1,
+      "p50Ms": 4,
+      "p95Ms": 4,
+      "p99Ms": 4,
+      "maxMs": 4
+    }
+  },
+  "failures": [],
+  "hostSamples": [
+    {
+      "at": "2026-09-29T02:59:38.185Z",
+      "load1": 0,
+      "freeMemMb": 5191
+    },
+    {
+      "at": "2026-09-29T02:59:53.224Z",
+      "load1": 0,
+      "freeMemMb": 4537
+    }
+  ],
+  "publicHealth": {
+    "checks": 0,
+    "failures": 0,
+    "slow": 0,
+    "maxMs": 0
+  },
+  "abortedForProductionHealth": false,
+  "abortedForHostPressure": false,
+  "convergence": {
+    "targetVersion": 1790650835954,
+    "elapsedMs": 5341,
+    "failedTasks": 0,
+    "laggingUsers": []
+  },
+  "serverPerformance": {
+    "ok": true,
+    "generatedAt": "2026-09-29T03:00:42.110Z",
+    "eventLoopDelayP95Ms": 306,
+    "eventLoopDelayMaxMs": 3620,
+    "stateWrites": {
+      "count": 78,
+      "totalMs": 28560.79169999999,
+      "maxMs": 735.7746000000043,
+      "lastMs": 484.5344999999943,
+      "lastMigrationMs": 0.005199999999604188,
+      "lastSerializationMs": 209.3961999999883,
+      "lastDiskMs": 274.70620000000054,
+      "lastBytes": 51119296,
+      "lastAt": "2026-09-29T03:00:36.473Z",
+      "averageMs": 366,
+      "sampleCount": 64,
+      "p95Ms": 529,
+      "p95SerializationMs": 214,
+      "p95DiskMs": 315
+    },
+    "stateReadMigration": {
+      "count": 1,
+      "p95Ms": 1929,
+      "maxMs": 1929
+    },
+    "stateSync": {
+      "inFlight": 0,
+      "maxConcurrent": 4,
+      "rejectedSinceStart": 0,
+      "queued": 0
+    },
+    "slowThresholdMs": 1000,
+    "requests": [
+      {
+        "key": "POST /api/orders",
+        "count": 15,
+        "errors": 0,
+        "slow": 8,
+        "totalMs": 27796.4021,
+        "maxMs": 6757,
+        "lastMs": 620,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:07.448Z",
+        "averageMs": 1853
+      },
+      {
+        "key": "GET /api/state",
+        "count": 52,
+        "errors": 0,
+        "slow": 32,
+        "totalMs": 107393.49949999999,
+        "maxMs": 6460,
+        "lastMs": 535,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:42.084Z",
+        "averageMs": 2065
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION/publish",
+        "count": 1,
+        "errors": 0,
+        "slow": 1,
+        "totalMs": 6079.8393,
+        "maxMs": 6080,
+        "lastMs": 6080,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:04.165Z",
+        "averageMs": 6080
+      },
+      {
+        "key": "GET /api/delivery",
+        "count": 8,
+        "errors": 0,
+        "slow": 4,
+        "totalMs": 18795.2011,
+        "maxMs": 4747,
+        "lastMs": 2571,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:05.937Z",
+        "averageMs": 2349
+      },
+      {
+        "key": "POST /api/presence/location",
+        "count": 19,
+        "errors": 0,
+        "slow": 15,
+        "totalMs": 48314.95950000002,
+        "maxMs": 4286,
+        "lastMs": 9,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:07.451Z",
+        "averageMs": 2543
+      },
+      {
+        "key": "GET /api/clients",
+        "count": 8,
+        "errors": 0,
+        "slow": 1,
+        "totalMs": 2513.1156999999985,
+        "maxMs": 1346,
+        "lastMs": 52,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:07.449Z",
+        "averageMs": 314
+      },
+      {
+        "key": "POST /api/delivery/orders/:id/collect",
+        "count": 15,
+        "errors": 0,
+        "slow": 1,
+        "totalMs": 8609.304399999986,
+        "maxMs": 1287,
+        "lastMs": 529,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:36.475Z",
+        "averageMs": 574
+      },
+      {
+        "key": "POST /api/orders/:id",
+        "count": 12,
+        "errors": 0,
+        "slow": 1,
+        "totalMs": 6227.636600000002,
+        "maxMs": 1253,
+        "lastMs": 471,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:25.010Z",
+        "averageMs": 519
+      },
+      {
+        "key": "POST /api/delivery/routes/plan",
+        "count": 4,
+        "errors": 0,
+        "slow": 1,
+        "totalMs": 2706.5869000000057,
+        "maxMs": 1239,
+        "lastMs": 508,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:33.452Z",
+        "averageMs": 677
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION/reorder",
+        "count": 1,
+        "errors": 0,
+        "slow": 1,
+        "totalMs": 1155.6763000000028,
+        "maxMs": 1156,
+        "lastMs": 1156,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:59:58.080Z",
+        "averageMs": 1156
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION/claim",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 634.0967999999993,
+        "maxMs": 634,
+        "lastMs": 634,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:06.049Z",
+        "averageMs": 634
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-2/publish",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 562.7997000000032,
+        "maxMs": 563,
+        "lastMs": 563,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:26.557Z",
+        "averageMs": 563
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-3/publish",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 543.1612000000023,
+        "maxMs": 543,
+        "lastMs": 543,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:30.449Z",
+        "averageMs": 543
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-4/publish",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 541.409599999999,
+        "maxMs": 541,
+        "lastMs": 541,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:34.463Z",
+        "averageMs": 541
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-4/claim",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 488.505799999999,
+        "maxMs": 489,
+        "lastMs": 489,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:34.954Z",
+        "averageMs": 489
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-2/reorder",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 479.30109999999695,
+        "maxMs": 479,
+        "lastMs": 479,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:25.992Z",
+        "averageMs": 479
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-3/claim",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 472.02090000000317,
+        "maxMs": 472,
+        "lastMs": 472,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:30.924Z",
+        "averageMs": 472
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-2/claim",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 468.47759999999835,
+        "maxMs": 468,
+        "lastMs": 468,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:27.028Z",
+        "averageMs": 468
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-4/reorder",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 465.9398999999976,
+        "maxMs": 466,
+        "lastMs": 466,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:33.920Z",
+        "averageMs": 466
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-3/reorder",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 464.95010000000184,
+        "maxMs": 465,
+        "lastMs": 465,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T03:00:29.905Z",
+        "averageMs": 465
+      },
+      {
+        "key": "POST /api/login",
+        "count": 40,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 6459.892899999993,
+        "maxMs": 351,
+        "lastMs": 294,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:59:38.153Z",
+        "averageMs": 161
+      },
+      {
+        "key": "GET /api/health",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 160.92700000000013,
+        "maxMs": 161,
+        "lastMs": 161,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T02:59:31.534Z",
+        "averageMs": 161
+      }
+    ]
+  },
+  "created": 15,
+  "ready": 15,
+  "planned": 15,
+  "routes": 4,
+  "finalOrders": 1035,
+  "finalLabeled": 15,
+  "finalDelivered": 15,
+  "integrity": {
+    "historicalOrdersUnchanged": true,
+    "originalClientsPreserved": true,
+    "originalProductsPreserved": true,
+    "createdUnique": true,
+    "lineCount": 75,
+    "stockDifferenceProducts": 0,
+    "routeStops": 15,
+    "routeStopsUnique": true,
+    "bultos": 15,
+    "totalSold": 108885,
+    "totalCollected": 108885
+  },
+  "elapsedMs": 64321,
+  "completedAt": "2026-09-29T03:00:42.473Z",
+  "runtime": {
+    "node": "v24.16.0",
+    "platform": "win32",
+    "cpus": 4,
+    "totalMemoryMb": 14297
+  },
+  "performanceGate": {
+    "limitMs": 5000,
+    "exceeded": [
+      {
+        "operation": "driver.concurrentRead",
+        "maxMs": 6103
+      },
+      {
+        "operation": "seller.gps",
+        "maxMs": 7659
+      },
+      {
+        "operation": "createOrder",
+        "maxMs": 6767
+      },
+      {
+        "operation": "seller.concurrentRead",
+        "maxMs": 8790
+      },
+      {
+        "operation": "receiver.concurrentRead",
+        "maxMs": 7178
+      },
+      {
+        "operation": "driver.gps",
+        "maxMs": 6309
+      },
+      {
+        "operation": "admin.concurrentRead",
+        "maxMs": 8959
+      },
+      {
+        "operation": "depot.concurrentRead",
+        "maxMs": 6884
+      },
+      {
+        "operation": "route.publish",
+        "maxMs": 6092
+      }
+    ]
+  },
+  "ok": false
+}
