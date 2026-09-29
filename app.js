@@ -3872,6 +3872,11 @@ function mixedEntitySupplierName(record) {
 
 function buildMixedEntities() {
   const relations = new Map();
+  const salesByClient = new Map();
+  (state.orders || []).forEach((order) => {
+    const key = normalizeSearchText(order.client);
+    salesByClient.set(key, (salesByClient.get(key) || 0) + numeric(order.amount, 0));
+  });
   const ensure = (key, label) => {
     if (!relations.has(key)) {
       relations.set(key, {
@@ -3917,9 +3922,7 @@ function buildMixedEntities() {
   relations.forEach((entity) => {
     const clientName = entity.cliente && mixedEntityClientName(entity.cliente);
     const supplierName = entity.proveedor && mixedEntitySupplierName(entity.proveedor);
-    entity.ventasTotal = (state.orders || [])
-      .filter((order) => clientName && normalizeSearchText(order.client) === normalizeSearchText(clientName))
-      .reduce((total, order) => total + numeric(order.amount, 0), 0);
+    entity.ventasTotal = clientName ? (salesByClient.get(normalizeSearchText(clientName)) || 0) : 0;
     entity.comprasTotal = numeric(entity.proveedor && entity.proveedor.totalPurchased, 0);
     entity.roles = [entity.cliente ? "Cliente" : "", entity.proveedor ? "Proveedor" : ""].filter(Boolean);
   });
@@ -4070,13 +4073,17 @@ function renderDashboardView() {
   renderDashboardWorkspace();
   renderVersionStatus();
   renderThemeControls();
-  renderMetrics();
-  renderDashboardInsights();
-  renderFlow();
-  renderDashboardPresence();
-  renderAlerts();
-  renderActivity();
-  renderCommissions();
+  const selected = operationalWorkspaces.get("dashboard")?.selected;
+  if (!selected) renderMetrics();
+  else if (selected === "operation") {
+    const dashboard = buildOperationalDashboard();
+    renderDashboardInsights(dashboard);
+    renderFlow(dashboard);
+  } else if (selected === "alerts") renderAlerts();
+  else if (selected === "activity") renderActivity();
+  else if (selected === "commissions") renderCommissions();
+  else if (selected === "map") renderDashboardPresence();
+  else if (selected === "journeys") renderDashboardDailyRoutes();
 }
 
 function renderActiveView(viewId = activeViewId()) {
@@ -4474,10 +4481,9 @@ function renderMetrics() {
   `).join("");
 }
 
-function renderDashboardInsights() {
+function renderDashboardInsights(dashboard = buildOperationalDashboard()) {
   const container = byId("dashboardInsights");
   if (!container) return;
-  const dashboard = buildOperationalDashboard();
   const totalOrders = Math.max(1, dashboard.orders.length);
   const inTransitCount = (dashboard.stageCounts.find((stage) => stage.key === "reparto") || {}).count || 0;
   const closedPercent = Math.round((dashboard.closedOrders.length / totalOrders) * 100);
@@ -4542,8 +4548,7 @@ function renderDashboardInsights() {
   `;
 }
 
-function renderFlow() {
-  const dashboard = buildOperationalDashboard();
+function renderFlow(dashboard = buildOperationalDashboard()) {
   const counts = dashboard.stageCounts;
   const total = dashboard.orders.length;
   const maxCount = Math.max(1, ...counts.map((stage) => stage.count));
@@ -9035,11 +9040,10 @@ function openOperationalTool(moduleId, toolId = "", focus = false) {
     renderDeliveryRouteMap(activeRouteForDelivery(visibleDeliveryRoutes()));
   }
   if (focus && moduleId === "estadisticas" && tool) renderAnalytics();
-  if (focus && moduleId === "dashboard" && tool?.id === "map") {
-    dashboardPresenceLastRenderAt = 0;
-    renderDashboardPresence();
+  if (focus && moduleId === "dashboard") {
+    if (tool?.id === "map") dashboardPresenceLastRenderAt = 0;
+    renderDashboardView();
   }
-  if (focus && moduleId === "dashboard" && tool?.id === "journeys") renderDashboardDailyRoutes();
 }
 
 // Move the existing controls so their listeners, selections and form values survive navigation.
@@ -15076,6 +15080,8 @@ function renderSupplierAccountPanel() {
 function renderSuppliers() {
   const globalTerms = [];
   const localTerms = searchTerms(supplierSearchTerm);
+  const mixedEntities = buildMixedEntities();
+  const mixedByKey = new Map(mixedEntities.map((entity) => [entity.key, entity]));
   supplierStatusFilter = updateDynamicFilter("suppliersStatusFilter", state.suppliers.map((supplier) => supplier.status), supplierStatusFilter, "Todos los estados");
   supplierSectorFilter = updateDynamicFilter("suppliersSectorFilter", state.suppliers.map((supplier) => supplier.sector), supplierSectorFilter, "Todos los rubros");
   const suppliers = state.suppliers.filter((supplier) => {
@@ -15110,7 +15116,7 @@ function renderSuppliers() {
     const totalPaid = state.suppliers.reduce((sum, supplier) => sum + numeric(supplier.totalPaid, 0), 0);
     const pending = state.suppliers.reduce((sum, supplier) => sum + numeric(supplier.balance, 0), 0);
     const overdue = state.suppliers.reduce((sum, supplier) => sum + numeric(supplier.overdueDebt, 0), 0);
-    const mixedCount = buildMixedEntities().length;
+    const mixedCount = mixedEntities.length;
     summary.innerHTML = [
       { label: "Total comprado", value: money.format(totalPurchased), hint: "Remitos/facturas cargadas" },
       { label: "Total pagado", value: money.format(totalPaid), hint: "Pagos registrados" },
@@ -15127,7 +15133,7 @@ function renderSuppliers() {
   }
 
   byId("suppliersTable").innerHTML = suppliers.length ? suppliers.map((supplier) => {
-    const mixedEntity = mixedEntityForSupplier(supplier);
+    const mixedEntity = mixedByKey.get(mixedEntityKey(supplier));
     return `
     <tr data-account-entity-type="supplier" data-account-entity-id="${escapeHtml(supplier.name)}" title="Doble clic para abrir el estado de cuenta">
       <td><strong>${escapeHtml(supplier.name)}</strong><small>${escapeHtml(supplier.codigo_proveedor || "Sin codigo")} - ${escapeHtml(supplier.nombre_comercial || "")}</small><small><span class="tag ${normalizeSearchText(supplier.estado_operativo).includes("inactiv") ? "danger" : "ok"}">${escapeHtml(supplier.estado_operativo || "Activo")}</span></small>${mixedEntity ? '<small><span class="tag info">Tambien cliente</span></small>' : ""}</td>
@@ -23420,8 +23426,6 @@ function bootApp() {
 }
 
 bootApp();
-
-
 
 
 

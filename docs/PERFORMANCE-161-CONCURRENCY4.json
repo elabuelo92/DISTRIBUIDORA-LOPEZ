@@ -1,0 +1,721 @@
+{
+  "version": "8790-158-simulation",
+  "startedAt": "2026-09-28T23:59:04.634Z",
+  "durationMs": 120000,
+  "targetOrders": 100,
+  "deliverAll": true,
+  "actors": {
+    "sellers": 10,
+    "admins": 4,
+    "depot": 1,
+    "drivers": 1
+  },
+  "allReaders": true,
+  "readerIntervalMs": 5000,
+  "syntheticStateBytes": 44269296,
+  "transport": "pooled-connection",
+  "productionWrites": 0,
+  "recoveredNetworkCuts": 0,
+  "operations": {
+    "simHealth": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 1,
+      "p50Ms": 197,
+      "p95Ms": 197,
+      "p99Ms": 197,
+      "maxMs": 197
+    },
+    "login": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 32,
+      "p50Ms": 270,
+      "p95Ms": 406,
+      "p99Ms": 441,
+      "maxMs": 441
+    },
+    "seller.concurrentRead": {
+      "httpErrors": 90,
+      "timeouts": 0,
+      "count": 214,
+      "p50Ms": 545,
+      "p95Ms": 2120,
+      "p99Ms": 2650,
+      "maxMs": 2805
+    },
+    "admin.concurrentRead": {
+      "httpErrors": 15,
+      "timeouts": 0,
+      "count": 55,
+      "p50Ms": 1962,
+      "p95Ms": 13255,
+      "p99Ms": 13917,
+      "maxMs": 13917
+    },
+    "depot.concurrentRead": {
+      "httpErrors": 11,
+      "timeouts": 0,
+      "count": 21,
+      "p50Ms": 790,
+      "p95Ms": 2247,
+      "p99Ms": 3508,
+      "maxMs": 3508
+    },
+    "driver.concurrentRead": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 21,
+      "p50Ms": 744,
+      "p95Ms": 1915,
+      "p99Ms": 2223,
+      "maxMs": 2223
+    },
+    "createOrder": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 100,
+      "p50Ms": 723,
+      "p95Ms": 1944,
+      "p99Ms": 2319,
+      "maxMs": 2426
+    },
+    "admin.clients": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 55,
+      "p50Ms": 340,
+      "p95Ms": 1559,
+      "p99Ms": 1887,
+      "maxMs": 1887
+    },
+    "workflow.assembly": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 22,
+      "p50Ms": 506,
+      "p95Ms": 798,
+      "p99Ms": 1176,
+      "maxMs": 1176
+    },
+    "workflow.labels": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 22,
+      "p50Ms": 569,
+      "p95Ms": 1048,
+      "p99Ms": 1066,
+      "maxMs": 1066
+    },
+    "workflow.verify-ready": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 22,
+      "p50Ms": 614,
+      "p95Ms": 947,
+      "p99Ms": 1214,
+      "maxMs": 1214
+    },
+    "route.plan": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 2,
+      "p50Ms": 603,
+      "p95Ms": 1025,
+      "p99Ms": 1025,
+      "maxMs": 1025
+    },
+    "route.reorder": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 2,
+      "p50Ms": 593,
+      "p95Ms": 1377,
+      "p99Ms": 1377,
+      "maxMs": 1377
+    },
+    "route.publish": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 2,
+      "p50Ms": 693,
+      "p95Ms": 1910,
+      "p99Ms": 1910,
+      "maxMs": 1910
+    },
+    "route.claim": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 2,
+      "p50Ms": 572,
+      "p95Ms": 1382,
+      "p99Ms": 1382,
+      "maxMs": 1382
+    },
+    "delivery.collect": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 100,
+      "p50Ms": 590,
+      "p95Ms": 1945,
+      "p99Ms": 2392,
+      "maxMs": 2489
+    },
+    "performance": {
+      "httpErrors": 0,
+      "timeouts": 0,
+      "count": 1,
+      "p50Ms": 4,
+      "p95Ms": 4,
+      "p99Ms": 4,
+      "maxMs": 4
+    }
+  },
+  "failures": [
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "admin.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "admin.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "admin.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "admin.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "depot.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "depot.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "depot.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "depot.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "depot.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "depot.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    },
+    {
+      "operation": "seller.concurrentRead",
+      "status": 503,
+      "error": "{\"ok\":false,\"code\":\"STATE_SYNC_BUSY\",\"error\":\"El servidor esta atendiendo otras sincronizaciones. El sistema reintentara automaticamente.\",\"retryAfterSeconds\":5}"
+    }
+  ],
+  "hostSamples": [
+    {
+      "at": "2026-09-28T23:59:13.425Z",
+      "load1": 0,
+      "freeMemMb": 4724
+    },
+    {
+      "at": "2026-09-28T23:59:28.484Z",
+      "load1": 0,
+      "freeMemMb": 4298
+    },
+    {
+      "at": "2026-09-28T23:59:43.538Z",
+      "load1": 0,
+      "freeMemMb": 4354
+    },
+    {
+      "at": "2026-09-28T23:59:58.549Z",
+      "load1": 0,
+      "freeMemMb": 4219
+    },
+    {
+      "at": "2026-09-29T00:00:13.571Z",
+      "load1": 0,
+      "freeMemMb": 4534
+    },
+    {
+      "at": "2026-09-29T00:00:28.572Z",
+      "load1": 0,
+      "freeMemMb": 4546
+    },
+    {
+      "at": "2026-09-29T00:00:43.573Z",
+      "load1": 0,
+      "freeMemMb": 4275
+    },
+    {
+      "at": "2026-09-29T00:00:58.575Z",
+      "load1": 0,
+      "freeMemMb": 4423
+    }
+  ],
+  "publicHealth": {
+    "checks": 0,
+    "failures": 0,
+    "slow": 0,
+    "maxMs": 0
+  },
+  "abortedForProductionHealth": false,
+  "abortedForHostPressure": false,
+  "serverPerformance": {
+    "ok": true,
+    "generatedAt": "2026-09-29T00:02:07.236Z",
+    "eventLoopDelayP95Ms": 583,
+    "eventLoopDelayMaxMs": 1379,
+    "stateWrites": {
+      "count": 290,
+      "totalMs": 121172.04440000017,
+      "maxMs": 896.258799999996,
+      "lastMs": 533.5394000000088,
+      "lastMigrationMs": 0.0027999999874737114,
+      "lastSerializationMs": 215.74360000001616,
+      "lastDiskMs": 317.2658999999985,
+      "lastBytes": 57139460,
+      "lastAt": "2026-09-29T00:02:07.208Z",
+      "averageMs": 418,
+      "sampleCount": 64,
+      "p95Ms": 631,
+      "p95SerializationMs": 245,
+      "p95DiskMs": 397
+    },
+    "stateReadMigration": {
+      "count": 1,
+      "p95Ms": 328,
+      "maxMs": 328
+    },
+    "stateSync": {
+      "inFlight": 0,
+      "maxConcurrent": 4,
+      "rejectedSinceStart": 116
+    },
+    "slowThresholdMs": 1000,
+    "requests": [
+      {
+        "key": "GET /api/state",
+        "count": 290,
+        "errors": 116,
+        "slow": 52,
+        "totalMs": 226676.78169999988,
+        "maxMs": 13184,
+        "lastMs": 10618,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T00:01:17.929Z",
+        "averageMs": 782
+      },
+      {
+        "key": "POST /api/delivery/orders/:id/collect",
+        "count": 100,
+        "errors": 0,
+        "slow": 35,
+        "totalMs": 85446.91860000002,
+        "maxMs": 2480,
+        "lastMs": 605,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T00:02:07.231Z",
+        "averageMs": 854
+      },
+      {
+        "key": "POST /api/orders",
+        "count": 100,
+        "errors": 0,
+        "slow": 16,
+        "totalMs": 66024.18740000002,
+        "maxMs": 2006,
+        "lastMs": 532,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T00:01:12.844Z",
+        "averageMs": 660
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION/publish",
+        "count": 1,
+        "errors": 0,
+        "slow": 1,
+        "totalMs": 1899.012200000012,
+        "maxMs": 1899,
+        "lastMs": 1899,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T00:00:18.826Z",
+        "averageMs": 1899
+      },
+      {
+        "key": "GET /api/delivery",
+        "count": 21,
+        "errors": 0,
+        "slow": 4,
+        "totalMs": 11749.989299999985,
+        "maxMs": 1523,
+        "lastMs": 1523,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T00:01:12.308Z",
+        "averageMs": 560
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION/claim",
+        "count": 1,
+        "errors": 0,
+        "slow": 1,
+        "totalMs": 1378.9704999999958,
+        "maxMs": 1379,
+        "lastMs": 1379,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T00:00:20.216Z",
+        "averageMs": 1379
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION/reorder",
+        "count": 1,
+        "errors": 0,
+        "slow": 1,
+        "totalMs": 1373.7050000000017,
+        "maxMs": 1374,
+        "lastMs": 1374,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T00:00:16.923Z",
+        "averageMs": 1374
+      },
+      {
+        "key": "GET /api/clients",
+        "count": 55,
+        "errors": 0,
+        "slow": 7,
+        "totalMs": 14827.326600000035,
+        "maxMs": 1307,
+        "lastMs": 11,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T00:01:18.595Z",
+        "averageMs": 270
+      },
+      {
+        "key": "POST /api/orders/:id",
+        "count": 66,
+        "errors": 0,
+        "slow": 5,
+        "totalMs": 37477.24489999996,
+        "maxMs": 1204,
+        "lastMs": 835,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T00:01:34.221Z",
+        "averageMs": 568
+      },
+      {
+        "key": "POST /api/delivery/routes/plan",
+        "count": 2,
+        "errors": 0,
+        "slow": 1,
+        "totalMs": 1616.1625000000058,
+        "maxMs": 1017,
+        "lastMs": 599,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T00:01:34.822Z",
+        "averageMs": 808
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-2/publish",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 678.1467999999877,
+        "maxMs": 678,
+        "lastMs": 678,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T00:01:36.097Z",
+        "averageMs": 678
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-2/reorder",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 588.8112000000256,
+        "maxMs": 589,
+        "lastMs": 589,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T00:01:35.415Z",
+        "averageMs": 589
+      },
+      {
+        "key": "POST /api/delivery/routes/RUTA-20260916-SIMULACION-2/claim",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 569.0401999999885,
+        "maxMs": 569,
+        "lastMs": 569,
+        "lastStatus": 200,
+        "lastAt": "2026-09-29T00:01:36.681Z",
+        "averageMs": 569
+      },
+      {
+        "key": "POST /api/login",
+        "count": 32,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 5769.9383000000025,
+        "maxMs": 437,
+        "lastMs": 282,
+        "lastStatus": 200,
+        "lastAt": "2026-09-28T23:59:13.433Z",
+        "averageMs": 180
+      },
+      {
+        "key": "GET /api/health",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 162.04459999999995,
+        "maxMs": 162,
+        "lastMs": 162,
+        "lastStatus": 200,
+        "lastAt": "2026-09-28T23:59:07.522Z",
+        "averageMs": 162
+      }
+    ]
+  },
+  "created": 100,
+  "ready": 100,
+  "planned": 100,
+  "routes": 2,
+  "finalOrders": 354,
+  "finalLabeled": 100,
+  "finalDelivered": 100,
+  "integrity": {
+    "historicalOrdersUnchanged": true,
+    "originalClientsPreserved": true,
+    "originalProductsPreserved": true,
+    "createdUnique": true,
+    "lineCount": 500,
+    "stockDifferenceProducts": 0,
+    "routeStops": 100,
+    "routeStopsUnique": true,
+    "bultos": 100,
+    "totalSold": 874650,
+    "totalCollected": 874650
+  },
+  "elapsedMs": 174217,
+  "completedAt": "2026-09-29T00:02:07.651Z",
+  "runtime": {
+    "node": "v24.16.0",
+    "platform": "win32",
+    "cpus": 4,
+    "totalMemoryMb": 14297
+  },
+  "serverLogTail": "Distribuidora Lopez SERVIDOR_UNICO_8790 8790-158-simulation listening on 127.0.0.1:61436\n",
+  "ok": false
+}
