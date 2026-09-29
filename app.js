@@ -11144,7 +11144,7 @@ function renderClientPage(payload, fromCache = false) {
         <strong>${escapeHtml(client.zone)}</strong>
         <small>${escapeHtml(client.ruta || client.zone)} - ${escapeHtml(client.seller || "Sin vendedor")}</small>
         <small>${escapeHtml(client.horario_atencion || "Sin horario")} - ${Number.isFinite(client.latitud) && Number.isFinite(client.longitud) ? "GPS cargado" : "GPS pendiente"}</small>
-        ${client.gpsReviewStatus ? `<small><span class="tag ${client.gpsReviewStatus === "approved" ? "ok" : "warn"}">${escapeHtml(client.gpsReviewStatus === "pending_validation" ? "GPS pendiente de validacion" : client.gpsReviewStatus === "needs_correction" ? "GPS a corregir" : client.gpsReviewStatus === "rejected" ? "GPS rechazado" : "GPS aprobado")}</span></small>` : ""}
+        ${client.gpsReviewStatus ? `<small><span class="tag ${["approved", "cancelled"].includes(client.gpsReviewStatus) ? "ok" : "warn"}">${escapeHtml(client.gpsReviewStatus === "pending_validation" ? "GPS pendiente de validacion" : client.gpsReviewStatus === "needs_correction" ? "GPS a corregir" : client.gpsReviewStatus === "rejected" ? "GPS rechazado" : client.gpsReviewStatus === "cancelled" ? "Correccion GPS cancelada" : "GPS aprobado")}</span></small>` : ""}
       </td>
       <td>
         <span class="tag ${clientStatusClass(client.status)}">${escapeHtml(client.status)}</span>
@@ -11165,6 +11165,7 @@ function renderClientPage(payload, fromCache = false) {
         ${client.gpsReviewStatus === "pending_validation"
           ? `<button class="mini-btn primary-mini" type="button" data-client-gps-action="approve" data-client-gps-id="${escapeHtml(client.codigo_cliente || client.name)}">Aprobar GPS</button><button class="mini-btn" type="button" data-client-gps-action="reject" data-client-gps-id="${escapeHtml(client.codigo_cliente || client.name)}">Rechazar</button>`
           : `<button class="mini-btn" type="button" data-client-gps-action="mark" data-client-gps-id="${escapeHtml(client.codigo_cliente || client.name)}">GPS a corregir</button>`}
+        ${["needs_correction", "pending_validation", "rejected"].includes(client.gpsReviewStatus) ? `<button class="mini-btn" type="button" data-client-gps-action="cancel" data-client-gps-id="${escapeHtml(client.codigo_cliente || client.name)}">Cancelar correccion</button>` : ""}
         <button class="mini-btn primary-mini" type="button" data-account-open="client" data-account-id="${escapeHtml(client.codigo_cliente || client.name)}">Cuenta</button>
         ${mixedEntityKeyValue ? `<button class="mini-btn primary-mini" type="button" data-mixed-entity="${escapeHtml(mixedEntityKeyValue)}">Ficha mixta</button>` : ""}
       </td>
@@ -18915,6 +18916,7 @@ async function changeClientGpsReview(id, action) {
   const client = currentClientPageRecords.find((item) => (item.codigo_cliente || item.name) === id);
   if (!client) return;
   const proposal = client.gpsReview?.proposal;
+  const expectedUpdatedAt = String(client.updatedAt || "");
   let reason = "";
   if (action === "mark" && !window.confirm(`Marcar GPS a corregir para ${client.name}? Se pausaran las ventas nuevas.`)) return;
   if (action === "approve") {
@@ -18925,10 +18927,16 @@ async function changeClientGpsReview(id, action) {
     reason = window.prompt(`Motivo del rechazo de GPS para ${client.name}:`, "Ubicacion no coincide con el comercio") || "";
     if (!reason.trim()) return;
   }
+  if (action === "cancel") {
+    reason = window.prompt(`Motivo para cancelar la correccion GPS de ${client.name}:`, "Marcado por error") || "";
+    if (!reason.trim()) return;
+    if (reason.trim().length > 500) return window.alert("El motivo admite hasta 500 caracteres.");
+    if (!window.confirm(`Cancelar la correccion GPS de ${client.name}? Se conservara la ubicacion actual y se quitara solo el bloqueo por GPS. No se aprobara ninguna ubicacion propuesta.`)) return;
+  }
   try {
-    await postOperationalAction(`api/clients/${encodeURIComponent(id)}/gps-review`, { action, reason });
+    await postOperationalAction(`api/clients/${encodeURIComponent(id)}/gps-review`, { action, reason, ...(action === "cancel" ? { expectedUpdatedAt } : {}) });
     renderClients({ force: true });
-    showCompactNotice(`GPS de ${client.name}: ${action === "mark" ? "correccion solicitada" : action === "approve" ? "aprobado" : "rechazado"}.`, "ok");
+    showCompactNotice(`GPS de ${client.name}: ${action === "mark" ? "correccion solicitada" : action === "approve" ? "aprobado" : action === "cancel" ? "correccion cancelada; ubicacion conservada" : "rechazado"}.`, "ok");
   } catch (error) {
     showCompactNotice(error.message || "No se pudo actualizar el GPS.", "danger");
   }

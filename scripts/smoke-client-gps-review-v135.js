@@ -100,6 +100,39 @@ async function post(cookie, endpoint, input) {
     assert.equal(approvedState.state.clients.find((c) => c.codigo_cliente === id).gpsReview.status, "approved");
     assert.ok(saved.gpsReviewHistory.length >= 4);
     assert.equal(JSON.parse(fs.readFileSync(stateFile, "utf8")).state.orders.length, 1);
+    const readState = () => JSON.parse(fs.readFileSync(stateFile, "utf8")).state;
+    const protectedState = JSON.stringify(readState().orders);
+    const protectedProducts = JSON.stringify(readState().products);
+    for (const reviewStatus of ["needs_correction", "pending_validation", "rejected"]) {
+      assert.equal((await post(admin, endpoint, { action: "mark" })).status, 200);
+      if (reviewStatus !== "needs_correction") {
+        assert.equal((await post(seller, endpoint, { action: "submit", gps: { lat: -31.5, lng: -64.2, accuracy: 9, source: "gps" } })).status, 200);
+      }
+      if (reviewStatus === "rejected") assert.equal((await post(admin, endpoint, { action: "reject", reason: "Prueba" })).status, 200);
+      const beforeCancel = readState().clients[0];
+      const input = { action: "cancel", reason: "Marcado por error", expectedUpdatedAt: beforeCancel.updatedAt };
+      assert.equal((await post(seller, endpoint, input)).status, 400);
+      assert.equal((await post(admin, endpoint, { ...input, expectedUpdatedAt: "stale" })).status, 409);
+      assert.equal((await post(admin, endpoint, { ...input, reason: " " })).status, 400);
+      assert.deepEqual(readState().clients[0], beforeCancel, "Invalid cancellations do not change data");
+      assert.equal((await post(admin, endpoint, input)).status, 200);
+      const cancelled = readState().clients[0];
+      assert.equal(cancelled.gpsReview.status, "cancelled");
+      assert.equal(cancelled.gpsReview.proposal, null);
+      assert.deepEqual(cancelled.gpsReviewHistory[0].before.gpsReview, beforeCancel.gpsReview);
+      assert.equal(cancelled.gpsReviewHistory[0].action, "cancel");
+      for (const key of Object.keys(beforeCancel).filter(k => !["gpsReview", "gpsReviewHistory", "updatedAt"].includes(k))) {
+        assert.deepEqual(cancelled[key], beforeCancel[key], `Preserve ${key}`);
+      }
+      assert.equal((await post(admin, endpoint, input)).status, 400, "Cannot cancel twice");
+      const sellerState = await (await fetch(`${base}/api/state?version=0`, { headers: { Cookie: seller } })).json();
+      assert.equal(sellerState.state.clients.find(c => c.codigo_cliente === id).gpsReview.status, "cancelled");
+      assert.equal(JSON.stringify(readState().orders), protectedState);
+      assert.equal(JSON.stringify(readState().products), protectedProducts);
+    }
+    console.log("OK: cancellation from all three blocked states, admin-only, stale protection, audit, coordinates and unrelated fields preserved, seller synchronization.");
+    const unblocked = await post(seller, "/api/orders", { operationId: "GPS-CANCEL-ORDER-1", client: state.clients[0].name, items: [{ productCode: "P-132", qty: 1 }] });
+    assert.ok(unblocked.status >= 200 && unblocked.status < 300, unblocked.body.error || "Sales should resume after cancellation");
     console.log(JSON.stringify({ ok: true, blockedDuringReview: true, originalOrderPreserved: true, precision: saved.gpsReview.proposal.accuracy }));
   } finally {
     child.kill();

@@ -22,7 +22,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-163";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-164";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -6898,6 +6898,17 @@ const server = http.createServer(async (req, res) => {
           if (sessionUser.role !== "admin") throw new Error("Solo Administracion puede marcar GPS a corregir.");
           client.gpsReview = { ...review, status: "needs_correction", markedAt: at, markedBy: sessionUser.name,
             previous: { lat: client.latitud ?? null, lng: client.longitud ?? null }, proposal: null };
+        } else if (action === "cancel") {
+          if (sessionUser.role !== "admin") throw new Error("Solo Administracion puede cancelar la correccion GPS.");
+          if (!["needs_correction", "pending_validation", "rejected"].includes(review.status)) throw new Error("No hay una correccion GPS abierta para cancelar.");
+          if (typeof input.expectedUpdatedAt !== "string" || input.expectedUpdatedAt !== String(client.updatedAt || client.createdAt || "")) {
+            sendJson(res, 409, { ok: false, error: "El cliente cambio. Actualizar la lista y revisar antes de cancelar." });
+            return;
+          }
+          const reason = String(input.reason || "").trim();
+          if (!reason || reason.length > 500) throw new Error("Indicar un motivo de cancelacion de hasta 500 caracteres.");
+          client.gpsReview = { ...review, status: "cancelled", proposal: null,
+            resolvedAt: at, resolvedBy: sessionUser.name, resolutionNote: reason };
         } else if (action === "submit") {
           if (!["needs_correction", "rejected"].includes(review.status)) throw new Error("El cliente no tiene GPS pendiente de correccion.");
           const accuracy = Number(input.gps && input.gps.accuracy);
