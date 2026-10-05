@@ -22,7 +22,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-164";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-165";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -6682,6 +6682,16 @@ const server = http.createServer(async (req, res) => {
       try {
         const type = String(input.type || "client").trim().toLowerCase();
         if (type !== "client") throw new Error("Los pagos de proveedores deben utilizar el circuito documentado de conciliacion.");
+        if (input.method === "Transferencia a validar") {
+          const existing = (currentState.bankReconciliation || []).find((item) => item.id === input.requestId);
+          const attachment = existing?.attachment || saveDeliveryUpload({ orderCode: "CUENTA", kind: "transfer-proof", dataUrl: input.dataUrl || "" }, sessionUser);
+          const result = accountEngine.registerClientTransferRequest(currentState, { ...input, attachment }, { user: sessionUser.name, username: sessionUser.username, role: sessionUser.role });
+          writeStateResponse(res, currentState, result, auditEntry(req, sessionUser, input, {
+            action: "COMPROBANTE_CUENTA_CORRIENTE", entityType: "cliente", entityId: result.statement.entity.id,
+            entityLabel: result.statement.entity.name, note: `Transferencia ${result.transfer.id}: ${result.transfer.amount}, pendiente de validacion`
+          }), null, sessionUser);
+          return;
+        }
         const result = accountEngine.registerClientPayment(currentState, input, {
           user: sessionUser.name,
           username: sessionUser.username,
@@ -9134,6 +9144,7 @@ const server = http.createServer(async (req, res) => {
         const at = new Date().toISOString();
         const parts = auditLocalParts(at);
         const amount = Math.max(0, numeric(payment.amount, 0));
+        if (payment.transferId && amount > numeric(supplier.balance, 0)) throw new Error("El pago triangulado supera el saldo actual del proveedor. Revisar antes de conciliar.");
         supplier.totalPaid = numeric(supplier.totalPaid, 0) + amount;
         supplier.total_pagado = supplier.totalPaid;
         supplier.balance = Math.max(0, numeric(supplier.balance, 0) - amount);
@@ -9513,6 +9524,32 @@ const server = http.createServer(async (req, res) => {
         }), [], { performanceStartedAt, atomic: true });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo asignar el repartidor." });
+      }
+      return;
+    }
+
+    const relocateMatch = requestUrl.pathname.match(/^\/api\/delivery\/routes\/([^/]+)\/relocate$/);
+    if (relocateMatch && req.method === "POST") {
+      const performanceStartedAt = performance.now();
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Solo administracion puede reubicar pedidos." });
+        return;
+      }
+      const input = JSON.parse(await readBody(req) || "{}");
+      const currentState = readStateFileCached().state || {};
+      try {
+        const routeId = decodeURIComponent(relocateMatch[1]);
+        const result = deliveryEngine.relocateOrders(currentState, routeId, input, deliveryContext(sessionUser, input));
+        const routes = currentState.deliveryRoutes.filter((route) => [result.sourceRouteId, result.targetRouteId].includes(route.id));
+        const orders = currentState.orders.filter((order) => result.orderCodes.includes(order.code));
+        writeCompactStateResponse(res, currentState, { relocation: result, routes, orders, refreshRequired: true }, auditEntry(req, sessionUser, input, {
+          action: "PEDIDOS_REUBICADOS", entityType: "ruta", entityId: routeId,
+          note: `${result.orderCodes.join(", ")} -> ${result.targetRouteId || "Sin asignar"}`
+        }), [], { performanceStartedAt, atomic: true });
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudo reubicar." });
       }
       return;
     }

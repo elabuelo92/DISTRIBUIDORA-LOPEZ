@@ -945,6 +945,23 @@
   gap: 8px;
 }
 
+.planner-map-dialog { width: min(1000px, 90vw); max-width: 100%; }
+#plannerMapCanvas { height: min(60vh, 560px); min-height: 260px; width: 100%; }
+.bank-transfer-amount { font-size: 24px; font-weight: 700; color: var(--text); }
+#bankList .bank-transfer-card { grid-template-columns: minmax(0, 1fr) auto; border-radius: 4px; }
+#bankList .bank-transfer-card details,
+#bankList .bank-transfer-card .order-actions { grid-column: 1 / -1; }
+#bankList .bank-transfer-card details p { margin: 4px 0; }
+#bankList, #bankList .bank-transfer-card { min-width: 0; }
+#bankList .bank-transfer-card strong,
+#bankList .bank-transfer-card .order-actions { overflow-wrap: anywhere; min-width: 0; }
+#bankList .bank-transfer-card .order-actions > * { max-width: 100%; min-width: 0; }
+#bankList .bank-transfer-card select { max-width: 100%; }
+@media (max-width: 600px) {
+  #bankList .bank-transfer-card { grid-template-columns: minmax(0, 1fr); }
+  #bankList .bank-transfer-card .order-actions { flex-wrap: wrap; }
+}
+
 .bank-transfer-card.red {
   border-color: #f2a4a4;
 }

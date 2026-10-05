@@ -2430,10 +2430,14 @@ function applyOperationalPatches(payload) {
     ...(payload.order && payload.order.code ? [payload.order] : [])
   ];
   if (orderPatches.length) applyOrderPatches(orderPatches, payload.version);
-  if (payload.route && payload.route.id) {
-    const routeIndex = (state.deliveryRoutes || []).findIndex((route) => route.id === payload.route.id);
-    if (routeIndex >= 0) state.deliveryRoutes[routeIndex] = payload.route;
-    else state.deliveryRoutes = [payload.route, ...(state.deliveryRoutes || [])];
+  const routePatches = [...(Array.isArray(payload.routes) ? payload.routes : []), ...(payload.route?.id ? [payload.route] : [])];
+  for (const route of routePatches) {
+    if (!route?.id) continue;
+    const routeIndex = (state.deliveryRoutes || []).findIndex((item) => item.id === route.id);
+    if (routeIndex >= 0) state.deliveryRoutes[routeIndex] = route;
+    else state.deliveryRoutes = [route, ...(state.deliveryRoutes || [])];
+  }
+  if (routePatches.some((route) => route?.id)) {
     persistLocalMeta("route-patch");
     scheduleRenderForCurrentUser();
   }
@@ -5294,6 +5298,24 @@ function renderMobileCart() {
   renderMobileCommercialProductOptions();
 }
 
+function sellerCurrentMonthTotals(sellerName, now = new Date()) {
+  const month = commissionReportDateKey(now).slice(0, 7);
+  const [year, monthNumber] = month.split("-").map(Number);
+  const start = Date.UTC(year, monthNumber - 1, 1, 3);
+  const end = Date.UTC(year, monthNumber, 1, 3);
+  const sellerKey = normalizeSearchText(sellerName);
+  const totals = { sales: 0, commission: 0 };
+  for (const order of commissionHistoryOrders()) {
+    if (!sellerKey || normalizeSearchText(order.seller) !== sellerKey) continue;
+    if ([ORDER_STATUS.CANCELLED, ORDER_STATUS.REJECTED, ORDER_STATUS.NOT_DELIVERED].includes(order.status)) continue;
+    const at = Date.parse(order.createdAt || order.receivedAt || order.date || "");
+    if (!Number.isFinite(at) || at < start || at >= end) continue;
+    totals.sales += numeric(order.amount, 0);
+    totals.commission += numeric(order.commissions?.seller?.total, 0);
+  }
+  return totals;
+}
+
 function renderMobileSummary() {
   const summary = getCartSummary();
   const seller = state.sellers.find((item) => item.name === mobileSeller);
@@ -5302,6 +5324,7 @@ function renderMobileSummary() {
   const creditBlocked = Boolean(credit && credit.requiresAuthorization && !canAuthorizeCredit());
   const gpsBlocked = Boolean(client && ["needs_correction", "pending_validation", "rejected"].includes(client.gpsReview?.status));
   const nextCommission = cartCommission(summary).seller || {};
+  const monthTotals = sellerCurrentMonthTotals(seller?.name);
   byId("mobileSummary").innerHTML = `
     <div>
       <span>Total pedido</span>
@@ -5312,12 +5335,12 @@ function renderMobileSummary() {
       <strong>${money.format(nextCommission.total || 0)}</strong>
     </div>
     <div>
-      <span>Ventas del vendedor</span>
-      <strong>${money.format(seller ? sellerSalesValue(seller.name) : 0)}</strong>
+      <span>Ventas del mes vigente</span>
+      <strong>${money.format(monthTotals.sales)}</strong>
     </div>
     <div>
-      <span>Comision acumulada</span>
-      <strong>${money.format(seller ? sellerCommissionValue(seller.name) : 0)}</strong>
+      <span>Comision del mes vigente</span>
+      <strong>${money.format(monthTotals.commission)}</strong>
     </div>
     ${summary.shortages.length
       ? `<p class="stock-error">El pedido se registrara pendiente de abastecimiento. ${summary.shortages.join(" ")}</p>`
@@ -9574,6 +9597,7 @@ function renderDeliveryPlannerRoutes() {
           <button type="button" class="mini-btn" data-assign-route-driver="${escapeHtml(route.id)}" title="Asignar el usuario de reparto indicado arriba a todos los pedidos de esta ruta">Asignar repartidor</button>
           <button type="button" class="mini-btn" data-unplan-planned-route="${escapeHtml(route.id)}">Deshacer planificacion</button>
         </div>` : ""}
+        <button type="button" class="mini-btn" data-planner-map-route="${escapeHtml(route.id)}">Ver mapa</button>
         ${canOptimize ? `<div class="planner-route-actions"><button type="button" class="mini-btn" data-optimize-route="${escapeHtml(route.id)}">Optimizar ruta</button></div>` : ""}
         ${deliveryRouteProposal?.routeId === route.id ? routeOptimizationPreviewHtml() : ""}
         ${deliveryRouteOrderUndo?.routeId === route.id ? `<button type="button" class="mini-btn" data-undo-optimized-route="${escapeHtml(route.id)}">Volver al orden anterior</button>` : ""}
@@ -9763,6 +9787,10 @@ function deliveryClosureMetricsHtml(summary) {
       <div class="delivery-closure-metric">
         <span>Devueltos</span>
         <strong>${summary.returnedOrders}</strong>
+      </div>
+      <div class="delivery-closure-metric">
+        <span>Gastos de caja</span>
+        <strong>${money.format(summary.expenseTotal || 0)}</strong>
       </div>
       <div class="delivery-closure-metric">
         <span>Efectivo esperado</span>
@@ -10344,6 +10372,8 @@ function renderDeliveryStops(route) {
     ].filter(Boolean).join(" - ");
     return `<tr class="delivery-stop-table-row ${isCurrent ? "current" : ""} ${isDeliveryStopClosed(stop.status) ? "completed" : ""}" ${canReorder ? `data-route-drop="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}"` : ""}>
       <td><div class="delivery-stop-actions compact">
+        ${isAdminUser() && canReorder && !stop.collection && !stop.exception && !isDeliveryStopClosed(stop.status) ? `<button class="secondary-btn" type="button" data-relocate-route="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}">Reubicar</button>` : ""}
+        ${isAdminUser() && order?.status === ORDER_STATUS.NOT_DELIVERED && stop.status === ORDER_STATUS.NOT_DELIVERED && !stop.collection ? `<button class="secondary-btn" type="button" data-relocate-route="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}">Bolsa / Segunda visita</button>` : ""}
         ${mapsUrl ? `<button class="secondary-btn" type="button" data-delivery-map="${escapeHtml(stop.orderCode)}">Ir</button>` : ""}
         ${canReorder && index > 0 ? `<button class="secondary-btn" type="button" data-route-move="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}" data-direction="-1" title="Subir">↑</button>` : ""}
         ${canReorder && index < route.stops.length - 1 ? `<button class="secondary-btn" type="button" data-route-move="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}" data-direction="1" title="Bajar">↓</button>` : ""}
@@ -10559,13 +10589,14 @@ function deliveryClosureRecords() {
 
 const DELIVERY_COLLECTION_HEADERS = ["Cliente", "Pedido", "Total", "Efectivo", "Transferencia", "Banco", "Cuenta corriente", "Saldo a favor", "Diferencia"];
 
-function deliveryCollectionsManifestRows(day) {
+function deliveryCollectionsManifestRows(day, routeId = "") {
   const totals = { total: 0, cash: 0, transfer: 0, credit: 0, customerCredit: 0, difference: 0 };
   const rows = [];
-  (state.deliveryRoutes || []).forEach((route) => (route.stops || []).forEach((stop) => {
+  const ordersByCode = new Map((state.orders || []).map((order) => [order.code, order]));
+  (state.deliveryRoutes || []).filter((route) => !routeId || route.id === routeId).forEach((route) => (route.stops || []).forEach((stop) => {
     const collection = stop.collection;
-    if (!collection || !collection.at || new Date(collection.at).toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" }) !== day) return;
-    const order = (state.orders || []).find((item) => item.code === stop.orderCode);
+    if (!collection || (!routeId && (!collection.at || new Date(collection.at).toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" }) !== day))) return;
+    const order = ordersByCode.get(stop.orderCode);
     const total = numeric(collection.collectibleAmount ?? order?.amount ?? stop.amount, 0);
     const cash = numeric(collection.cashAmount, 0);
     const transfer = numeric(collection.transferAmount, 0);
@@ -10587,16 +10618,46 @@ function deliveryCollectionsManifestRows(day) {
   return rows;
 }
 
-async function exportDeliveryCollectionsManifest(format) {
+async function exportDeliveryCollectionsManifest(format, selectedRouteId) {
   if (!isAdminUser()) return;
+  const selection = selectedRouteId || byId("deliveryCollectionsRoute")?.value;
+  if (!selection) return showCompactNotice("Seleccionar la ruta a exportar.", "warn");
+  const routeId = selection === "__day__" ? "" : selection;
+  const route = routeId ? (state.deliveryRoutes || []).find((item) => item.id === routeId) : null;
+  if (routeId && !route) return showCompactNotice("La ruta no esta disponible. Actualizar antes de exportar.", "warn");
   const day = byId("deliveryCollectionsDate")?.value || routeDayToday();
-  const rows = deliveryCollectionsManifestRows(day);
-  if (rows.length === 1) return showCompactNotice("No hay cobros registrados en esa fecha.", "warn");
+  const rows = deliveryCollectionsManifestRows(day, routeId);
+  const count = rows.length - 1;
+  if (!route && !count) return showCompactNotice("No hay cobros registrados en esa fecha.", "warn");
+  const title = route ? `Rendicion - ${route.id}` : `Cobros del dia - ${day} - Todas las rutas`;
+  const filePart = (routeId || `todas-las-rutas-${day}`).replace(/[^a-zA-Z0-9_-]/g, "-");
+  const closure = route?.closure;
+  if (route) {
+    const summary = [
+      ["RUTA", route.id], ["FECHA DE RUTA", route.day || ""],
+      ["REPARTIDOR", route.driverUser || route.deviceLabel || ""],
+      ["ESTADO", closure ? "Cierre registrado" : "PROVISORIO - Sin cierre registrado"],
+      ["PARADAS TOTALES", (route.stops || []).length], ["COBROS REGISTRADOS", count]
+    ];
+    if (closure) summary.push(
+      ["CIERRE", closure.id || ""], ["FECHA DEL CIERRE", closure.at || closure.date || ""],
+      ["EFECTIVO COBRADO", closure.grossCash ?? closure.expectedCash ?? 0], ["GASTOS DE CAJA", closure.expenseTotal || 0],
+      ["EFECTIVO ESPERADO", closure.expectedCash || 0], ["EFECTIVO RENDIDO", closure.reportedCash || 0],
+      ["DIFERENCIA EFECTIVO", closure.cashDifference || 0],
+      ["TRANSFERENCIAS ESPERADAS", closure.expectedTransfer || 0], ["TRANSFERENCIAS RENDIDAS", closure.reportedTransfer || 0],
+      ["DIFERENCIA TRANSFERENCIAS", closure.transferDifference || 0], ["DIFERENCIA TOTAL", closure.totalDifference || 0],
+      ["PENDIENTE CUENTA CORRIENTE", closure.pendingAmount || 0], ["DEVOLUCIONES", closure.returnedAmount || 0],
+      ["MOTIVO DIFERENCIA", closure.differenceReason || ""], ["OBSERVACIONES", closure.observations || ""],
+      ["RESPONSABLE CIERRE", closure.user || ""]
+    );
+    if (closure) (closure.expenses || []).forEach((expense) => summary.push([`GASTO: ${expense.concept}`, expense.amount]));
+    rows.push(...summary.map((row) => [...row, ...Array(DELIVERY_COLLECTION_HEADERS.length - row.length).fill("")]));
+  }
   if (format === "xlsx") {
-    await downloadXlsxReport({ fileName: `manifiesto-cobros-${day}.xlsx`, sheetName: "Cobros del dia", headers: DELIVERY_COLLECTION_HEADERS, rows });
+    await downloadXlsxReport({ fileName: `manifiesto-cobros-${filePart}.xlsx`, sheetName: route ? "Rendicion de ruta" : "Cobros del dia", headers: DELIVERY_COLLECTION_HEADERS, rows });
   } else {
-    downloadBlob(`manifiesto-cobros-${day}.pdf`, makeTablePdf(`Distribuidora Lopez - Cobros ${day}`, DELIVERY_COLLECTION_HEADERS, rows, {
-      subtitle: `${rows.length - 1} pedidos. Transferencias sujetas a conciliacion bancaria.`
+    downloadBlob(`manifiesto-cobros-${filePart}.pdf`, makeTablePdf(`Distribuidora Lopez - ${title}`, DELIVERY_COLLECTION_HEADERS, rows, {
+      subtitle: `${count} cobros. ${route ? "Todos los dias de la ruta seleccionada." : "Consolidado diario."} Transferencias sujetas a conciliacion bancaria.`
     }));
   }
 }
@@ -10606,6 +10667,14 @@ function renderDeliveryClosures() {
   if (!list) return;
   const manifestDate = byId("deliveryCollectionsDate");
   if (manifestDate && !manifestDate.value) manifestDate.value = routeDayToday();
+  const routeSelect = byId("deliveryCollectionsRoute");
+  if (routeSelect) {
+    const selected = routeSelect.value;
+    const routes = [...(state.deliveryRoutes || [])].sort((a, b) => String(b.day || "").localeCompare(String(a.day || "")));
+    routeSelect.innerHTML = '<option value="">Seleccionar ruta</option><option value="__day__">Todas las rutas - consolidado diario</option>'
+      + routes.map((route) => `<option value="${escapeHtml(route.id)}">${escapeHtml(route.id)} - ${escapeHtml(route.driverUser || route.deviceLabel || "Sin repartidor")}</option>`).join("");
+    routeSelect.value = selected;
+  }
   const closures = deliveryClosureRecords().slice(0, 20);
   list.innerHTML = closures.length ? closures.map((closure) => {
     const tone = deliveryDifferenceTone(closure.totalDifference);
@@ -10618,6 +10687,7 @@ function renderDeliveryClosures() {
         <small>${escapeHtml(closure.deviceLabel || closure.driverUser || "Reparto")} - ${escapeHtml(closure.date || "")} ${escapeHtml(closure.time || formatOrderTime(closure.at))}</small>
         ${deliveryClosureMetricsHtml(closure)}
         ${closure.observations ? `<p>${escapeHtml(closure.observations)}</p>` : ""}
+        <div class="toolbar-row"><button class="secondary-btn" type="button" data-route-closure-export="pdf" data-route-id="${escapeHtml(closure.routeId)}">Rendicion PDF</button><button class="secondary-btn" type="button" data-route-closure-export="xlsx" data-route-id="${escapeHtml(closure.routeId)}">Rendicion Excel</button></div>
       </article>
     `;
   }).join("") : '<div class="empty-note">Sin cierres diarios registrados.</div>';
@@ -10849,6 +10919,9 @@ function downloadSelectedTransferProofs() {
 
 async function postBankBulkStatus(status, extra = {}) {
   const transferIds = selectedBankTransfers().map((record) => record.id);
+  if (Array.from(document.querySelectorAll("[data-transfer-supplier]")).some((select) => select.value && transferIds.includes(select.dataset.transferSupplier))) {
+    throw new Error("Validar los pagos triangulados individualmente para confirmar su proveedor destino.");
+  }
   if (!transferIds.length) {
     setBankBulkStatus("No hay comprobantes seleccionados.", "warn");
     return null;
@@ -10909,6 +10982,8 @@ async function runBankBulkAction(action) {
 function renderBankReconciliationList(globalTerms, localTerms) {
   const list = byId("bankList");
   if (!list) return;
+  const expanded = new Set(Array.from(list.querySelectorAll("details[open][data-transfer-detail]"), (item) => item.dataset.transferDetail));
+  const supplierSelections = new Map(Array.from(list.querySelectorAll("[data-transfer-supplier]"), (item) => [item.dataset.transferSupplier, item.value]));
   if (AccountEngine && typeof AccountEngine.ensureTransferReconciliation === "function") {
     AccountEngine.ensureTransferReconciliation(state);
   }
@@ -10935,15 +11010,20 @@ function renderBankReconciliationList(globalTerms, localTerms) {
             <span class="tag ${light.tone}">${escapeHtml(light.label)}</span>
             <strong>${escapeHtml(record.orderCode || "Sin pedido")} - ${escapeHtml(record.client || "Sin cliente")}</strong>
           </div>
-          <p>${escapeHtml(light.text)} Importe ${money.format(record.amount || 0)}.</p>
+          <strong class="bank-transfer-amount">${money.format(record.amount || 0)}</strong>
+          <details data-transfer-detail="${escapeHtml(record.id)}" ${expanded.has(record.id) ? "open" : ""}>
+          <summary>Datos y validacion</summary>
+          <p>${escapeHtml(light.text)}</p>
           <p>${escapeHtml(record.bank || "Banco sin informar")} - Alias ${escapeHtml(record.alias || "S/D")} - CBU ${escapeHtml(record.cbu || "S/D")}</p>
           <p>${escapeHtml(record.date || "")} ${escapeHtml(record.time || "")} - Cargado por ${escapeHtml(record.uploadedBy || record.loadedBy || "S/D")}</p>
           ${record.observations ? `<p>Obs: ${escapeHtml(record.observations)}</p>` : ""}
           ${record.adminObservations ? `<p>Obs. administracion: ${escapeHtml(record.adminObservations)}</p>` : ""}
           ${record.statusReason ? `<p class="danger-text">Motivo: ${escapeHtml(record.statusReason)}</p>` : ""}
           ${validatedInfo}
+          </details>
           <div class="order-actions">
             ${attachment}
+            ${!isFinal ? `<label>Destino del pago<select data-transfer-supplier="${escapeHtml(record.id)}"><option value="">Cuenta de la distribuidora</option>${(state.suppliers || []).map((supplier) => `<option value="${escapeHtml(supplier.name)}">Proveedor: ${escapeHtml(supplier.name)}</option>`).join("")}</select></label>` : record.targetSupplier ? `<span>Triangulado a ${escapeHtml(record.targetSupplier)} - ${escapeHtml(record.supplierPaymentId || "")}</span>` : ""}
             ${!isFinal ? `<button class="mini-btn" type="button" data-transfer-proof="${escapeHtml(record.id)}">${record.attachment ? "Reemplazar comprobante" : "Cargar comprobante"}</button>` : ""}
             ${!isFinal && record.attachment ? `<button class="mini-btn primary-mini" type="button" data-transfer-status="${escapeHtml(record.id)}" data-status="${escapeHtml(TRANSFER_STATUS.ACCOUNT_UPDATED)}">Validar transferencia</button>` : ""}
             ${!isFinal ? `<button class="mini-btn danger-btn" type="button" data-transfer-status="${escapeHtml(record.id)}" data-status="${escapeHtml(TRANSFER_STATUS.OBSERVED)}">Rechazar comprobante</button>` : ""}
@@ -10952,9 +11032,10 @@ function renderBankReconciliationList(globalTerms, localTerms) {
         </article>
       `;
     }).join("");
+    list.querySelectorAll("[data-transfer-supplier]").forEach((select) => { select.value = supplierSelections.get(select.dataset.transferSupplier) || ""; });
     return;
   }
-  const legacy = state.bankTransfers || [];
+  const legacy = allRecords.length ? [] : state.bankTransfers || [];
   list.innerHTML = legacy.length ? legacy.map((item) => `
     <article class="alert">
       <span class="tag ${item.tone}">${item.tone === "danger" ? "Revisar" : "Pendiente"}</span>
@@ -11829,6 +11910,8 @@ function renderAccountStatement(statement) {
   byId("accountStatementPaymentAmount").value = "";
   byId("accountStatementPaymentReference").value = "";
   byId("accountStatementPaymentNote").value = "";
+  byId("accountStatementPaymentProof").value = "";
+  byId("accountStatementPaymentProof").dataset.requestId = `CC-TRF-${crypto.randomUUID()}`;
   setAccountStatementMessage("");
 }
 
@@ -11870,7 +11953,12 @@ async function submitAccountStatementPayment() {
   button.disabled = true;
   setAccountStatementMessage("Aplicando pago parcial...", "info");
   try {
+    const proof = byId("accountStatementPaymentProof");
+    const dataUrl = method === "Transferencia a validar" ? await fileToRawDataUrl(proof.files[0]) : "";
+    if (method === "Transferencia a validar" && !dataUrl) throw new Error("Adjuntar comprobante para validacion bancaria.");
     const payload = await postOperationalAction("api/account-statements/payments", {
+      requestId: proof.dataset.requestId,
+      dataUrl,
       type: "client",
       entityId: activeAccountStatement.entity.id,
       amount,
@@ -11881,7 +11969,7 @@ async function submitAccountStatementPayment() {
     renderAccountStatement(payload.statement);
     renderAccounts();
     clientPageCache.clear();
-    showCompactNotice(`Pago parcial aplicado. Saldo ${money.format(payload.payment.balance)}.`, "ok");
+    showCompactNotice(payload.transfer ? "Comprobante registrado. La deuda se descuenta al validar en Conciliacion bancaria." : `Pago parcial aplicado. Saldo ${money.format(payload.payment.balance)}.`, "ok");
   } catch (error) {
     setAccountStatementMessage(error.message || "No se pudo aplicar el pago parcial.", "danger");
   } finally {
@@ -11930,8 +12018,12 @@ function renderAccounts() {
     return;
   }
   const summaries = AccountEngine.accountSummaries(state).filter((summary) => summary.ok);
+  const balanceFilter = byId("accountsBalanceFilter")?.value || "all";
+  const clientsWithProof = new Set((state.bankReconciliation || []).filter((record) => record.attachment && !record.accountPaymentApplied && !TRANSFER_FINAL_STATUSES.has(normalizeTransferStatus(record.status, true))).map((record) => record.client));
   accountStatusFilter = updateDynamicFilter("accountsStatusFilter", summaries.map((summary) => summary.status), accountStatusFilter, "Todos los estados");
   const filteredSummaries = summaries.filter((summary) => {
+    if (balanceFilter === "pending" && summary.currentBalance <= 0) return false;
+    if (balanceFilter === "proof" && !clientsWithProof.has(summary.clientName)) return false;
     const text = [
       summary.clientName,
       summary.status,
@@ -21752,6 +21844,7 @@ document.addEventListener("click", async (event) => {
   let reason = "";
   let bank = transfer.validationBank || transfer.bank || "";
   let operationNumber = transfer.operationNumber || "";
+  const targetSupplier = Array.from(document.querySelectorAll("[data-transfer-supplier]")).find((select) => select.dataset.transferSupplier === transfer.id)?.value || "";
   if (nextStatus === TRANSFER_STATUS.OBSERVED || nextStatus === "Rechazada") {
     reason = window.prompt("Motivo de observacion/rechazo del comprobante:", transfer.statusReason || "") || "";
     if (!reason.trim()) {
@@ -21766,14 +21859,15 @@ document.addEventListener("click", async (event) => {
       window.alert("No se puede validar sin comprobante cargado.");
       return;
     }
-    bank = window.prompt("Banco donde impacto la transferencia:", bank || "") || "";
+    bank = window.prompt("Banco o cuenta donde impacto la transferencia:", targetSupplier || bank || "") || "";
     operationNumber = window.prompt("Numero de operacion o referencia bancaria:", operationNumber || "") || "";
-    if (!window.confirm(`Validar transferencia ${transfer.orderCode || transfer.id} por ${money.format(transfer.amount || 0)}?\n\nEsto descontara la deuda de la cuenta corriente.`)) return;
+    if (!window.confirm(`Validar transferencia ${transfer.orderCode || transfer.id} por ${money.format(transfer.amount || 0)}?\n\nEsto descontara la deuda de la cuenta corriente.${targetSupplier ? ` Se generara un pago a ${targetSupplier} pendiente de conciliacion en Proveedores.` : ""}`)) return;
   }
   button.disabled = true;
   try {
     await postOperationalAction(`api/bank-reconciliation/transfers/${encodeURIComponent(transfer.id)}/status`, {
       status: nextStatus,
+      targetSupplier,
       reason,
       bank,
       operationNumber
@@ -21948,15 +22042,111 @@ function activeDeliveryClosureRoute() {
   return (state.deliveryRoutes || []).find((route) => route.id === routeId) || null;
 }
 
+let plannerMapToken = 0;
+let plannerMapMarkers = [];
+
+function clearPlannerMap() {
+  plannerMapToken += 1;
+  plannerMapMarkers.forEach((marker) => { google.maps.event.clearInstanceListeners(marker); marker.setMap(null); });
+  plannerMapMarkers = [];
+  byId("plannerMapCanvas").replaceChildren();
+}
+
+async function openPlannerMap(routeId = "") {
+  const route = routeId && (state.deliveryRoutes || []).find((item) => item.id === routeId);
+  const codes = route ? new Set(route.stops.map((stop) => stop.orderCode)) : deliveryPlannerSelection;
+  const orders = (state.orders || []).filter((order) => codes.has(order.code));
+  if (!orders.length) return showCompactNotice("Seleccionar pedidos para ver el mapa.", "warn");
+  clearPlannerMap();
+  const token = plannerMapToken;
+  const points = orders.map((order) => ({ order, coordinates: DeliveryEngine.clientCoordinates(orderClient(order) || {}) }));
+  const located = points.filter((item) => item.coordinates);
+  byId("plannerMapStatus").textContent = `${orders.length} pedidos: ${located.length} con GPS, ${orders.length - located.length} sin GPS.`;
+  byId("plannerMapMissing").innerHTML = points.filter((item) => !item.coordinates).map(({ order }) => `<div>${escapeHtml(order.code)} - ${escapeHtml(order.client)}: SIN GPS</div>`).join("");
+  byId("plannerMapDialog").showModal();
+  if (!located.length) return;
+  try {
+    if (!canUseGoogleMaps()) throw new Error("Google Maps no esta configurado.");
+    await ensureGoogleMaps();
+    const { Map } = await google.maps.importLibrary("maps");
+    if (token !== plannerMapToken || !byId("plannerMapDialog").open) return;
+    const map = new Map(byId("plannerMapCanvas"), { center: located[0].coordinates, zoom: 14, maxZoom: 18, streetViewControl: false, mapTypeControl: false });
+    const bounds = new google.maps.LatLngBounds();
+    located.forEach(({ order, coordinates }, index) => {
+      const marker = new google.maps.Marker({ map, position: coordinates, label: String(index + 1), title: `${order.code} - ${order.client}` });
+      const info = new google.maps.InfoWindow({ content: `${escapeHtml(order.code)} - ${escapeHtml(order.client)}` });
+      marker.addListener("click", () => info.open({ map, anchor: marker }));
+      plannerMapMarkers.push(marker);
+      bounds.extend(coordinates);
+    });
+    if (located.length > 1) map.fitBounds(bounds, 40);
+  } catch (error) { byId("plannerMapStatus").textContent += ` ${error.message}`; }
+}
+
+function openDeliveryRelocation(sourceId, code) {
+  if (!isAdminUser()) return;
+  const secondVisit = state.orders.find((order) => order.code === code)?.status === ORDER_STATUS.NOT_DELIVERED;
+  byId("deliveryRelocateSource").value = sourceId;
+  byId("deliveryRelocateCode").value = code;
+  byId("deliveryRelocateOrder").textContent = code;
+  byId("deliveryRelocateMessage").textContent = "";
+  byId("deliveryRelocateTarget").innerHTML = '<option value="">Seleccionar destino</option><option value="__pool__">Sin asignar / Bolsa</option>' + (state.deliveryRoutes || [])
+    .filter((route) => !secondVisit && route.id !== sourceId && !route.closure && !isDeliveryRouteClosed(route))
+    .map((route) => `<option value="${escapeHtml(route.id)}">${escapeHtml(route.name || route.id)} - ${escapeHtml(route.driverUser || "")}</option>`).join("");
+  byId("deliveryRelocateDialog").showModal();
+}
+
+async function submitDeliveryRelocation(event) {
+  event.preventDefault();
+  const button = event.submitter;
+  if (button) button.disabled = true;
+  try {
+    const target = byId("deliveryRelocateTarget").value;
+    if (!target) throw new Error("Seleccionar destino.");
+    await postOperationalAction(`api/delivery/routes/${encodeURIComponent(byId("deliveryRelocateSource").value)}/relocate`, {
+      orderCodes: [byId("deliveryRelocateCode").value], targetRouteId: target === "__pool__" ? "" : target
+    });
+    byId("deliveryRelocateDialog").close();
+  } catch (error) {
+    byId("deliveryRelocateMessage").textContent = error.message;
+  } finally { if (button) button.disabled = false; }
+}
+
+function deliveryClosureExpensesFromForm() {
+  return Array.from(byId("deliveryClosureExpenses").querySelectorAll("[data-route-expense]"), (row) => ({
+    concept: row.querySelector("[data-expense-concept]").value.trim(),
+    amount: Number(row.querySelector("[data-expense-amount]").value)
+  }));
+}
+
+function addDeliveryClosureExpense() {
+  const list = byId("deliveryClosureExpenses");
+  if (list.children.length >= 50) return;
+  const row = document.createElement("div");
+  row.className = "form-grid";
+  row.dataset.routeExpense = "";
+  row.innerHTML = '<label>Concepto<input data-expense-concept required maxlength="160"></label><label>Importe<input data-expense-amount required type="number" min="0.01" step="0.01"></label><button type="button" class="ghost-btn" aria-label="Quitar gasto" title="Quitar gasto">Quitar</button>';
+  row.querySelector("button").addEventListener("click", () => { row.remove(); updateDeliveryClosurePreview(); });
+  list.append(row);
+  row.querySelector("input").focus();
+}
+
 function updateDeliveryClosurePreview() {
   const route = activeDeliveryClosureRoute();
   if (!route) return;
   updateDeliveryCashBreakdownPreview();
   setMoneyPreview("deliveryClosureTransferReported", "deliveryClosureTransferReportedPreview");
-  const summary = deliveryClosureSummary(route, {
+  let summary;
+  try { summary = deliveryClosureSummary(route, {
+    expenses: deliveryClosureExpensesFromForm(),
     reportedCash: numeric(byId("deliveryClosureCashReported").value, 0),
     reportedTransfer: numeric(byId("deliveryClosureTransferReported").value, 0)
-  });
+  }); } catch (error) {
+    setDeliveryClosureMessage(error.message);
+    byId("deliveryClosureDifferenceBox").textContent = "Completar o corregir los gastos para calcular la diferencia.";
+    return;
+  }
+  setDeliveryClosureMessage("");
   const expected = byId("deliveryClosureExpectedSummary");
   if (expected) {
     expected.innerHTML = `
@@ -21990,6 +22180,7 @@ function openDeliveryRouteClosure(routeId) {
     return;
   }
   byId("deliveryClosureRouteId").value = route.id;
+  byId("deliveryClosureExpenses").replaceChildren();
   byId("deliveryRouteClosureTitle").textContent = `Cerrar ${route.id}`;
   renderDeliveryCashBreakdown();
   byId("deliveryClosureCashReported").value = "0";
@@ -22012,6 +22203,7 @@ async function submitDeliveryRouteClosure(event) {
   try {
     updateDeliveryClosurePreview();
     const summary = deliveryClosureSummary(route, {
+      expenses: deliveryClosureExpensesFromForm(),
       reportedCash: numeric(byId("deliveryClosureCashReported").value, 0),
       reportedTransfer: numeric(byId("deliveryClosureTransferReported").value, 0)
     });
@@ -22032,6 +22224,7 @@ async function submitDeliveryRouteClosure(event) {
     }
     const gps = await requireDeliveryLocation();
     const payload = await postOperationalAction(`api/delivery/routes/${encodeURIComponent(route.id)}/close`, deliveryActionBody(gps, {
+      expenses: deliveryClosureExpensesFromForm(),
       reportedCash: numeric(byId("deliveryClosureCashReported").value, 0),
       reportedTransfer: numeric(byId("deliveryClosureTransferReported").value, 0),
       cashBreakdown: cashBreakdownFromForm().items,
@@ -22425,7 +22618,7 @@ function openDeliveryCollection(orderCode) {
   byId("deliveryCollectionTotal").textContent = money.format(order.amount);
   renderDeliveryItems(order);
   byId("deliveryCollectionAlias").textContent = state.deliverySettings?.bankAlias || "Sin configurar";
-  byId("deliveryPaymentMethod").value = "Efectivo";
+  byId("deliveryPaymentMethod").value = "";
   byId("deliveryCashAmount").value = "0";
   byId("deliveryTransferAmount").value = "0";
   byId("deliveryCreditAmount").value = "0";
@@ -22454,6 +22647,10 @@ async function submitDeliveryCollection(event) {
   const order = state.orders.find((item) => item.code === orderCode);
   if (!order) return;
   const method = byId("deliveryPaymentMethod").value;
+  if (!["Efectivo", "Transferencia", "Transferencia Pendiente", "Cuenta corriente", "Mixto"].includes(method)) {
+    setDeliveryCollectionMessage("Seleccionar el medio de pago antes de confirmar la entrega.");
+    return;
+  }
   updateDeliveryPendingAmount();
   const cashAmount = Math.max(0, numeric(byId("deliveryCashAmount").value, 0));
   const transferAmount = Math.max(0, numeric(byId("deliveryTransferAmount").value, 0));
@@ -22995,6 +23192,19 @@ document.addEventListener("click", async (event) => {
     exportDeliveryRouteManifest(manifest.dataset.routeId, manifest.dataset.routeManifest);
     return;
   }
+  const plannerMap = event.target.closest("[data-planner-map-route]");
+  if (plannerMap) { openPlannerMap(plannerMap.dataset.plannerMapRoute); return; }
+  const relocate = event.target.closest("[data-relocate-route]");
+  if (relocate) {
+    openDeliveryRelocation(relocate.dataset.relocateRoute, relocate.dataset.orderCode);
+    return;
+  }
+  const closureExport = event.target.closest("[data-route-closure-export]");
+  if (closureExport) {
+    exportDeliveryCollectionsManifest(closureExport.dataset.routeClosureExport, closureExport.dataset.routeId)
+      .catch((error) => showCompactNotice(error.message, "danger"));
+    return;
+  }
   const optimizeRoute = event.target.closest("[data-optimize-route]");
   if (optimizeRoute) {
     try {
@@ -23290,6 +23500,12 @@ byId("deliveryExceptionForm").addEventListener("submit", submitDeliveryException
 byId("deliveryCollectionForm").addEventListener("submit", submitDeliveryCollection);
 byId("deliveryClosureCashReported").addEventListener("input", updateDeliveryClosurePreview);
 byId("deliveryClosureTransferReported").addEventListener("input", updateDeliveryClosurePreview);
+byId("deliveryAddExpense").addEventListener("click", addDeliveryClosureExpense);
+byId("accountsBalanceFilter").addEventListener("change", renderAccounts);
+byId("deliveryRelocateForm").addEventListener("submit", submitDeliveryRelocation);
+byId("mapDeliveryPlannerBtn").addEventListener("click", () => openPlannerMap());
+byId("plannerMapDialog").addEventListener("close", clearPlannerMap);
+byId("deliveryClosureExpenses").addEventListener("input", updateDeliveryClosurePreview);
 byId("deliveryCashBreakdownGrid").addEventListener("input", updateDeliveryClosurePreview);
 byId("deliveryClosureDifferenceReason").addEventListener("change", updateDeliveryClosurePreview);
 byId("deliveryRouteClosureForm").addEventListener("submit", submitDeliveryRouteClosure);

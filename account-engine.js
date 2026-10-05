@@ -153,6 +153,8 @@
       client: String(record.client || record.account || ""),
       seller: String(record.seller || ""),
       routeId: String(record.routeId || ""),
+      targetSupplier: String(record.targetSupplier || ""),
+      supplierPaymentId: String(record.supplierPaymentId || ""),
       bank: String(record.bank || "").trim(),
       alias: String(record.alias || "").trim(),
       cbu: String(record.cbu || "").trim(),
@@ -689,6 +691,12 @@
     const record = state.bankReconciliation.find((item) => item.id === transferId);
     if (!record) throw new Error("Transferencia no encontrada para conciliacion.");
     if (!record.attachment) throw new Error("No se puede validar una transferencia sin comprobante cargado.");
+    const targetSupplier = String(input?.targetSupplier || record.targetSupplier || "").trim();
+    const supplier = targetSupplier ? (state.suppliers || []).find((item) => item.name === targetSupplier) : null;
+    if (targetSupplier && !supplier) throw new Error("Proveedor destino no encontrado.");
+    if (targetSupplier && context?.role !== "admin") throw new Error("La triangulacion requiere Administracion.");
+    if (record.accountPaymentApplied && targetSupplier !== (record.targetSupplier || "")) throw new Error("No se puede cambiar el destino de una transferencia validada.");
+    if (supplier && !record.supplierPaymentId && Number(record.amount) > Number(supplier.balance ?? supplier.saldo_pendiente ?? 0)) throw new Error("El pago triangulado supera el saldo del proveedor. Revisar antes de validar.");
     if (record.status === TRANSFER_STATUS.OBSERVED && !String(input && input.allowObserved || "").trim()) {
       throw new Error("La transferencia observada debe regularizarse antes de validarse.");
     }
@@ -703,6 +711,25 @@
       operationNumber: record.operationNumber
     });
     applyValidatedTransferToAccount(state, record, context);
+    if (supplier && !record.supplierPaymentId) {
+      const parts = localTraceParts(at);
+      const payment = {
+        id: `TRI-${record.id}`, type: "Pago proveedor", supplier: supplier.name,
+        method: "Transferencia", date: parts.date, time: parts.time, at,
+        amount: record.amount, bank: record.validationBank || record.bank,
+        operationNumber: record.operationNumber, upload: record.attachment,
+        observations: `Pago triangulado de ${record.client}. Transferencia ${record.id}`,
+        transferId: record.id, status: "Pendiente conciliacion", paymentStatus: "Pendiente conciliacion",
+        reconciled: false, user, username: context.username || ""
+      };
+      state.supplierMovements = Array.isArray(state.supplierMovements) ? state.supplierMovements : [];
+      state.supplierMovements.unshift(payment);
+      supplier.movements = Array.isArray(supplier.movements) ? supplier.movements : [];
+      supplier.movements.unshift({ ...payment });
+      record.targetSupplier = supplier.name;
+      record.supplierPaymentId = payment.id;
+      pushTransferHistory(record, "PAGO_TRIANGULADO_PENDIENTE", context, { supplier: supplier.name, paymentId: payment.id });
+    }
     record.status = TRANSFER_STATUS.ACCOUNT_UPDATED;
     record.validatedAt = at;
     record.validatedBy = user;
@@ -948,6 +975,28 @@
     };
   }
 
+  function registerClientTransferRequest(state, input, context) {
+    if (context?.role !== "admin") throw new Error("Requiere Administracion.");
+    const statement = accountStatement(state, "client", input.entityId);
+    const amount = Number(input.amount);
+    const id = String(input.requestId || "");
+    if (!/^CC-TRF-[a-zA-Z0-9-]{10,80}$/.test(id)) throw new Error("Identificador de comprobante invalido.");
+    const previous = (state.bankReconciliation || []).find((item) => item.id === id);
+    if (previous) {
+      if (previous.client !== statement.entity.name || previous.amount !== amount) throw new Error("El comprobante ya existe con otros datos.");
+      return { statement, transfer: previous, pendingValidation: !previous.accountPaymentApplied };
+    }
+    if (!Number.isFinite(amount) || amount <= 0 || amount > statement.summary.balance) throw new Error("El importe debe ser positivo y no superar el saldo pendiente.");
+    if (!input.attachment?.url || !input.attachment.filename) throw new Error("Adjuntar comprobante.");
+    if (!String(input.reference || "").trim()) throw new Error("Indicar numero de operacion.");
+    const transfer = registerPendingTransfer(state, { client: statement.entity.name, code: "" }, {
+      id, source: "cuenta_corriente", amount, bank: input.bank || "Mercado Pago", attachment: input.attachment,
+      observations: `${input.reference} - ${input.note || ""}`
+    }, context);
+    transfer.operationNumber = String(input.reference).trim();
+    return { statement, transfer, pendingValidation: true };
+  }
+
   function registerClientPayment(state, input, context) {
     migrateState(state);
     const statement = accountStatement(state, "client", input && (input.entityId || input.client || input.account));
@@ -1030,6 +1079,7 @@
     normalizePaymentMethod,
     accountStatement,
     registerClientPayment,
+    registerClientTransferRequest,
     canAuthorize
   };
 });

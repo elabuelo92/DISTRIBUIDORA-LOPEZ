@@ -1,0 +1,44 @@
+{
+  "date": "2026-10-04",
+  "scope": "Implementacion local; sin despliegue ni cambios de datos en produccion",
+  "productionGate": "GO para despliegue controlado del alcance implementado; verificar salud e integridad despues. No certifica carga maxima ni reversas financieras.",
+  "implemented": [
+    "Exportacion PDF/Excel de cobranza por ruta, consolidado diario explicito",
+    "Medio de pago obligatorio sin efectivo preseleccionado en reparto",
+    "Resumen mensual de ventas y comisiones en Preventa",
+    "Gastos en efectivo de ruta incluidos en cierre y exportacion",
+    "Reubicar pedidos pendientes entre rutas abiertas o bolsa, con auditoria",
+    "Liberar No entregado a bolsa para segunda visita conservando parada historica",
+    "Mapa de seleccion del planificador y de ruta con GPS almacenado",
+    "Importe destacado y detalle plegable persistente en conciliacion",
+    "Filtros de saldo pendiente y comprobante por validar",
+    "Pago parcial con comprobante, descuento de deuda al validar",
+    "Triangulacion hacia proveedor existente con conciliacion posterior"
+  ],
+  "passed": [
+    "smoke-collections-v136: mixto, gastos, reubicacion, integridad, triangulacion",
+    "smoke-consolidated-accounts-v133: HTTP comprobante, reintento, validacion cliente y conciliacion proveedor",
+    "smoke-second-visit-20260927: mismo pedido, sin doble stock, historial preservado",
+    "smoke-route-collection-scope: aislamiento ruta y mes ART",
+    "smoke-delivery-driver-ux: 100 paradas",
+    "Sintaxis app.js/server.js y git diff --check",
+    "Navegador sintetico: login administrador, reubicar pedido y actualizacion inmediata de 52 a 51 paradas",
+    "Mapa Google: 52 pedidos con GPS visibles, sin errores de consola",
+    "Descarga real PDF y XLSX por ruta: mismo pedido y total, sin datos de otra ruta; PDF renderizado legible",
+    "HTTP: permisos 401/403, reubicaciones simultaneas, cobro concurrente y bloqueo tras cobro confirmado",
+    "smoke-session-stability-v144: 25 solicitudes, sesion preservada",
+    "smoke-state-sync-backpressure: 12 solicitudes aceptadas, salud responde"
+  ],
+  "measurements": {
+    "relocate100EngineMs": 80.33,
+    "environment": "Node local, datos sinteticos",
+    "excludes": "HTTP, disco, sincronizacion y renderizado; no es benchmark de produccion"
+  },
+  "pending": [
+    "Aceptacion con celulares reales de los repartidores; no disponibles durante esta prueba",
+    "Benchmark prolongado con carga representativa de todas las sesiones: no realizado en produccion",
+    "Confirmar proveedor/cuenta exactos para Tabacalera Omar Farias sin crear entidades automaticamente",
+    "Definir correccion de estados finales erroneos: no se implementaron reversiones de cobros/entregas",
+    "Backup, revision y despliegue controlado una vez aprobadas las validaciones"
+  ]
+}

@@ -26,6 +26,10 @@ Delivery.markStopException(state, state.orders[1].code, { status: S.REJECTED, re
 assert.equal(Delivery.routeAlreadyContainsOrder(state, original.code), null, "An unfinished old route must not hide a failed stop");
 assert.equal(Delivery.isRepeatVisit(state, original), true);
 const oldStop = JSON.stringify(first.stops.find(s => s.orderCode === original.code));
+Delivery.relocateOrders(state, first.id, { orderCodes: [original.code], targetRouteId: "" }, admin);
+assert.equal(JSON.stringify(first.stops.find(s => s.orderCode === original.code)), oldStop);
+assert.equal(original.reprogrammingPending, true);
+assert.throws(() => Delivery.relocateOrders(state, first.id, { orderCodes: [state.orders[1].code], targetRouteId: "" }, admin));
 const input = { orderCodes: [original.code], day: "2026-09-28", zone: "Norte", driverUser: "reparto2", secondVisit: true };
 assert.throws(() => Delivery.createPlannedRoute(state, input, driver), /administracion/);
 assert.throws(() => Delivery.createPlannedRoute(state, { ...input, day: "2026-02-30" }, admin), /fecha valida/);

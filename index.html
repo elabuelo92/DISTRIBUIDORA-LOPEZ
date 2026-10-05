@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-164-r20260929a">
+    <link rel="manifest" href="manifest.json?v=8790-165-r20261004a">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-164-r20260929a">
+    <link rel="stylesheet" href="styles.css?v=8790-165-r20261004a">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -159,7 +159,7 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-164</strong>
+              <strong data-version-value>8790-165</strong>
               <small data-version-build>Actualizada 22/09/2026</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
@@ -931,6 +931,7 @@
               <div class="delivery-planner-actions">
                 <button class="secondary-btn" id="selectFilteredDeliveryPlannerBtn" type="button">Seleccionar filtrados</button>
                 <button class="secondary-btn" id="clearDeliveryPlannerBtn" type="button">Limpiar seleccion</button>
+                <button class="secondary-btn" id="mapDeliveryPlannerBtn" type="button">Ver mapa de seleccion</button>
                 <button class="secondary-btn" id="exportDeliveryPlannerXlsxBtn" type="button" title="Exportar seleccionados o resultados filtrados">Manifiesto Excel</button>
                 <button class="secondary-btn" id="exportDeliveryPlannerPdfBtn" type="button" title="Exportar seleccionados o resultados filtrados">Manifiesto PDF</button>
                 <button class="secondary-btn" id="undoDeliveryPlannerBtn" type="button" hidden>Deshacer ultima asignacion</button>
@@ -1047,7 +1048,8 @@
                 </div>
               </div>
               <div class="toolbar-row">
-                <label>Fecha de cobros <input id="deliveryCollectionsDate" type="date"></label>
+                <label>Ruta <select id="deliveryCollectionsRoute"><option value="">Seleccionar ruta</option></select></label>
+                <label>Fecha del consolidado diario <input id="deliveryCollectionsDate" type="date"></label>
                 <button class="secondary-btn" id="deliveryCollectionsPdfBtn" type="button">Manifiesto PDF</button>
                 <button class="secondary-btn" id="deliveryCollectionsXlsxBtn" type="button">Manifiesto Excel</button>
               </div>
@@ -1301,6 +1303,11 @@
                 </select>
                 <select id="accountsMethodFilter" aria-label="Filtrar cuentas por medio">
                   <option value="all">Todos los medios</option>
+                </select>
+                <select id="accountsBalanceFilter" aria-label="Filtrar saldos">
+                  <option value="all">Todos los saldos</option>
+                  <option value="pending">Saldos pendientes</option>
+                  <option value="proof">Con comprobante por validar</option>
                 </select>
                 <select id="accountsStatusFilter" aria-label="Filtrar cuentas por estado">
                   <option value="all">Todos los estados</option>
@@ -2855,7 +2862,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-164</span>
+          <span id="appFooterVersion">Version del sistema: 8790-165</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -3080,6 +3087,7 @@
           <div class="form-grid">
             <label>Importe<input id="accountStatementPaymentAmount" type="number" min="0.01" step="0.01"></label>
             <label>Medio<select id="accountStatementPaymentMethod">
+              <option value="Transferencia a validar">Transferencia con comprobante a validar</option>
               <option value="Efectivo">Efectivo</option>
               <option value="Transferencia">Transferencia</option>
               <option value="Mercado Pago">Mercado Pago</option>
@@ -3089,6 +3097,7 @@
             <label>Referencia<input id="accountStatementPaymentReference" autocomplete="off" placeholder="Operacion, cheque o comprobante"></label>
           </div>
           <label>Observaciones<textarea id="accountStatementPaymentNote" rows="2" placeholder="Detalle del pago parcial"></textarea></label>
+          <label>Comprobante de transferencia<input id="accountStatementPaymentProof" type="file" accept="image/*,application/pdf"></label>
           <div class="form-actions">
             <button class="ghost-btn" id="accountStatementPaymentCancelBtn" type="button">Cancelar</button>
             <button class="primary-btn" id="accountStatementPaymentSubmitBtn" type="button">Aplicar pago</button>
@@ -4283,6 +4292,7 @@
         <label>
           Modo de cobranza
           <select id="deliveryPaymentMethod" required>
+            <option value="">Seleccionar medio de pago</option>
             <option value="Efectivo">Efectivo</option>
             <option value="Transferencia">Transferencia</option>
             <option value="Transferencia Pendiente">Transferencia Pendiente</option>
@@ -4469,6 +4479,26 @@
       </form>
     </dialog>
 
+    <dialog id="plannerMapDialog">
+      <section class="modal-card planner-map-dialog">
+        <h2>Mapa de pedidos</h2>
+        <p id="plannerMapStatus" role="status"></p>
+        <div id="plannerMapCanvas"></div>
+        <div id="plannerMapMissing"></div>
+        <button class="secondary-btn" type="button" data-close-dialog>Volver a planificacion</button>
+      </section>
+    </dialog>
+    <dialog id="deliveryRelocateDialog">
+      <form id="deliveryRelocateForm" class="modal-card">
+        <h2>Reubicar pedido</h2>
+        <p id="deliveryRelocateOrder"></p>
+        <input type="hidden" id="deliveryRelocateSource">
+        <input type="hidden" id="deliveryRelocateCode">
+        <label>Destino<select id="deliveryRelocateTarget" required></select></label>
+        <p id="deliveryRelocateMessage" role="status"></p>
+        <menu><button class="ghost-btn" type="button" data-close-dialog>Cancelar</button><button class="primary-btn" type="submit">Reubicar</button></menu>
+      </form>
+    </dialog>
     <dialog id="deliveryRouteClosureDialog">
       <form id="deliveryRouteClosureForm" class="modal-card delivery-closure-form">
         <div class="modal-header">
@@ -4505,6 +4535,11 @@
             <small class="money-preview" id="deliveryClosureTransferReportedPreview">$ 0</small>
           </label>
         </div>
+        <section aria-labelledby="deliveryExpenseTitle">
+          <h3 id="deliveryExpenseTitle">Gastos pagados con efectivo de esta ruta</h3>
+          <div id="deliveryClosureExpenses"></div>
+          <button class="secondary-btn" id="deliveryAddExpense" type="button">Agregar gasto</button>
+        </section>
         <div class="delivery-closure-diff" id="deliveryClosureDifferenceBox"></div>
         <label id="deliveryClosureReasonField" hidden>
           Motivo de diferencia
@@ -4600,24 +4635,19 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-164-r20260929a"></script>
-    <script src="maps-config.js?v=8790-164-r20260929a"></script>
-    <script src="order-engine.js?v=8790-164-r20260929a"></script>
-    <script src="account-engine.js?v=8790-164-r20260929a"></script>
-    <script src="route-optimizer.js?v=8790-164-r20260929a"></script>
-    <script src="delivery-engine.js?v=8790-164-r20260929a"></script>
-    <script src="sales-commission-report.js?v=8790-164-r20260929a"></script>
-    <script src="legal-engine.js?v=8790-164-r20260929a"></script>
-    <script src="client-portfolio-engine.js?v=8790-164-r20260929a"></script>
-    <script src="client-hours.js?v=8790-164-r20260929a"></script>
-    <script src="share-engine.js?v=8790-164-r20260929a"></script>
-    <script src="portfolio-export-engine.js?v=8790-164-r20260929a"></script>
-    <script src="progressive-list.js?v=8790-164-r20260929a"></script>
-    <script src="app.js?v=8790-164-r20260929a"></script>
+    <script src="config.js?v=8790-165-r20261004a"></script>
+    <script src="maps-config.js?v=8790-165-r20261004a"></script>
+    <script src="order-engine.js?v=8790-165-r20261004a"></script>
+    <script src="account-engine.js?v=8790-165-r20261004a"></script>
+    <script src="route-optimizer.js?v=8790-165-r20261004a"></script>
+    <script src="delivery-engine.js?v=8790-165-r20261004a"></script>
+    <script src="sales-commission-report.js?v=8790-165-r20261004a"></script>
+    <script src="legal-engine.js?v=8790-165-r20261004a"></script>
+    <script src="client-portfolio-engine.js?v=8790-165-r20261004a"></script>
+    <script src="client-hours.js?v=8790-165-r20261004a"></script>
+    <script src="share-engine.js?v=8790-165-r20261004a"></script>
+    <script src="portfolio-export-engine.js?v=8790-165-r20261004a"></script>
+    <script src="progressive-list.js?v=8790-165-r20261004a"></script>
+    <script src="app.js?v=8790-165-r20261004a"></script>
   </body>
 </html>
-
-
-
-
-

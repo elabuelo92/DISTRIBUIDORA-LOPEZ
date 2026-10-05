@@ -567,6 +567,60 @@
     return route;
   }
 
+  function relocateOrders(state, sourceId, input, context) {
+    if (context?.role !== "admin") throw new Error("Solo administracion puede reubicar pedidos publicados.");
+    const source = findRoute(state, sourceId);
+    const targetId = String(input.targetRouteId || "");
+    const target = targetId ? findRoute(state, targetId) : null;
+    if (!targetId && Array.isArray(input.orderCodes) && input.orderCodes.length === 1) {
+      const code = String(input.orderCodes[0]);
+      const order = findOrder(state, code);
+      const stop = source?.stops.find((item) => item.orderCode === code);
+      if (order?.status === STATUS.NOT_DELIVERED && stop?.status === STATUS.NOT_DELIVERED && !stop.collection) {
+        if (routeAlreadyContainsOrder(state, code)) throw new Error("El pedido ya tiene una asignacion activa.");
+        ensureState(state);
+        order.reprogrammingPending = true;
+        updateOrderTrace(order, STATUS.NOT_DELIVERED, context, "Liberado a bolsa para Segunda Visita; se conserva la visita anterior.");
+        appendAudit(state, "SEGUNDA_VISITA_BOLSA", order, source, context);
+        return { sourceRouteId: source.id, targetRouteId: "", orderCodes: [code] };
+      }
+    }
+    const open = (route) => route && !route.closure && route.status !== ROUTE_STATUS.COMPLETED;
+    if (!open(source)) throw new Error("La ruta de origen no esta abierta.");
+    if (targetId && (!open(target) || target === source)) throw new Error("Seleccionar otra ruta abierta.");
+    if (!Array.isArray(input.orderCodes) || !input.orderCodes.length || input.orderCodes.length > 100) throw new Error("Seleccionar entre 1 y 100 pedidos.");
+    const codes = [...new Set(input.orderCodes.map(String))];
+    const allowed = new Set([STATUS.READY_DISPATCH, STATUS.DISPATCHED, STATUS.IN_ROUTE]);
+    // Validate the complete batch before modifying either route.
+    const entries = codes.map((code) => {
+      const stop = source.stops.find((item) => item.orderCode === code);
+      const order = findOrder(state, code);
+      if (!stop || !order || !allowed.has(stop.status) || !allowed.has(order.status) || stop.collection || stop.returnSummary || stop.exception) {
+        throw new Error(`${code}: solo se pueden mover pedidos pendientes sin cobros ni devoluciones.`);
+      }
+      if ((state.deliveryRoutes || []).some((route) => route !== source && route.status !== ROUTE_STATUS.COMPLETED && route.stops.some((item) => item.orderCode === code && !DELIVERY_EXCEPTION_STATUSES.has(item.status)))) throw new Error(`${code} ya tiene otra asignacion activa.`);
+      if (target && target.status !== ROUTE_STATUS.PLANNED && order.inventoryMode === "reservation" && !order.stockSettled) throw new Error(`${code}: debe publicarse primero para trasladarlo a una ruta publicada.`);
+      return { order, stop };
+    });
+    ensureState(state);
+    const at = nowIso();
+    source.relocations = Array.isArray(source.relocations) ? source.relocations : [];
+    entries.forEach(({ order, stop }) => {
+      source.relocations.push({ at, targetRouteId: targetId, user: context.user, stop: JSON.parse(JSON.stringify(stop)) });
+      const status = target && target.status !== ROUTE_STATUS.PLANNED ? STATUS.DISPATCHED : STATUS.READY_DISPATCH;
+      if (target) target.stops.push({ ...stop, status });
+      updateOrderTrace(order, status, context, `Reubicado de ${source.id} a ${targetId || "Sin asignar"}`);
+      appendAudit(state, "PEDIDO_REUBICADO", order, source, { ...context, note: `${source.id} -> ${targetId || "Sin asignar"}` });
+    });
+    source.stops = source.stops.filter((stop) => !codes.includes(stop.orderCode));
+    [source, target].filter(Boolean).forEach((route) => {
+      route.stops.forEach((stop, index) => { stop.sequence = index + 1; });
+      route.manualOrder = true;
+      route.updatedAt = at;
+    });
+    return { sourceRouteId: source.id, targetRouteId: targetId, orderCodes: codes };
+  }
+
   function reorderRoute(state, routeIdValue, orderCodes, context) {
     prepareMutationState(state, context);
     const route = findRoute(state, routeIdValue);
@@ -729,7 +783,18 @@
     const pendingOrders = stops.length - deliveredOrders;
     const returnedOrders = stops.filter((stop) => stopReturnSummary(stop).returnedQty > 0 || stop.status === STATUS.REJECTED).length;
     const returnedAmountFromStops = stops.reduce((sum, stop) => sum + stopReturnSummary(stop).returnedAmount, 0);
-    const expectedCash = moneyValue(route && route.cashTotal);
+    const grossCash = moneyValue(route && route.cashTotal);
+    const rawExpenses = input && input.expenses;
+    if (rawExpenses !== undefined && (!Array.isArray(rawExpenses) || rawExpenses.length > 50)) throw new Error("Detalle de gastos invalido (maximo 50).");
+    const expenses = (rawExpenses || []).map((item) => {
+      const concept = String(item && item.concept || "").trim();
+      const amount = Number(item && item.amount);
+      if (!concept || concept.length > 160 || !Number.isFinite(amount) || amount <= 0) throw new Error("Completar concepto e importe positivo de cada gasto.");
+      return { concept, amount: moneyValue(amount) };
+    });
+    const expenseTotal = moneyValue(expenses.reduce((sum, item) => sum + item.amount, 0));
+    if (expenseTotal > grossCash) throw new Error("Los gastos de caja no pueden superar el efectivo cobrado en la ruta.");
+    const expectedCash = moneyValue(grossCash - expenseTotal);
     const expectedTransfer = moneyValue(route && route.transferTotal);
     const pendingAmount = moneyValue(route && route.pendingTotal);
     const returnedAmount = moneyValue(returnedAmountFromStops || route && route.returnTotal);
@@ -745,6 +810,9 @@
       returnedOrders,
       pendingAmount,
       returnedAmount,
+      grossCash,
+      expenses,
+      expenseTotal,
       expectedCash,
       expectedTransfer,
       expectedTotal: moneyValue(expectedCash + expectedTransfer),
@@ -1433,6 +1501,7 @@
     markStopException,
     collectAndDeliver,
     closeRoute,
+    relocateOrders,
     routeClosureSummary,
     updateSettings,
     navigationUrl,
