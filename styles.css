@@ -947,6 +947,10 @@
 
 .planner-map-dialog { width: min(1000px, 90vw); max-width: 100%; }
 #plannerMapCanvas { height: min(60vh, 560px); min-height: 260px; width: 100%; }
+.planner-selection-map { margin: 12px 0; min-width: 0; }
+.planner-selection-map h3 { margin: 0; font-size: 16px; }
+#plannerSelectionMapCanvas { height: 300px; width: 100%; background: #eef2f3; }
+#plannerSelectionMapMissing { max-height: 80px; overflow: auto; }
 .bank-transfer-amount { font-size: 24px; font-weight: 700; color: var(--text); }
 #bankList .bank-transfer-card { grid-template-columns: minmax(0, 1fr) auto; border-radius: 4px; }
 #bankList .bank-transfer-card details,

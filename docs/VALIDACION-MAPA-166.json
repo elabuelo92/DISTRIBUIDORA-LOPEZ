@@ -1,0 +1,7 @@
+{
+  "version": "8790-166",
+  "scope": ["Mapa incremental de seleccion en planificacion", "Selector de reubicacion con fecha, repartidor y estado"],
+  "tests": ["smoke-planner-live-map: 100 selecciones, sin GPS, reutilizacion y limpieza", "smoke-delivery-planner-v130", "smoke-collections-v136"],
+  "dataMigration": false,
+  "production": "Pendiente despliegue y validacion"
+}

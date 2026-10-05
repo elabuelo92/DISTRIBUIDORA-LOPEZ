@@ -9552,6 +9552,7 @@ function renderDeliveryPlannerOrder(order) {
 }
 
 function refreshDeliveryPlannerSelectionUi(candidates = deliveryPlannerCandidates()) {
+  schedulePlannerSelectionMap();
   const selectedOrders = (state.orders || []).filter((order) => deliveryPlannerSelection.has(order.code));
   const selectedVisible = candidates.filter((order) => deliveryPlannerSelection.has(order.code)).length;
   document.querySelectorAll("[data-planner-row]").forEach((row) => row.classList.toggle("selected", deliveryPlannerSelection.has(row.dataset.plannerRow)));
@@ -22044,6 +22045,68 @@ function activeDeliveryClosureRoute() {
 
 let plannerMapToken = 0;
 let plannerMapMarkers = [];
+let plannerSelectionMap = null;
+let plannerSelectionMapLoading = null;
+let plannerSelectionMapTimer = null;
+let plannerSelectionMapRevision = 0;
+const plannerSelectionMarkers = new Map();
+
+function schedulePlannerSelectionMap() {
+  const revision = ++plannerSelectionMapRevision;
+  clearTimeout(plannerSelectionMapTimer);
+  plannerSelectionMapTimer = setTimeout(() => refreshPlannerSelectionMap(revision), 150);
+}
+
+async function refreshPlannerSelectionMap(revision) {
+  const canvas = byId("plannerSelectionMapCanvas");
+  if (!canvas || canvas.offsetParent === null) return;
+  const orders = (state.orders || []).filter((order) => deliveryPlannerSelection.has(order.code));
+  const points = orders.map((order) => ({ order, coordinates: DeliveryEngine.clientCoordinates(orderClient(order) || {}) }));
+  const located = points.filter((point) => point.coordinates);
+  const status = byId("plannerSelectionMapStatus");
+  status.textContent = `${orders.length} seleccionados: ${located.length} con GPS, ${orders.length - located.length} sin GPS`;
+  byId("plannerSelectionMapMissing").innerHTML = points.filter((point) => !point.coordinates)
+    .map(({ order }) => `<div>${escapeHtml(order.code)} - ${escapeHtml(order.client)}: SIN GPS</div>`).join("");
+  try {
+    if (!plannerSelectionMap && located.length) {
+      if (!canUseGoogleMaps()) throw new Error("Google Maps no esta configurado.");
+      if (!plannerSelectionMapLoading) plannerSelectionMapLoading = (async () => {
+        await ensureGoogleMaps();
+        const { Map } = await google.maps.importLibrary("maps");
+        plannerSelectionMap = new Map(canvas, { center: located[0].coordinates, zoom: 14, maxZoom: 18, streetViewControl: false, mapTypeControl: false });
+      })().finally(() => { plannerSelectionMapLoading = null; });
+      await plannerSelectionMapLoading;
+    }
+    if (revision !== plannerSelectionMapRevision || !plannerSelectionMap) return;
+    const codes = new Set(located.map(({ order }) => order.code));
+    let changed = false;
+    for (const [code, entry] of plannerSelectionMarkers) {
+      if (codes.has(code)) continue;
+      google.maps.event.clearInstanceListeners(entry.marker);
+      entry.marker.setMap(null);
+      plannerSelectionMarkers.delete(code);
+      changed = true;
+    }
+    located.forEach(({ order, coordinates }, index) => {
+      const signature = JSON.stringify([coordinates, order.client, index]);
+      const previous = plannerSelectionMarkers.get(order.code);
+      if (previous?.signature === signature) return;
+      const marker = previous?.marker || new google.maps.Marker({ map: plannerSelectionMap });
+      marker.setPosition(coordinates);
+      marker.setLabel(String(index + 1));
+      marker.setTitle(`${order.code} - ${order.client}`);
+      plannerSelectionMarkers.set(order.code, { marker, signature });
+      changed = true;
+    });
+    if (changed && located.length) {
+      const bounds = new google.maps.LatLngBounds();
+      located.forEach(({ coordinates }) => bounds.extend(coordinates));
+      plannerSelectionMap.fitBounds(bounds, 40);
+    }
+  } catch (error) {
+    if (revision === plannerSelectionMapRevision) status.textContent += ` ${error.message}`;
+  }
+}
 
 function clearPlannerMap() {
   plannerMapToken += 1;
@@ -22092,7 +22155,7 @@ function openDeliveryRelocation(sourceId, code) {
   byId("deliveryRelocateMessage").textContent = "";
   byId("deliveryRelocateTarget").innerHTML = '<option value="">Seleccionar destino</option><option value="__pool__">Sin asignar / Bolsa</option>' + (state.deliveryRoutes || [])
     .filter((route) => !secondVisit && route.id !== sourceId && !route.closure && !isDeliveryRouteClosed(route))
-    .map((route) => `<option value="${escapeHtml(route.id)}">${escapeHtml(route.name || route.id)} - ${escapeHtml(route.driverUser || "")}</option>`).join("");
+    .map((route) => `<option value="${escapeHtml(route.id)}">${escapeHtml(route.day || "Sin fecha")} | ${escapeHtml(route.name || route.id)} | ${escapeHtml(route.driverUser || "Sin repartidor")} | ${escapeHtml(route.status || "")}</option>`).join("");
   byId("deliveryRelocateDialog").showModal();
 }
 
