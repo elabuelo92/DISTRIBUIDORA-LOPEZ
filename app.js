@@ -23041,8 +23041,18 @@ document.addEventListener("click", async (event) => {
     const route = state.deliveryRoutes.find((item) => item.id === button.dataset.assignRouteDriver);
     if (!route) throw new Error("Actualizar la lista de rutas antes de asignar.");
     if (route.publishedAt && !window.confirm(`Reasignar ${route.id} de ${route.driverUser} a ${driverUser}, conservando sus ${route.stops.length} pedidos publicados?`)) return;
+    let expectedRoute = route;
+    if (route.publishedAt) {
+      // Local route ordering changes updatedAt; use the server snapshot for concurrency checks.
+      const response = await fetchWithTimeout(apiUrl("api/delivery"), { cache: "no-store" }, 45000);
+      const fresh = await response.json();
+      expectedRoute = fresh.routes?.find((item) => item.id === route.id);
+      if (!response.ok || !expectedRoute || expectedRoute.driverUser !== route.driverUser) {
+        throw new Error("La asignacion cambio. Actualizar la ruta antes de reasignar.");
+      }
+    }
     const payload = await postOperationalAction(`api/delivery/routes/${encodeURIComponent(button.dataset.assignRouteDriver)}/driver`, {
-      driverUser, expectedDriverUser: route.driverUser, expectedUpdatedAt: route.updatedAt
+      driverUser, expectedDriverUser: expectedRoute.driverUser, expectedUpdatedAt: expectedRoute.updatedAt
     });
     showCompactNotice(`${payload.route.stops.length} pedidos asignados a ${payload.route.deviceLabel}.`, "ok");
   } catch (error) {
