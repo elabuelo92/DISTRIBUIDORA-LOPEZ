@@ -9585,6 +9585,9 @@ function renderDeliveryPlannerRoutes() {
     const orders = (route.stops || []).map((stop) => state.orders.find((order) => order.code === stop.orderCode)).filter(Boolean);
     const packages = orders.reduce((sum, order) => sum + numeric(orderAssemblyInfo(order).bultos, 0), 0);
     const canUnplan = String(route.status || "").trim() === "Planificada" && !route.publishedAt && !route.startedAt;
+    const canReassignPublished = currentUser?.role === "admin" && route.status === "Despachada"
+      && !route.startedAt && !route.deviceId && !route.closure
+      && route.stops?.length > 0 && route.stops.every((stop) => stop.status === "Despachado" && !stop.collection && !stop.returnSummary && !stop.exception);
     const canOptimize = !route.startedAt && !route.closure && route.stops?.length > 1;
     return `
       <div class="planner-route-summary-row">
@@ -9598,6 +9601,7 @@ function renderDeliveryPlannerRoutes() {
           <button type="button" class="mini-btn" data-assign-route-driver="${escapeHtml(route.id)}" title="Asignar el usuario de reparto indicado arriba a todos los pedidos de esta ruta">Asignar repartidor</button>
           <button type="button" class="mini-btn" data-unplan-planned-route="${escapeHtml(route.id)}">Deshacer planificacion</button>
         </div>` : ""}
+        ${canReassignPublished ? `<button type="button" class="mini-btn" data-assign-route-driver="${escapeHtml(route.id)}">Reasignar repartidor</button>` : ""}
         <button type="button" class="mini-btn" data-planner-map-route="${escapeHtml(route.id)}">Ver mapa</button>
         ${canOptimize ? `<div class="planner-route-actions"><button type="button" class="mini-btn" data-optimize-route="${escapeHtml(route.id)}">Optimizar ruta</button></div>` : ""}
         ${deliveryRouteProposal?.routeId === route.id ? routeOptimizationPreviewHtml() : ""}
@@ -23034,7 +23038,12 @@ document.addEventListener("click", async (event) => {
   }
   button.disabled = true;
   try {
-    const payload = await postOperationalAction(`api/delivery/routes/${encodeURIComponent(button.dataset.assignRouteDriver)}/driver`, { driverUser });
+    const route = state.deliveryRoutes.find((item) => item.id === button.dataset.assignRouteDriver);
+    if (!route) throw new Error("Actualizar la lista de rutas antes de asignar.");
+    if (route.publishedAt && !window.confirm(`Reasignar ${route.id} de ${route.driverUser} a ${driverUser}, conservando sus ${route.stops.length} pedidos publicados?`)) return;
+    const payload = await postOperationalAction(`api/delivery/routes/${encodeURIComponent(button.dataset.assignRouteDriver)}/driver`, {
+      driverUser, expectedDriverUser: route.driverUser, expectedUpdatedAt: route.updatedAt
+    });
     showCompactNotice(`${payload.route.stops.length} pedidos asignados a ${payload.route.deviceLabel}.`, "ok");
   } catch (error) {
     window.alert(error.message || "No se pudo asignar el repartidor.");

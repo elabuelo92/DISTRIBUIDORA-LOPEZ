@@ -548,21 +548,34 @@
     return route;
   }
 
-  function assignPlannedRouteDriver(state, routeIdValue, driverUser, driverLabel, context) {
-    ensureState(state);
+  function assignPlannedRouteDriver(state, routeIdValue, driverUser, driverLabel, context, expected = {}) {
     const route = findRoute(state, routeIdValue);
-    if (!route || route.status !== ROUTE_STATUS.PLANNED || route.publishedAt || route.startedAt || route.closure) {
-      throw new Error("Solo se puede cambiar el repartidor de una ruta planificada sin publicar.");
+    const unpublished = route && route.status === ROUTE_STATUS.PLANNED && !route.publishedAt;
+    if (!route || route.startedAt || route.deviceId || route.closure || (!unpublished && route.status !== ROUTE_STATUS.READY)) {
+      throw new Error("Solo se puede reasignar una ruta sin iniciar, sin dispositivo y sin cierre.");
+    }
+    if (!unpublished) {
+      if (context?.role !== "admin") throw new Error("Solo administracion puede reasignar una ruta publicada.");
+      if (!expected.expectedUpdatedAt || expected.expectedUpdatedAt !== route.updatedAt || expected.expectedDriverUser !== route.driverUser) {
+        throw new Error("La asignacion cambio. Actualizar la ruta antes de reasignar.");
+      }
+      if (numeric(route.cashTotal, 0) !== 0 || numeric(route.transferTotal, 0) !== 0
+        || !(route.stops || []).length || route.stops.some((stop) => stop.status !== STATUS.DISPATCHED
+          || stop.collection || stop.returnSummary || stop.exception
+          || findOrder(state, stop.orderCode)?.status !== STATUS.DISPATCHED)) {
+        throw new Error("La ruta tiene operaciones registradas o pedidos no despachados; no se puede reasignar.");
+      }
     }
     const username = String(driverUser || "").trim().toLowerCase();
     if (!username) throw new Error("Seleccionar un repartidor valido.");
+    ensureState(state);
     const previous = route.driverUser;
     route.driverUser = username;
     route.deviceLabel = String(driverLabel || username).trim();
     route.name = routeDisplayName(route);
     route.updatedAt = nowIso();
     appendAudit(state, "REPARTIDOR_RUTA_ASIGNADO", null, route, {
-      ...context, note: `${previous || "Sin asignar"} -> ${username}; ${route.stops.length} pedidos`
+      ...context, note: `${previous || "Sin asignar"} -> ${username}; ${route.stops.length} pedidos; ${unpublished ? "planificada" : "publicada sin iniciar, sin volver a despachar"}`
     });
     return route;
   }

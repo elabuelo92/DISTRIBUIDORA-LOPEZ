@@ -22,7 +22,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-167";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-168";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -9516,7 +9516,10 @@ const server = http.createServer(async (req, res) => {
         const driver = deliveryDriverFor(input.driverUser);
         const routeId = decodeURIComponent(routeDriverMatch[1]);
         const previousRoute = entitySnapshot(currentState, "ruta", routeId);
-        const route = deliveryEngine.assignPlannedRouteDriver(currentState, routeId, driver.username, driver.name, deliveryContext(sessionUser, input));
+        const route = deliveryEngine.assignPlannedRouteDriver(currentState, routeId, driver.username, driver.name, deliveryContext(sessionUser, input), {
+          expectedDriverUser: input.expectedDriverUser,
+          expectedUpdatedAt: input.expectedUpdatedAt
+        });
         writeCompactStateResponse(res, currentState, { route }, auditEntry(req, sessionUser, input, {
           action: "REPARTIDOR_RUTA_ASIGNADO", entityType: "ruta", entityId: route.id,
           entityLabel: route.name || route.id, previousValue: previousRoute, newValue: route,

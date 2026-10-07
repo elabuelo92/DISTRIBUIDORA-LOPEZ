@@ -111,6 +111,23 @@ async function post(cookie, endpoint, input) {
     assert.equal(persisted.orders[100].status, Order.STATUS.NOT_DELIVERED);
     assert.equal(persisted.deliveryRoutes.find((route) => route.id === routeId).stops.length, 100);
     assert.ok(persisted.deliveryAudit.some((entry) => entry.action === "SEGUNDA_VISITA_PLANIFICADA" && entry.orderCode === secondCode));
+    const published = await post(admin, `/api/delivery/routes/${encodeURIComponent(routeId)}/publish`, {});
+    assert.equal(published.status, 200, published.body.error);
+    const beforeReassignment = JSON.parse(fs.readFileSync(stateFile, "utf8")).state;
+    const expected = { driverUser: "dario", expectedDriverUser: "reparto1", expectedUpdatedAt: published.body.route.updatedAt };
+    const stale = await post(admin, `/api/delivery/routes/${encodeURIComponent(routeId)}/driver`, { ...expected, expectedUpdatedAt: "stale" });
+    assert.equal(stale.status, 400);
+    const deniedReassignment = await post(seller, `/api/delivery/routes/${encodeURIComponent(routeId)}/driver`, expected);
+    assert.equal(deniedReassignment.status, 403);
+    const reassigned = await post(admin, `/api/delivery/routes/${encodeURIComponent(routeId)}/driver`, expected);
+    assert.equal(reassigned.status, 200, reassigned.body.error);
+    assert.equal(reassigned.body.route.driverUser, "dario");
+    assert.equal(reassigned.body.route.status, "Despachada");
+    const afterReassignment = JSON.parse(fs.readFileSync(stateFile, "utf8")).state;
+    for (const key of ["orders", "products", "accounts", "stockMovements"]) assert.deepEqual(afterReassignment[key], beforeReassignment[key], key);
+    assert.deepEqual(afterReassignment.deliveryRoutes.filter(r => r.id !== routeId), beforeReassignment.deliveryRoutes.filter(r => r.id !== routeId));
+    assert.deepEqual(reassigned.body.route.stops, published.body.route.stops);
+    console.log("OK: published route reassignment via HTTP preserves orders, stock, accounts, stops and other routes; stale/admin guards passed.");
     console.log("OK: HTTP plan 30 + assign 70 + assign driver; second visit keeps original order; invalid user, duplicate batch and seller rejected without partial changes.");
   } finally {
     child.kill();

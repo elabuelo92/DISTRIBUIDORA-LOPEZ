@@ -186,7 +186,7 @@ sudo node /tmp/dl-order-dispatch-snapshot.js create --state {DATA_DIR}/demo-stat
 if ! sudo node /tmp/dl-order-dispatch-snapshot.js compare --before "$BACKUP_DIR/orders-today-before.json" --after "$BACKUP_DIR/orders-today-after.json" --output "$BACKUP_DIR/orders-today-comparison.json"; then
   rollback_deploy 42 'ORDER_INTEGRITY_COMPARISON_FAILED'
 fi
-if [ "{version}" = "8790-167" ]; then
+if [ "{version}" = "8790-167" ] || [ "{version}" = "8790-168" ]; then
   for DATA_NAME in demo-state.json users.json; do
     BEFORE_HASH="$(sudo tar -xOzf "$BACKUP_DIR/data.tar.gz" "data/$DATA_NAME" | sha256sum | cut -d' ' -f1)"
     AFTER_HASH="$(sudo sha256sum "{DATA_DIR}/$DATA_NAME" | cut -d' ' -f1)"
