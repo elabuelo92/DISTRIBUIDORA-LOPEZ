@@ -21,6 +21,17 @@
     TRANSFER_STATUS.CONFIRMED,
     TRANSFER_STATUS.ACCOUNT_UPDATED
   ]);
+  const traceDateFormatter = new Intl.DateTimeFormat("es-AR", { timeZone: "America/Argentina/Buenos_Aires" });
+  const traceTimeFormatter = new Intl.DateTimeFormat("es-AR", {
+    timeZone: "America/Argentina/Buenos_Aires", hour: "2-digit", minute: "2-digit", second: "2-digit"
+  });
+  const isoDateFormatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit"
+  });
+
+  function formatDate(formatter, date) {
+    return Number.isFinite(date.getTime()) ? formatter.format(date) : "Invalid Date";
+  }
 
   function numeric(value, fallback = 0) {
     const number = Number(value);
@@ -80,24 +91,14 @@
   function localTraceParts(value) {
     const date = new Date(value || nowIso());
     return {
-      date: date.toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" }),
-      time: date.toLocaleTimeString("es-AR", {
-        timeZone: "America/Argentina/Buenos_Aires",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit"
-      })
+      date: formatDate(traceDateFormatter, date),
+      time: formatDate(traceTimeFormatter, date)
     };
   }
 
   function isoDate(value) {
     const parsed = parseDate(value) || new Date();
-    return parsed.toLocaleDateString("en-CA", {
-      timeZone: "America/Argentina/Buenos_Aires",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit"
-    });
+    return formatDate(isoDateFormatter, parsed);
   }
 
   function transferStatus(value, hasAttachment) {
@@ -430,8 +431,23 @@
     state.accounts = Array.isArray(state.accounts) ? state.accounts : [];
     state.orders = Array.isArray(state.orders) ? state.orders : [];
     ensureTransferReconciliation(state);
+    // These indexes live only for this calculation; later mutations cannot reuse stale records.
+    const ordersByClient = new Map();
+    const accountsByClient = new Map();
+    const append = (map, name, item) => {
+      const key = normalizeText(name);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(item);
+    };
+    historicalOrders(state).forEach(order => append(ordersByClient, order.client, order));
+    state.accounts.forEach(entry => append(accountsByClient, entry.account, entry));
     state.clients.forEach((client) => {
-      const summary = accountSummary(state, client, 0);
+      const key = normalizeText(client.name || client.nombre_comercial);
+      const summary = accountSummary({
+        orders: ordersByClient.get(key) || [],
+        archivedOrders: [],
+        accounts: accountsByClient.get(key) || []
+      }, client, 0);
       if (!summary.ok) return;
       client.saldo_actual = summary.currentBalance;
       client.balance = summary.currentBalance;

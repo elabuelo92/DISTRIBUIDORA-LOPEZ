@@ -1,0 +1,39 @@
+{
+  "ok": true,
+  "sourceBytes": 54116540,
+  "sourceHash": "8b03163327380e29659b230144c776bb76ec1d9e9b3ee9f0d6aeddc2252da333",
+  "tests": [
+    {
+      "label": "account-edge-cases",
+      "beforeMs": 4,
+      "afterMs": 2,
+      "improvementPct": 43,
+      "equal": true,
+      "outputHash": "5cc9fb088f77980b54686c5eca4fae118d5dc2722a1b6940f6a28a681dc168a4"
+    },
+    {
+      "label": "accounts-production-copy",
+      "beforeMs": 5174,
+      "afterMs": 63,
+      "improvementPct": 99,
+      "equal": true,
+      "outputHash": "741d38569a61ab780182d7e92fa87cb295ac28a9bd26def4da7bd91fae91c466"
+    },
+    {
+      "label": "order-exact-match-and-duplicates",
+      "beforeMs": 6,
+      "afterMs": 4,
+      "improvementPct": 23,
+      "equal": true,
+      "outputHash": "5a9b6ac8f8729f77caced00330ec0643b2f34d0cda679362899129aa0ee40818"
+    },
+    {
+      "label": "orders-production-copy",
+      "beforeMs": 6727,
+      "afterMs": 3437,
+      "improvementPct": 49,
+      "equal": true,
+      "outputHash": "a15610437e78ba9bbffcd93f46da6b9b7aac99cd0e96c4d7d11bae5bfadf5e8b"
+    }
+  ]
+}

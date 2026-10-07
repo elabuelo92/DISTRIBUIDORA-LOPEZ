@@ -1,0 +1,40 @@
+{
+  "version": "8790-167",
+  "status": "local_verified_ready_for_controlled_deployment",
+  "scope": ["account formatters reused without changing formats", "per-calculation account indexes", "temporary exact product lookup during order normalization"],
+  "excluded": ["pending route device recovery", "data migrations", "price changes", "changes to stock or accounting rules"],
+  "productionSnapshotBytes": 54116540,
+  "equivalenceReport": "PERFORMANCE-167-EQUIVALENCE.json",
+  "readBenchmarkInitialAccountOptimization": {
+    "adminFirstBeforeMs": 7392,
+    "adminFirstAfterMs": 4070,
+    "note": "isolated local HTTP test, before adding product index"
+  },
+  "stress": {
+    "accountOnly": {"errors": 2, "maxFullMs": 12806, "status": "NO_GO"},
+    "accountAndOrderIndexesLegacyFullSync": {
+      "users": 12, "durationSeconds": 60, "intervalMs": 10000,
+      "fullCount": 56, "p50Ms": 3224, "p95Ms": 5828, "maxMs": 6158,
+      "healthMaxMs": 3072, "errors": 0, "laggingClients": 0,
+      "note": "legacy full-state polling, external file mutation every 10s; residual latency exceeds 5s in this stress path"
+    },
+    "sectionsWithExternalFileReplacement": {
+      "users": 12, "durationSeconds": 60, "fullCount": 61,
+      "p50Ms": 2267, "p95Ms": 6187, "maxMs": 6977,
+      "steadyP95Ms": 5528, "steadyMaxMs": 6977,
+      "healthMaxMs": 3004, "errors": 0, "laggingClients": 0,
+      "note": "Replacing the entire file externally invalidates read caches and repeats normalization; this stress path still has residual latency."
+    },
+    "discardedSectionCacheExperiment": {"errors": 4, "maxMs": 13256, "includedInRelease": false},
+    "productionProtocolWithApiWrites": {
+      "users": 12, "durationSeconds": 60, "writes": 6, "synchronizations": 68,
+      "initialMaxMs": 6710, "steadyP95Ms": 1466, "steadyMaxMs": 2072,
+      "writeMaxMs": 1593, "healthMaxMs": 1575,
+      "errors": 0, "laggingClients": 0,
+      "note": "Isolated localhost copy. Initial concurrent baseline still exceeds 5 seconds; this is a bounded improvement, not a global performance certification."
+    }
+  },
+  "functionalTests": ["HTTP accounts partial payment and supplier reconciliation", "mixed collections", "supplier pricing and history", "cache version"],
+  "deploymentProtection": "exact SHA256 of demo-state.json and users.json before releasing maintenance; rollback on difference",
+  "remaining": ["whole-state synchronous persistence retained for durability", "initial concurrent full state loads and external-file replacement stress still exceed 5 seconds", "no assertion of zero latency under all loads"]
+}

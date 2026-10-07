@@ -5,6 +5,8 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function buildOrderEngine() {
   "use strict";
 
+  const migrationProductIndexes = new WeakMap();
+
   const STATUS = {
     PENDING: "Pendiente",
     PREVENTA: "Pendiente",
@@ -991,6 +993,12 @@
     const products = Array.isArray(state.products) ? state.products : [];
     const code = String(reference && (reference.productCode || reference.codigo_producto || reference.code) || "").trim();
     const name = String(reference && (reference.name || reference.product || reference.descripcion) || reference || "").trim();
+    const index = migrationProductIndexes.get(state);
+    if (index && index.products === products) {
+      if (code && index.byCode.has(code)) return index.byCode.get(code);
+      const key = normalizeText(name);
+      return key ? index.byName.get(key) || null : null;
+    }
     if (code) {
       const byCode = products.find((item) => productCode(item) === code);
       if (byCode) return byCode;
@@ -1425,7 +1433,20 @@
     if (!state || typeof state !== "object") return state;
     state.products = (Array.isArray(state.products) ? state.products : []).map(refreshProductInventory);
     ensureCommissionSettings(state);
-    state.orders = (Array.isArray(state.orders) ? state.orders : []).map((order) => normalizeOrder(state, order));
+    const index = { products: state.products, byCode: new Map(), byName: new Map() };
+    state.products.forEach(product => {
+      const code = productCode(product);
+      const name = normalizeText(productName(product));
+      // Match Array.find: duplicate keys retain the first product, never the last.
+      if (!index.byCode.has(code)) index.byCode.set(code, product);
+      if (!index.byName.has(name)) index.byName.set(name, product);
+    });
+    migrationProductIndexes.set(state, index);
+    try {
+      state.orders = (Array.isArray(state.orders) ? state.orders : []).map((order) => normalizeOrder(state, order));
+    } finally {
+      migrationProductIndexes.delete(state);
+    }
     ensureAssemblyOrderNumbers(state);
 
     const reservedByCode = new Map();

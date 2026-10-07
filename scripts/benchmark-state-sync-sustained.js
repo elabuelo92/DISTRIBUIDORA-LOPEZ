@@ -14,6 +14,8 @@ const durationSeconds = Math.max(30, Math.min(600, Number(process.argv[3] || 90)
 const pollIntervalMs = Math.max(1000, Math.min(30000, Number(process.argv[4] || 1000)));
 const mutationIntervalMs = Math.max(10000, Math.min(60000, Number(process.argv[5] || 10000)));
 const maxFullStateResponses = Math.max(1, Math.min(8, Number(process.argv[6] || 2)));
+const sectionSync = process.argv[7] === "sections-v1";
+const apiMutations = process.argv[8] === "api";
 if (!process.argv[2] || !fs.statSync(source).isFile()) throw new Error("Indicar una copia local del estado.");
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -93,15 +95,68 @@ function percentile(values, fraction) {
   return Math.round(sorted[Math.ceil(sorted.length * fraction) - 1]);
 }
 
+function stateUrl(client) {
+  const query = new URLSearchParams({ version: String(client.version) });
+  if (sectionSync) {
+    query.set("syncFormat", "sections-v1");
+    if (client.sections) query.set("sections", JSON.stringify(client.sections));
+  }
+  return `${base}/api/state?${query}`;
+}
+
+function acceptState(client, body) {
+  if (body.sections) client.sections = body.sections;
+  if (!body.partial) {
+    client.orders = body.state.orders || [];
+    client.accounts = body.state.accounts || [];
+  } else {
+    if (Object.hasOwn(body.state, "orders")) client.orders = body.state.orders;
+    if (Object.hasOwn(body.state, "accounts")) client.accounts = body.state.accounts;
+    if ((body.removed || []).includes("orders")) client.orders = [];
+    if ((body.removed || []).includes("accounts")) client.accounts = [];
+  }
+  if (client.user.role === "seller") {
+    assert.equal(client.accounts.length, 0);
+    assert.ok(client.orders.every(order =>
+      String(order.sellerUsername || order.seller || "").toLowerCase() === client.user.username
+      || String(order.seller || "").toLowerCase() === client.user.sellerName.toLowerCase()));
+  }
+  client.version = Number(body.version);
+}
+
 (async () => {
   let mutationTimer;
+  let mutationInFlight = null;
   try {
     await waitForServer();
     const clients = [];
     for (const user of users) clients.push({ user, cookie: await login(user.username), version: 0 });
-    const metrics = { full: [], unchanged: [], busy: [], health: [], errors: 0, mutations: 0 };
+    const metrics = { full: [], initial: [], steady: [], writes: [], unchanged: [], busy: [], health: [], errors: 0, errorDetails: [], mutations: 0 };
+    const failure = (phase, error) => {
+      metrics.errors += 1;
+      if (metrics.errorDetails.length < 20) metrics.errorDetails.push({ phase, error: String(error) });
+    };
     const endAt = Date.now() + durationSeconds * 1000;
     mutationTimer = setInterval(() => {
+      if (apiMutations) {
+        if (mutationInFlight) return;
+        const admin = clients.find(client => client.user.role === "admin");
+        mutationInFlight = (async () => {
+          const started = performance.now();
+          try {
+            const response = await fetch(`${base}/api/preventa/audit-consultation`, {
+              method: "POST", headers: { Cookie: admin.cookie, "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "ISOLATED_PERFORMANCE_TEST", note: "Local synthetic load only" })
+            });
+            const body = await response.json();
+            assert.equal(response.status, 200);
+            assert.equal(body.ok, true);
+            metrics.mutations++;
+            metrics.writes.push(performance.now() - started);
+          } catch (error) { failure("write", error.message); }
+        })().finally(() => { mutationInFlight = null; });
+        return;
+      }
       const payload = JSON.parse(fs.readFileSync(stateFile, "utf8"));
       payload.version = Date.now();
       payload.state.syncLoadTestTick = metrics.mutations + 1;
@@ -115,24 +170,19 @@ function percentile(values, fraction) {
       while (Date.now() < endAt) {
         const startedAt = performance.now();
         try {
-          const response = await fetch(`${base}/api/state?version=${client.version}`, { headers: { Cookie: client.cookie } });
+          const response = await fetch(stateUrl(client), { headers: { Cookie: client.cookie } });
           const body = await response.json();
           const elapsed = performance.now() - startedAt;
           if (response.status === 503 && body.code === "STATE_SYNC_BUSY") metrics.busy.push(elapsed);
           else if (response.ok && body.unchanged) metrics.unchanged.push(elapsed);
           else if (response.ok && body.state) {
             assert.ok(Number(body.version) >= client.version);
-            client.version = Number(body.version);
-            if (client.user.role === "seller") {
-              assert.equal(body.state.accounts.length, 0);
-              assert.ok(body.state.orders.every((order) =>
-                String(order.sellerUsername || order.seller || "").toLowerCase() === client.user.username
-                  || String(order.seller || "").toLowerCase() === client.user.sellerName.toLowerCase()));
-            }
+            (client.version ? metrics.steady : metrics.initial).push(elapsed);
+            acceptState(client, body);
             metrics.full.push(elapsed);
-          } else metrics.errors += 1;
-        } catch {
-          metrics.errors += 1;
+          } else failure("poll", `HTTP ${response.status}`);
+        } catch (error) {
+          failure("poll", `${error.message}; cause=${error.cause?.code || error.cause?.message || "none"}`);
         }
         await sleep(pollIntervalMs);
       }
@@ -142,10 +192,10 @@ function percentile(values, fraction) {
         const startedAt = performance.now();
         try {
           const response = await fetch(`${base}/api/health/live`, { signal: AbortSignal.timeout(10000) });
-          if (!response.ok) metrics.errors += 1;
+          if (!response.ok) failure("health", `HTTP ${response.status}`);
           metrics.health.push(performance.now() - startedAt);
-        } catch {
-          metrics.errors += 1;
+        } catch (error) {
+          failure("health", error.message);
         }
         await sleep(2000);
       }
@@ -155,15 +205,16 @@ function percentile(values, fraction) {
       health()
     ]);
     clearInterval(mutationTimer);
+    if (mutationInFlight) await mutationInFlight;
     const finalVersion = Number(JSON.parse(fs.readFileSync(stateFile, "utf8")).version);
     const catchupStartedAt = performance.now();
     const catchupDeadline = Date.now() + 30000;
     await Promise.all(clients.map(async (client) => {
       while (client.version < finalVersion && Date.now() < catchupDeadline) {
         try {
-          const response = await fetch(`${base}/api/state?version=${client.version}`, { headers: { Cookie: client.cookie } });
+          const response = await fetch(stateUrl(client), { headers: { Cookie: client.cookie } });
           const body = await response.json();
-          if (response.ok && body.state) client.version = Number(body.version);
+          if (response.ok && body.state) acceptState(client, body);
           else if (response.status !== 503) metrics.errors += 1;
         } catch {
           metrics.errors += 1;
@@ -180,12 +231,18 @@ function percentile(values, fraction) {
       pollIntervalMs,
       mutationIntervalMs,
       maxFullStateResponses,
+      sectionSync,
+      apiMutations,
       stateMutations: metrics.mutations,
       full: { count: metrics.full.length, p50Ms: percentile(metrics.full, .5), p95Ms: percentile(metrics.full, .95), maxMs: percentile(metrics.full, 1) },
+      initial: { count: metrics.initial.length, p95Ms: percentile(metrics.initial, .95), maxMs: percentile(metrics.initial, 1) },
+      steady: { count: metrics.steady.length, p95Ms: percentile(metrics.steady, .95), maxMs: percentile(metrics.steady, 1) },
+      writes: { count: metrics.writes.length, p95Ms: percentile(metrics.writes, .95), maxMs: percentile(metrics.writes, 1) },
       unchanged: { count: metrics.unchanged.length, p50Ms: percentile(metrics.unchanged, .5), p95Ms: percentile(metrics.unchanged, .95), maxMs: percentile(metrics.unchanged, 1) },
       busyResponses: metrics.busy.length,
       health: { count: metrics.health.length, p95Ms: percentile(metrics.health, .95), maxMs: percentile(metrics.health, 1) },
       errors: metrics.errors,
+      errorDetails: metrics.errorDetails,
       activeSessions: healthFinal.activeSessions,
       catchupMs: Math.round(performance.now() - catchupStartedAt),
       laggingClients
