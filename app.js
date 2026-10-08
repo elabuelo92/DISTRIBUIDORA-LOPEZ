@@ -2145,7 +2145,8 @@ function normalizeOrderTrace(trace, order) {
   const normalized = entries
     .map((entry) => {
       const at = validIsoDate(entry.at || entry.createdAt) || order.createdAt;
-      const parts = localTraceParts(at);
+      // Keep recorded display values; only format dates missing from older traces.
+      const parts = entry.date && entry.time ? entry : localTraceParts(at);
       return {
         status: String(entry.status || order.status || ORDER_STATUS.PENDING),
         at,
