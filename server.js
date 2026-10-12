@@ -6902,7 +6902,7 @@ const server = http.createServer(async (req, res) => {
     if (clientGpsReviewMatch && req.method === "POST") {
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
-      if (!["admin", "seller"].includes(sessionUser.role)) {
+      if (!["admin", "seller", "driver"].includes(sessionUser.role)) {
         sendJson(res, 403, { ok: false, error: "Operacion GPS no autorizada." });
         return;
       }
@@ -6915,6 +6915,22 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const client = currentState.clients[index];
+      if (sessionUser.role === "driver") {
+        const visible = stateForUser(currentState, sessionUser).clients || [];
+        if (input.action !== "submit" || !visible.includes(client)) {
+          sendJson(res, 403, { ok: false, error: "Solo puede registrar GPS solicitado de clientes de sus rutas." });
+          return;
+        }
+        if (typeof input.expectedUpdatedAt !== "string" || input.expectedUpdatedAt !== String(client.updatedAt || client.createdAt || "")) {
+          sendJson(res, 409, { ok: false, error: "La solicitud cambio. Actualice Reparto antes de registrar GPS." });
+          return;
+        }
+        const capturedAt = Date.parse(input.gps && input.gps.deviceAt);
+        if (!Number.isFinite(capturedAt) || Date.now() - capturedAt > 60000 || capturedAt - Date.now() > 10000) {
+          sendJson(res, 400, { ok: false, error: "Debe capturar una ubicacion GPS nueva." });
+          return;
+        }
+      }
       const before = cloneAuditValue({ latitud: client.latitud, longitud: client.longitud, gpsReview: client.gpsReview || null });
       try {
         const action = String(input.action || "").trim();
@@ -6944,6 +6960,7 @@ const server = http.createServer(async (req, res) => {
             lat: gps.lat, lng: gps.lng, accuracy,
             seller: sessionUser.sellerName || sessionUser.name,
             username: sessionUser.username,
+            role: sessionUser.role,
             device: String(input.deviceLabel || input.deviceId || ""),
             deviceId: String(input.deviceId || ""),
             at

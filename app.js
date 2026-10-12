@@ -10326,7 +10326,9 @@ function renderDelivery() {
     renderDeliveryAudit();
     renderDeliveryClosures();
   }
+  renderDeliveryGpsCorrections();
   renderOperationalWorkspace("reparto", byId("reparto"), "Herramientas de reparto", [
+    { id: "gps-corrections", title: "Corregir ubicaciones", summary: `${deliveryGpsCorrectionClients().length} solicitudes GPS`, allowed: currentUser?.role === "driver", selectors: [".delivery-gps-corrections-panel"] },
     { id: "planning", title: "Planificar rutas", summary: `${routes.filter((route) => route.status === "Planificada").length} rutas por publicar`, allowed: canPlanDeliveryRoutes(), selectors: [".delivery-planner-panel"] },
     { id: "deliveries", title: "Entregar y cobrar", summary: `${allStops.length - delivered} paradas pendientes`, selectors: [".delivery-active-panel", "#deliveryKpis", ".delivery-stops-panel"] },
     { id: "routes", title: "Hojas de ruta y rendición", summary: `${routes.length} ${routes.length === 1 ? "ruta disponible" : "rutas disponibles"}`, selectors: [".delivery-routes-panel"] },
@@ -10335,6 +10337,75 @@ function renderDelivery() {
     { id: "settings", title: isAdminUser() ? "Configuración y equipo" : "Mi equipo", summary: deliveryDevice.label || "Dispositivo operativo", selectors: [".delivery-settings-panel", ".delivery-device-bar"] }
   ]);
   byId("reparto").querySelector(".delivery-layout").hidden = true;
+}
+
+let deliveryGpsCorrectionBusy = false;
+
+function deliveryGpsCorrectionClients() {
+  return (state.clients || []).filter(client => ["needs_correction", "rejected", "pending_validation"].includes(client.gpsReview?.status));
+}
+
+function renderDeliveryGpsCorrections() {
+  const panel = byId("deliveryGpsCorrections");
+  if (!panel) return;
+  const clients = currentUser?.role === "driver" ? deliveryGpsCorrectionClients() : [];
+  panel.innerHTML = clients.length ? clients.map(client => `<article class="delivery-route-card">
+    <strong>${escapeHtml(client.name || client.nombre_comercial || "Cliente")}</strong>
+    <p>${escapeHtml(client.direccion || client.address || "Sin direccion")}</p>
+    <span class="tag warn">${client.gpsReview.status === "pending_validation" ? "Pendiente de validacion administrativa" : "Correccion solicitada por Administracion"}</span>
+    ${client.gpsReview.status !== "pending_validation" ? `<button class="primary-btn" type="button" data-delivery-gps-client="${escapeHtml(client.codigo_cliente || client.name)}" ${deliveryGpsCorrectionBusy ? "disabled" : ""}>${deliveryGpsCorrectionBusy ? "Tomando GPS..." : "Registrar ubicacion actual"}</button>` : ""}
+  </article>`).join("") : '<div class="empty-note">Sin correcciones GPS solicitadas para sus clientes.</div>';
+}
+
+async function captureDeliveryClientGps() {
+  if (window.AndroidLocation && typeof window.AndroidLocation.start === "function") {
+    const previous = deliveryLocation;
+    const started = Date.now();
+    window.AndroidLocation.start(`REPARTO:${deliveryDevice.id}`);
+    return new Promise((resolve, reject) => {
+      const timer = setInterval(() => {
+        const point = deliveryLocation;
+        if (point && point !== previous && Date.parse(point.deviceAt) >= started - 1000
+            && !gpsClientRejectReason(point) && Number(point.accuracy) > 0) {
+          clearInterval(timer);
+          resolve({ ...point });
+        } else if (Date.now() - started >= 20000) {
+          clearInterval(timer);
+          reject(new Error("No se obtuvo GPS nuevo. Revise el permiso de ubicacion precisa y vuelva a intentar."));
+        }
+      }, 250);
+    });
+  }
+  if (!canUseBrowserGeolocation() || !("geolocation" in navigator)) throw new Error("GPS no disponible. Habilite ubicacion precisa en la app o use HTTPS.");
+  return new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(position => {
+    const gps = makeLocationPayload(position.coords.latitude, position.coords.longitude, position.coords.accuracy, "gps");
+    gps.accuracy = Number(position.coords.accuracy);
+    const reason = gpsClientRejectReason(gps);
+    if (reason || !Number.isFinite(gps.accuracy) || gps.accuracy <= 0) reject(new Error(reason || "Precision GPS invalida."));
+    else resolve(gps);
+  }, error => reject(new Error(error.message || "No se pudo obtener GPS.")), { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }));
+}
+
+async function submitDeliveryClientGpsCorrection(id) {
+  if (deliveryGpsCorrectionBusy || currentUser?.role !== "driver") return;
+  const client = deliveryGpsCorrectionClients().find(item => (item.codigo_cliente || item.name) === id);
+  if (!client || !["needs_correction", "rejected"].includes(client.gpsReview.status)) return;
+  if (!window.confirm(`Registrar ubicacion actual para ${client.name}? Debe estar frente al comercio. Administracion validara el cambio.`)) return;
+  const expectedUpdatedAt = String(client.updatedAt || client.createdAt || "");
+  deliveryGpsCorrectionBusy = true;
+  renderDeliveryGpsCorrections();
+  try {
+    const gps = await captureDeliveryClientGps();
+    await postOperationalAction(`api/clients/${encodeURIComponent(id)}/gps-review`, {
+      action: "submit", gps, expectedUpdatedAt, deviceId: deliveryDevice.id, deviceLabel: deliveryDevice.label
+    });
+    showCompactNotice("Ubicacion enviada a Administracion. La anterior se conserva hasta aprobarla.", "ok");
+  } catch (error) {
+    showCompactNotice(error.message || "No se pudo enviar la ubicacion.", "danger");
+  } finally {
+    deliveryGpsCorrectionBusy = false;
+    renderDeliveryGpsCorrections();
+  }
 }
 
 function renderDeliveryStops(route) {
@@ -21700,6 +21771,10 @@ document.addEventListener("click", (event) => {
   openClientEditDialog(editButton.dataset.clientEdit);
 });
 byId("mobileGpsCorrectionCaptureBtn").addEventListener("click", submitClientGpsCorrection);
+byId("deliveryGpsCorrections").addEventListener("click", event => {
+  const button = event.target.closest("[data-delivery-gps-client]");
+  if (button) submitDeliveryClientGpsCorrection(button.dataset.deliveryGpsClient);
+});
 
 document.addEventListener("click", (event) => {
   const button = event.target.closest("[data-mixed-entity]");

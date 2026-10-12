@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const vm = require("node:vm");
+const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const Order = require("../order-engine");
 
@@ -14,9 +15,15 @@ const buildState = vm.runInNewContext(`(${fixture.slice(fixture.indexOf("functio
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dl-gps-review-"));
 const stateFile = path.join(tempDir, "demo-state.json");
 const usersFile = path.join(tempDir, "users.json");
+const users = [["admin1", "admin", "Administracion 1"], ["sofia", "seller", "Sofia Benitez"], ["reparto1", "driver", "Reparto 1"], ["reparto2", "driver", "Reparto 2"]].map(([username, role, name]) => {
+  const salt = crypto.randomBytes(16).toString("hex");
+  return { username, role, name, sellerName: role === "seller" ? name : "", active: true, salt,
+    passwordHash: crypto.pbkdf2Sync("SmokeTest2026!", salt, 120000, 32, "sha256").toString("hex") };
+});
+fs.writeFileSync(usersFile, JSON.stringify({ users }), "utf8");
 const state = JSON.parse(JSON.stringify(buildState(1)));
 state.clients[0].location = { lat: state.clients[0].latitud, lng: state.clients[0].longitud };
-state.deliveryRoutes = [{ id: "GPS-REFRESH-ROUTE", status: "Planificada", day: "2026-10-12", manualOrder: true,
+state.deliveryRoutes = [{ id: "GPS-REFRESH-ROUTE", driverUser: "reparto1", status: "Planificada", day: "2026-10-12", manualOrder: true,
   stops: [{ orderCode: state.orders[0].code, client: state.clients[0].name, status: Order.STATUS.READY_DISPATCH,
     coordinates: { ...state.clients[0].location }, sequence: 1 }] }];
 Order.migrateState(state);
@@ -68,10 +75,32 @@ async function post(cookie, endpoint, input) {
     await waitHealth();
     const admin = await login("admin1");
     const seller = await login("sofia");
+    const driver = await login("reparto1");
+    const otherDriver = await login("reparto2");
     const id = state.clients[0].codigo_cliente;
     const endpoint = `/api/clients/${encodeURIComponent(id)}/gps-review`;
     const previous = { lat: state.clients[0].latitud, lng: state.clients[0].longitud };
     assert.equal((await post(seller, endpoint, { action: "mark" })).status, 400);
+    assert.equal((await post(admin, endpoint, { action: "mark" })).status, 200);
+    const originalData = JSON.parse(fs.readFileSync(stateFile, "utf8")).state;
+    const driverInput = { action: "submit", expectedUpdatedAt: originalData.clients[0].updatedAt,
+      gps: { lat: -31.412345678, lng: -64.181234567, accuracy: 8.75, source: "gps", deviceAt: new Date().toISOString() },
+      deviceId: "GPS-reparto1", deviceLabel: "Telefono reparto" };
+    assert.equal((await post(otherDriver, endpoint, driverInput)).status, 403, "Other driver cannot submit for this client");
+    assert.equal((await post(driver, endpoint, { ...driverInput, action: "approve" })).status, 403);
+    assert.equal((await post(driver, endpoint, { ...driverInput, action: "mark" })).status, 403);
+    assert.equal((await post(driver, endpoint, { ...driverInput, expectedUpdatedAt: "stale" })).status, 409);
+    assert.equal((await post(driver, endpoint, { ...driverInput, gps: { ...driverInput.gps, deviceAt: "2020-01-01" } })).status, 400);
+    const captured = await post(driver, endpoint, driverInput);
+    assert.equal(captured.status, 200, captured.body.error);
+    assert.equal(captured.body.client.gpsReview.status, "pending_validation");
+    const afterCapture = JSON.parse(fs.readFileSync(stateFile, "utf8")).state;
+    assert.equal(afterCapture.clients[0].latitud, previous.lat);
+    assert.equal(afterCapture.clients[0].gpsReview.proposal.role, "driver");
+    assert.equal(afterCapture.clients[0].gpsReview.proposal.username, "reparto1");
+    for (const key of ["orders", "accounts", "products"]) assert.deepEqual(afterCapture[key], originalData[key], `${key} unchanged by capture`);
+    assert.equal((await post(driver, endpoint, driverInput)).status, 409, "Duplicate capture cannot replace proposal");
+    assert.equal((await post(admin, endpoint, { action: "reject", reason: "Volver a medir" })).status, 200);
     assert.equal((await post(admin, endpoint, { action: "mark" })).status, 200);
     const markedState = await (await fetch(`${base}/api/state?version=0`, { headers: { Cookie: seller } })).json();
     assert.equal(markedState.state.clients.find((c) => c.codigo_cliente === id).gpsReview.status, "needs_correction");
