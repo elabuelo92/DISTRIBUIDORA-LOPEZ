@@ -9836,6 +9836,10 @@ const server = http.createServer(async (req, res) => {
           context
         );
         const collection = result.order && result.order.collection || {};
+        if (result.repeated) {
+          sendJson(res, 200, { ok: true, ...result, refreshRequired: true });
+          return;
+        }
         writeCompactStateResponse(res, currentState, { ...result, refreshRequired: true }, auditEntry(req, sessionUser, input, {
           action: "REPARTO_ENTREGA_COBRANZA",
           entityType: "pedido",

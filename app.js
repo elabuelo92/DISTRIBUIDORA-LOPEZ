@@ -10613,7 +10613,7 @@ function deliveryCollectionsManifestRows(day, routeId = "") {
     const customerCredit = numeric(collection.customerCreditAmount, 0);
     const difference = Math.round((cash + transfer + credit - customerCredit - total) * 100) / 100;
     rows.push([order?.client || stop.client || "", stop.orderCode || "", total, cash, transfer,
-      collection.transferReceipt?.bank || "", credit, customerCredit, difference]);
+      Array.from(new Set((collection.transferReceipts || [collection.transferReceipt]).filter(Boolean).map(receipt => receipt.bank).filter(Boolean))).join(" / "), credit, customerCredit, difference]);
     totals.total += total;
     totals.cash += cash;
     totals.transfer += transfer;
@@ -22641,6 +22641,49 @@ function reconcileDeliveryPaymentInput(source) {
   updateDeliveryPendingAmount();
 }
 
+let deliveryTransferProofs = [];
+let deliveryCollectionRequestId = "";
+let deliveryUploadCache = new Map();
+
+function renderDeliveryTransferProofs() {
+  byId("deliveryTransferProofList").innerHTML = deliveryTransferProofs.map((proof, index) => `
+    <div class="delivery-proof-entry"><span><strong>${money.format(proof.amount)}</strong> - ${escapeHtml(proof.bank)}<br>${escapeHtml(proof.file.name)}</span>
+    <button type="button" class="ghost-btn" data-remove-delivery-proof="${index}" aria-label="Quitar comprobante ${index + 1}">Quitar</button></div>`).join("");
+  const sum = deliveryTransferProofs.reduce((total, proof) => total + proof.amount, 0);
+  byId("deliveryTransferProofTotal").textContent = `Comprobantes: ${deliveryTransferProofs.length} - ${money.format(sum)}`;
+}
+
+function addDeliveryTransferProof() {
+  if (byId("deliveryCollectionSubmitBtn").disabled) return false;
+  const file = deliveryTransferAttachmentFile();
+  const amount = Number(byId("deliveryTransferProofAmount").value);
+  if (!file || !Number.isFinite(amount) || amount <= 0 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001) {
+    setDeliveryCollectionMessage("Seleccionar un archivo e indicar su importe con hasta dos decimales.");
+    return false;
+  }
+  if (deliveryTransferProofs.length >= 10) { setDeliveryCollectionMessage("Maximo 10 comprobantes por cobro."); return false; }
+  if (deliveryTransferProofs.some(proof => proof.file.name === file.name && proof.file.size === file.size && proof.file.lastModified === file.lastModified)) {
+    setDeliveryCollectionMessage("Ese archivo ya esta agregado."); return false;
+  }
+  deliveryTransferProofs.push({file, amount, bank:byId("deliveryTransferBank").value.trim(),
+    alias:byId("deliveryTransferAlias").value.trim(), cbu:byId("deliveryTransferCbu").value.trim(),
+    observations:byId("deliveryTransferObservations").value.trim()});
+  ["deliveryTransferPhoto", "deliveryTransferGallery", "deliveryTransferFile", "deliveryTransferProofAmount"].forEach(id=>{byId(id).value="";});
+  updateDeliveryTransferFileStatus();
+  renderDeliveryTransferProofs();
+  setDeliveryCollectionMessage("");
+  return true;
+}
+
+async function uploadDeliveryFileOnce(orderCode, kind, file) {
+  if (!file) return null;
+  if (deliveryUploadCache.has(file)) return deliveryUploadCache.get(file);
+  const data = kind === "transfer" ? await fileToEvidenceDataUrl(file) : await fileToCompressedDataUrl(file);
+  const upload = await uploadDeliveryImage(orderCode, kind, data);
+  deliveryUploadCache.set(file, upload);
+  return upload;
+}
+
 function deliveryTransferAttachmentFile() {
   return byId("deliveryTransferPhoto").files[0]
     || byId("deliveryTransferGallery").files[0]
@@ -22761,6 +22804,11 @@ function deliverySummaryText(collection) {
 function openDeliveryCollection(orderCode) {
   const order = state.orders.find((item) => item.code === orderCode);
   if (!order) return;
+  deliveryTransferProofs = [];
+  deliveryCollectionRequestId = crypto.randomUUID();
+  deliveryUploadCache = new Map();
+  byId("deliveryTransferProofAmount").value = "";
+  renderDeliveryTransferProofs();
   byId("deliveryCollectionOrderCode").value = order.code;
   byId("deliveryCollectionTitle").textContent = `${order.code} - ${order.client}`;
   byId("deliveryCollectionTotal").textContent = money.format(order.amount);
@@ -22791,6 +22839,7 @@ function openDeliveryCollection(orderCode) {
 
 async function submitDeliveryCollection(event) {
   event.preventDefault();
+  if (byId("deliveryCollectionSubmitBtn").disabled) return;
   const orderCode = byId("deliveryCollectionOrderCode").value;
   const order = state.orders.find((item) => item.code === orderCode);
   if (!order) return;
@@ -22836,22 +22885,19 @@ async function submitDeliveryCollection(event) {
     setDeliveryCollectionMessage("Indicar el motivo de la devolucion.");
     return;
   }
-  const transferReceipt = transferAmount > 0 ? {
-    amount: transferAmount,
-    bank: byId("deliveryTransferBank").value.trim(),
-    alias: byId("deliveryTransferAlias").value.trim(),
-    cbu: byId("deliveryTransferCbu").value.trim(),
-    observations: byId("deliveryTransferObservations").value.trim()
-  } : null;
   if (transferAmount > 0) {
-    if (transferAmount <= 0) {
-      setDeliveryCollectionMessage("La transferencia debe registrar un importe cobrado mayor a cero.");
+    if (deliveryTransferAttachmentFile()) {
+      if (!deliveryTransferProofs.length && !byId("deliveryTransferProofAmount").value) byId("deliveryTransferProofAmount").value = String(transferAmount);
+      if (!addDeliveryTransferProof()) return;
+    }
+    const proofTotal = deliveryTransferProofs.reduce((sum, proof) => sum + proof.amount, 0);
+    if (!deliveryTransferProofs.length || Math.round(proofTotal * 100) !== Math.round(transferAmount * 100)) {
+      setDeliveryCollectionMessage("La suma de comprobantes debe coincidir con el total transferido.");
       return;
     }
-    if (!deliveryTransferAttachmentFile()) {
-      setDeliveryCollectionMessage("Adjuntar foto, captura o PDF del comprobante de transferencia.");
-      return;
-    }
+  } else if (deliveryTransferProofs.length || deliveryTransferAttachmentFile()) {
+    setDeliveryCollectionMessage("Hay comprobantes cargados pero el importe transferido es cero.");
+    return;
   }
   const submit = byId("deliveryCollectionSubmitBtn");
   submit.disabled = true;
@@ -22859,16 +22905,17 @@ async function submitDeliveryCollection(event) {
   setDeliveryCollectionMessage("Guardando GPS y evidencias...", "info");
   try {
     const gps = await requireDeliveryLocation();
-    const transferData = await fileToEvidenceDataUrl(deliveryTransferAttachmentFile());
-    const proofData = await fileToCompressedDataUrl(byId("deliveryProofPhoto").files[0]);
-    const uploads = await Promise.all([
-      uploadDeliveryImage(orderCode, "transfer", transferData),
-      uploadDeliveryImage(orderCode, "delivery", proofData)
-    ]);
+    const transferReceipts = [];
+    for (const proof of deliveryTransferProofs) {
+      const { file, ...receipt } = proof;
+      transferReceipts.push({ ...receipt, attachment: await uploadDeliveryFileOnce(orderCode, "transfer", file) });
+    }
     const attachments = {};
-    uploads.filter(Boolean).forEach((upload) => { attachments[upload.kind] = upload; });
-    if (transferReceipt) transferReceipt.attachment = attachments.transfer || null;
+    const deliveryUpload = await uploadDeliveryFileOnce(orderCode, "delivery", byId("deliveryProofPhoto").files[0]);
+    if (deliveryUpload) attachments.delivery = deliveryUpload;
+    if (transferReceipts.length) attachments.transfer = transferReceipts[0].attachment;
     const payload = await postOperationalAction(`api/delivery/orders/${encodeURIComponent(orderCode)}/collect`, deliveryActionBody(gps, {
+      requestId: deliveryCollectionRequestId,
       method: submittedMethod || method,
       amountPaid,
       pendingAmount,
@@ -22880,7 +22927,7 @@ async function submitDeliveryCollection(event) {
       },
       deliveredItems,
       attachments,
-      transferReceipt,
+      ...(transferReceipts.length ? { transferReceipts } : {}),
       returnReason: byId("deliveryReturnReason").value.trim(),
       observations: byId("deliveryCollectionObservations").value.trim()
     }));
@@ -23641,6 +23688,13 @@ byId("deliveryCashAmount").addEventListener("input", () => reconcileDeliveryPaym
 byId("deliveryTransferAmount").addEventListener("input", () => reconcileDeliveryPaymentInput("transfer"));
 document.querySelectorAll("[data-delivery-payment-preset]").forEach((button) => {
   button.addEventListener("click", () => applyDeliveryPaymentPreset(button.dataset.deliveryPaymentPreset));
+});
+byId("deliveryAddTransferProof").addEventListener("click", addDeliveryTransferProof);
+byId("deliveryTransferProofList").addEventListener("click", event => {
+  const button = event.target.closest("[data-remove-delivery-proof]");
+  if (!button || byId("deliveryCollectionSubmitBtn").disabled) return;
+  deliveryTransferProofs.splice(Number(button.dataset.removeDeliveryProof), 1);
+  renderDeliveryTransferProofs();
 });
 ["deliveryTransferPhoto", "deliveryTransferGallery", "deliveryTransferFile"].forEach((id) => {
   byId(id).addEventListener("change", () => {

@@ -8398,3 +8398,13 @@ menu {
     white-space: normal;
   }
 }
+.delivery-proof-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #d5dfe3;
+}
+.delivery-proof-entry span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+#deliveryTransferProofList .delivery-proof-entry button { flex: 0 0 auto; width: auto; min-width: 64px; }

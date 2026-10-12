@@ -1201,6 +1201,15 @@
     if (!order || !route) throw new Error("Pedido o ruta no encontrados.");
     assertDevice(route, context);
     const gps = assertGps(context.gps);
+    const requestId = String(input.requestId || "");
+    const requestSignature = JSON.stringify([input.method, input.amountPaid, input.pendingAmount, input.paymentSplit,
+      input.deliveredItems, input.attachments, input.transferReceipt, input.transferReceipts, input.returnReason, input.observations]);
+    if (requestId && !/^[a-zA-Z0-9-]{8,100}$/.test(requestId)) throw new Error("Identificador de cobro invalido.");
+    const previousCollection = requestId && (order.collections || []).find((entry) => entry.requestId === requestId);
+    if (previousCollection) {
+      if (previousCollection.requestSignature !== requestSignature) throw new Error("El reintento del cobro contiene cambios. Consultar el pedido antes de continuar.");
+      return { order, route, repeated: true };
+    }
     const stop = route.stops.find((item) => item.orderCode === orderCode);
     if (!stop || FINAL_STOP_STATUSES.has(stop.status)) throw new Error("La parada ya fue cerrada o no pertenece a esta ruta.");
     if (![STATUS.DISPATCHED, STATUS.IN_ROUTE, STATUS.CHECKED].includes(order.status)) throw new Error("El pedido debe estar despachado o EN REPARTO antes de cobrar.");
@@ -1260,15 +1269,31 @@
     if (returnSummary.returnedQty > 0 && !String(input.returnReason || input.returnReasonText || "").trim()) {
       throw new Error("Indicar motivo de devolucion.");
     }
-    const transferReceipt = transferAmount > 0
-      ? normalizeTransferReceipt(input, transferAmount, state.deliverySettings)
-      : null;
+    let transferReceipts = [];
+    if (Array.isArray(input.transferReceipts)) {
+      if (!requestId || !input.transferReceipts.length || input.transferReceipts.length > 10 || transferAmount <= 0) throw new Error("Registrar entre 1 y 10 comprobantes con identificador de cobro.");
+      const files = new Set();
+      transferReceipts = input.transferReceipts.map((receipt, index) => {
+        const amount = Number(receipt && receipt.amount);
+        if (!Number.isFinite(amount) || amount <= 0 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001) throw new Error("Importe de comprobante invalido.");
+        const normalized = normalizeTransferReceipt({ transferReceipt: receipt }, amount, state.deliverySettings);
+        if (files.has(normalized.attachment.url)) throw new Error("El comprobante esta repetido.");
+        files.add(normalized.attachment.url);
+        return { ...normalized, id: `${order.code}-TRF-${requestId}-${index + 1}` };
+      });
+      if (Math.round(transferReceipts.reduce((sum, receipt) => sum + receipt.amount, 0) * 100) !== Math.round(transferAmount * 100)) throw new Error("La suma de comprobantes debe coincidir con el total transferido.");
+    } else if (transferAmount > 0) {
+      transferReceipts = [normalizeTransferReceipt(input, transferAmount, state.deliverySettings)];
+      if (Math.round(transferReceipts[0].amount * 100) !== Math.round(transferAmount * 100)) throw new Error("El comprobante debe coincidir con el total transferido.");
+    }
+    const transferReceipt = transferReceipts[0] || null;
     if (order.status === STATUS.DISPATCHED) {
       stop.visitStartedAt = stop.visitStartedAt || nowIso();
       updateOrderTrace(order, STATUS.IN_ROUTE, { ...context, gps }, "Visita iniciada al confirmar la entrega");
     }
     const partialDelivery = deliveredItems.some((line) => line.pendingQty > 0);
     const collection = {
+      requestId, requestSignature,
       method,
       amountPaid: moneyValue(amountPaid - customerCreditAmount),
       pendingAmount: accountPendingAmount,
@@ -1286,6 +1311,7 @@
       gps,
       attachments: input.attachments || {},
       transferReceipt,
+      transferReceipts,
       returnReason: String(input.returnReason || input.returnReasonText || "").trim(),
       observations: String(input.observations || input.note || "").trim(),
       returnSummary,
@@ -1307,12 +1333,14 @@
     order.returnSummary = collection.returnSummary;
     order.deliveryObservations = collection.observations;
     if (transferReceipt) {
-      transferReceipt.routeId = route.id;
       order.transferReceipts = Array.isArray(order.transferReceipts) ? order.transferReceipts : [];
-      order.transferReceipts.push(transferReceipt);
-      if (accountEngine && typeof accountEngine.registerTransferReceipt === "function") {
-        accountEngine.registerTransferReceipt(state, order, transferReceipt, context);
-      }
+      transferReceipts.forEach((receipt) => {
+        receipt.routeId = route.id;
+        order.transferReceipts.push(receipt);
+        if (accountEngine && typeof accountEngine.registerTransferReceipt === "function") {
+          accountEngine.registerTransferReceipt(state, order, receipt, context);
+        }
+      });
     } else if (requestedPendingTransfer && pendingTransferAmount > 0 && accountEngine && typeof accountEngine.registerPendingTransfer === "function") {
       const pendingTransfer = accountEngine.registerPendingTransfer(state, order, {
         routeId: route.id,

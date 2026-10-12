@@ -14,12 +14,22 @@ const password = crypto.randomBytes(18).toString("hex");
 const salt = crypto.randomBytes(16).toString("hex");
 const passwordHash = crypto.pbkdf2Sync(password, salt, 120000, 32, "sha256").toString("hex");
 const stateFile = path.join(temp, "demo-state.json");
-fs.writeFileSync(path.join(temp, "users.json"), JSON.stringify({users:["admin", "seller"].map(role => ({username:role, name:role, role, active:true, salt, passwordHash}))}));
+fs.writeFileSync(path.join(temp, "users.json"), JSON.stringify({users:["admin", "seller", "driver"].map(role => ({username:role === "driver" ? "reparto1" : role, name:role, role, active:true, salt, passwordHash}))}));
 fs.writeFileSync(stateFile, JSON.stringify({version:1,state:{
   clients:[{codigo_cliente:"C1",name:"Cliente",balance:250000,saldo_actual:250000,saldo_inicial:250000}],
   orders:[{code:"PED-PROOFS",client:"Cliente",status:"Entregado",amount:250000,items:[],transferReceipts:[{id:"TRF-TEST",amount:250000,bank:"Mercado Pago",status:"Pendiente de Transferencia"}]}],
   accounts:[],products:[],suppliers:[],deliveryRoutes:[]
 }}));
+const driverTest=require("./smoke-driver-multiple-proofs");
+const driverFixture=driverTest.fixture();
+driverFixture.state.clients[0].name="Cliente Reparto";
+driverFixture.state.orders[0].client="Cliente Reparto";
+const initial=JSON.parse(fs.readFileSync(stateFile,"utf8"));
+initial.state.clients.push(driverFixture.state.clients[0]);
+initial.state.orders.push(driverFixture.state.orders[0]);
+initial.state.deliveryRoutes=driverFixture.state.deliveryRoutes;
+initial.state.deliverySettings=driverFixture.state.deliverySettings;
+fs.writeFileSync(stateFile,JSON.stringify(initial));
 const child = spawn(process.execPath,[path.join(root,"server.js")],{cwd:root,env:{...process.env,
   DL_HOST:"127.0.0.1",DL_PORT:String(port),PORT:String(port),DATA_DIR:temp,STATE_FILE:stateFile,
   USERS_FILE:path.join(temp,"users.json"),DL_VERSION:"8790-168-test",DL_LICENSE_ENFORCEMENT:"disabled",DL_INTEGRITY_ENFORCE:"warn"
@@ -78,6 +88,22 @@ async function login(username) {
     assert.equal(read().accounts.length,0,"Uploading is not a payment validation");
     assert.equal(read().orders[0].amount,250000);
     console.log("PASS HTTP: role restrictions, partial proofs, concurrent retries, no duplicate files/audit, total and debt conserved");
+    const driver=await login("reparto1");
+    const collectUrl="/api/delivery/orders/PED-MULTI/collect";
+    const collectBody={...driverTest.input,deviceId:driverFixture.driver.deviceId,gps:driverFixture.driver.gps};
+    assert.equal((await request(collectUrl,collectBody,seller)).status,403);
+    assert.equal((await request(collectUrl,{...collectBody,deviceId:"WRONG"},driver)).status,400);
+    const collected=await Promise.all([request(collectUrl,collectBody,driver),request(collectUrl,collectBody,driver)]);
+    collected.forEach(r=>assert.equal(r.status,200,r.body.error));
+    assert.ok(collected.some(r=>r.body.repeated));
+    const persisted=read(), driverOrder=persisted.orders.find(o=>o.code==="PED-MULTI");
+    assert.equal(driverOrder.collections.length,1);
+    assert.equal(driverOrder.transferReceipts.length,2);
+    assert.equal(persisted.clients.find(c=>c.name==="Cliente Reparto").balance,600);
+    assert.equal(persisted.bankReconciliation.filter(r=>r.orderCode==="PED-MULTI").length,2);
+    assert.equal((await request(collectUrl,{...collectBody,observations:"changed"},driver)).status,400);
+    assert.deepEqual(read(),persisted);
+    console.log("PASS HTTP driver: concurrent delivery one collection/two proofs, unchanged balance, seller/device guards and changed retry blocked");
   } finally {
     if(child.exitCode===null){const closed=once(child,"exit");child.kill();await closed;}
     const resolved=fs.realpathSync(temp);

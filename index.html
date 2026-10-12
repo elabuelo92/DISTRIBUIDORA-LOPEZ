@@ -19,7 +19,7 @@
     <link rel="manifest" href="manifest.json?v=8790-168-r20261007b">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-168-r20261007b">
+    <link rel="stylesheet" href="styles.css?v=8790-168-r20261012driverproofs">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -4400,6 +4400,12 @@
           <input class="visually-hidden-file" id="deliveryTransferGallery" type="file" accept="image/*">
           <input class="visually-hidden-file" id="deliveryTransferFile" type="file" accept="application/pdf,image/*">
           <small id="deliveryTransferFileStatus">Sin comprobante seleccionado.</small>
+          <label>Importe de este comprobante
+            <input id="deliveryTransferProofAmount" type="number" min="0.01" step="0.01" inputmode="decimal">
+          </label>
+          <button class="secondary-btn" id="deliveryAddTransferProof" type="button">Agregar comprobante</button>
+          <div id="deliveryTransferProofList" aria-live="polite"></div>
+          <strong id="deliveryTransferProofTotal"></strong>
           <label>
             Observaciones
             <textarea id="deliveryTransferObservations" rows="2" placeholder="Nro. operacion, banco emisor o comentario"></textarea>
@@ -4649,7 +4655,7 @@
     <script src="order-engine.js?v=8790-168-r20261007b"></script>
     <script src="account-engine.js?v=8790-168-r20261012proofs"></script>
     <script src="route-optimizer.js?v=8790-168-r20261007b"></script>
-    <script src="delivery-engine.js?v=8790-168-r20261012gps"></script>
+    <script src="delivery-engine.js?v=8790-168-r20261012driverproofs"></script>
     <script src="sales-commission-report.js?v=8790-168-r20261007b"></script>
     <script src="legal-engine.js?v=8790-168-r20261007b"></script>
     <script src="client-portfolio-engine.js?v=8790-168-r20261007b"></script>
@@ -4657,6 +4663,6 @@
     <script src="share-engine.js?v=8790-168-r20261007b"></script>
     <script src="portfolio-export-engine.js?v=8790-168-r20261007b"></script>
     <script src="progressive-list.js?v=8790-168-r20261007b"></script>
-    <script src="app.js?v=8790-168-r20261012proofs"></script>
+    <script src="app.js?v=8790-168-r20261012driverproofs"></script>
   </body>
 </html>

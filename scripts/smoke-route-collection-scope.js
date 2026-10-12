@@ -68,6 +68,7 @@ const before = JSON.stringify(state);
   assert.equal(JSON.stringify(state), before, "Export never changes business data");
 
   const paymentContext = vm.createContext({ state, byId, renderDeliveryItems() {}, renderDeliveryBankOptions() {},
+    crypto: require("node:crypto"), renderDeliveryTransferProofs() {},
     updateDeliveryTransferFileStatus() {}, setDeliveryCollectionMessage: (msg) => notices.push(msg),
     clearDeliverySignature() {}, updateDeliveryPaymentDefaults() {}, money: { format: String } });
   vm.runInContext(extract("function openDeliveryCollection(", "function submitDeliveryCollection(").replace(/async\s*$/, ""), paymentContext);
