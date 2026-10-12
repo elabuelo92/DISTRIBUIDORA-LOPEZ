@@ -7300,10 +7300,13 @@ function orderItemShortageInfo(item) {
 
 function orderInvoiceRows(order, settings) {
   const items = assemblyOrderItems(order);
+  const invoiceMoney = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return items.map((item) => {
     const qty = numeric(item.requestedQty ?? item.qty ?? item.quantity, 0);
-    const unitPrice = numeric(item.unitPrice || (qty ? numeric(item.lineTotal, 0) / qty : 0), 0);
-    const lineTotal = numeric(item.lineTotal, qty * unitPrice);
+    const listUnitPrice = numeric(item.unitPrice, 0);
+    const lineTotal = numeric(item.lineTotal, qty * listUnitPrice);
+    // The persisted line total already includes approved discounts and price changes.
+    const unitPrice = qty > 0 ? lineTotal / qty : listUnitPrice;
     const shortage = orderItemShortageInfo(item);
     return `
       <tr>
@@ -7312,8 +7315,8 @@ function orderInvoiceRows(order, settings) {
         <td>
           <strong>${escapeHtml(item.name || item.descripcion || "Producto")}${shortage.missing > 0 ? '<sup class="print-shortage-mark">*</sup>' : ""}</strong>
         </td>
-        ${settings.showPrices ? `<td class="money-col">${unitPrice ? money.format(unitPrice) : "-"}</td>` : ""}
-        ${settings.showAmounts ? `<td class="money-col">${lineTotal ? money.format(lineTotal) : "-"}</td>` : ""}
+        ${settings.showPrices ? `<td class="money-col">${invoiceMoney.format(unitPrice)}</td>` : ""}
+        ${settings.showAmounts ? `<td class="money-col">${invoiceMoney.format(lineTotal)}</td>` : ""}
         <td class="control-col"></td>
       </tr>
     `;
@@ -13702,14 +13705,38 @@ function printCommissionReport() {
   popup.print();
 }
 
-function exportCommissionReportExcel() {
+async function exportCommissionReportExcel() {
+  try {
   const report = commissionReportData();
   const account = commissionAccountData(report);
-  const rows = [["Producto", "Cantidad", "Monto bruto", "% aplicado", "Comision"], ...report.products.map((row) => [row.product, row.qty, row.gross, row.percent.toFixed(2), row.commission])];
-  const paymentRows = account ? [["Fecha pago", "Importe", "Medio", "Referencia", "Usuario"], ...account.payments.map((payment) => [formatDateTimeParts(payment.at).date, payment.amount, payment.method, payment.reference || payment.motive, payment.user])] : [];
-  const accountRows = account ? [["Devengado", account.accrued], ["Pagado", account.paid], ["Saldo", account.balance]] : [];
-  const html = `<html><head><meta charset="utf-8"></head><body><h2>Detalle por producto</h2><table>${rows.map((row) => `<tr>${row.map((value) => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`).join("")}</table>${account ? `<h2>Estado de cuenta</h2><table>${accountRows.map((row) => `<tr>${row.map((value) => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`).join("")}</table><h2>Pagos</h2><table>${paymentRows.map((row) => `<tr>${row.map((value) => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`).join("")}</table>` : ""}</body></html>`;
-  downloadBlob(`comisiones-${report.seller === "all" ? "todos" : normalizeSearchText(report.seller).replaceAll(" ", "-")}-${reportDateStamp()}.xls`, new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" }));
+  const number = (value) => {
+    if (value === null || value === undefined || value === "" || !Number.isFinite(Number(value))) {
+      throw new Error("Hay un importe o cantidad invalido en el reporte de comisiones.");
+    }
+    return Number(value);
+  };
+  const rows = report.products.map((row) => [row.product, number(row.qty), number(row.gross), number(row.percent), number(row.commission)]);
+  if (account) {
+    rows.push(["", "", "", "", ""], ["Estado de cuenta", "", "Importe", "", ""],
+      ["Devengado", "", number(account.accrued), "", ""],
+      ["Pagado", "", number(account.paid), "", ""],
+      ["Saldo", "", number(account.balance), "", ""],
+      ["", "", "", "", ""], ["Fecha pago", "Medio", "Importe", "Referencia", "Usuario"],
+      ...account.payments.map((payment) => [formatDateTimeParts(payment.at).date, payment.method,
+        number(payment.amount), payment.reference || payment.motive || "", payment.user || ""]));
+  }
+  await downloadXlsxReport({
+    fileName: `comisiones-${report.seller === "all" ? "todos" : normalizeSearchText(report.seller).replaceAll(" ", "-")}-${reportDateStamp()}.xlsx`,
+    sheetName: "Comisiones", title: "Detalle por producto",
+    subtitle: `Vendedor: ${report.seller === "all" ? "Todos" : report.seller} | Periodo: ${report.from || "Inicio"} a ${report.to || "Hoy"}`,
+    headers: ["Producto", "Cantidad", "Monto bruto", "% aplicado", "Comision"], rows,
+    fontSize: 13, columnWidths: [48, 22, 24, 26, 24],
+    columnFormats: ["@", "#,##0.##", "$ #,##0.00", "0.00", "$ #,##0.00"],
+    wrapColumns: [1, 2, 4, 5]
+  });
+  } catch (error) {
+    showCompactNotice(error.message || "No se pudo generar el Excel de comisiones.", "danger");
+  }
 }
 
 function settleCommissionReport() {
