@@ -14515,10 +14515,17 @@ function exportPhysicalStockPdf() {
     window.alert("Solo administracion puede exportar inventario fisico.");
     return;
   }
-  const lines = physicalStockReportType === "adjustments"
-    ? (state.physicalStockAdjustments || []).map((entry) => `${entry.productName} | ${entry.previousStock} -> ${entry.newStock} | ${entry.user} | ${formatOrderTime(entry.at)} | ${entry.reason || ""}`)
-    : physicalStockReportRows().map((row) => `${row.code || "S/C"} | ${row.name} | Disp ${row.available} | Comp ${row.totalPreDispatch} | Fisico ${row.expected} | Conteo ${row.counted ?? "-"} | Dif ${row.count ? row.difference : "-"}`);
-  downloadBlob(`control-stock-fisico-${safeFilePart(physicalStockReportType)}-${reportDateStamp()}.pdf`, makeSimplePdf("Distribuidora Lopez - Control de Stock Fisico", lines));
+  const adjustments = physicalStockReportType === "adjustments";
+  const headers = adjustments ? ["Producto", "Stock anterior", "Stock nuevo", "Motivo", "Usuario / Fecha"] : ["Codigo / Producto", "Clasificacion", "Existencias", "Conteo"];
+  const rows = adjustments
+    ? (state.physicalStockAdjustments || []).map((entry) => [entry.productName, entry.previousStock, entry.newStock, entry.reason || "", `${entry.user}\n${formatOrderTime(entry.at)}`])
+    : physicalStockReportRows().map((row) => [
+      `${row.code || "S/C"}\n${row.name}`,
+      `Rubro: ${row.rubric}\nMarca: ${row.brand}\nProveedor: ${row.supplier}\nDeposito: ${row.warehouse}`,
+      `Disponible: ${row.available}\nComprometida: ${row.committed}\nPreparandose: ${row.preparing}\nArmada: ${row.assembled}\nEtiquetada: ${row.labeled}\nPendiente despacho: ${row.readyDispatch}\nFisico esperado: ${row.expected}`,
+      `Conteo: ${row.counted ?? "Pendiente"}\nDiferencia: ${row.count ? row.difference : "-"}\nPorcentaje: ${row.count ? row.differencePercent.toFixed(2) : "-"}\nUsuario: ${row.count?.user || "-"}\nFecha: ${row.count ? formatOrderTime(row.count.at) : "-"}`
+    ]);
+  downloadBlob(`control-stock-fisico-${safeFilePart(physicalStockReportType)}-${reportDateStamp()}.pdf`, makeTablePdf("Distribuidora Lopez - Control de Stock Fisico", headers, rows, { wrapText: true, fontSize: 10, weights: adjustments ? [2, 1, 1, 3, 2] : [2.2, 2.4, 2.4, 2.4] }));
 }
 
 function findPhysicalStockInput(attributeName, productCode) {
@@ -14856,7 +14863,39 @@ function makeTablePdf(title, headers, rows, options = {}) {
   const widths = weights.map((weight) => availableWidth * weight / weightTotal);
   const chunks = [];
   const sourceRows = Array.isArray(rows) ? rows : [];
-  for (let index = 0; index < sourceRows.length; index += pageRows) chunks.push(sourceRows.slice(index, index + pageRows));
+  const wrapCell = (value, width) => {
+    const limit = Math.max(1, Math.floor((width - 8) / fontSize));
+    return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7E\n]/g, " ").split("\n").flatMap((line) => {
+      const result = [];
+      while (line.length > limit) {
+        const space = line.lastIndexOf(" ", limit);
+        const cut = space > 0 ? space : limit;
+        result.push(line.slice(0, cut));
+        line = line.slice(cut).trimStart();
+      }
+      result.push(line);
+      return result;
+    });
+  };
+  const wrappedHeight = (row) => Math.max(rowHeight, Math.max(...row.map((cell) => cell.length)) * (fontSize + 3) + 8);
+  if (options.wrapText) {
+    const maxLines = Math.max(1, Math.floor((tableTop - margin - rowHeight - 8) / (fontSize + 3)));
+    let page = [], used = 0;
+    sourceRows.forEach((row) => {
+      const cells = headers.map((_, index) => wrapCell(row[index], widths[index]));
+      const lines = Math.max(...cells.map((cell) => cell.length));
+      for (let start = 0; start < lines; start += maxLines) {
+        const part = cells.map((cell) => cell.slice(start, start + maxLines));
+        if (start && !part[0].length) part[0] = ["(continuacion)", ...cells[0].slice(0, 1)];
+        const height = wrappedHeight(part);
+        if (page.length && used + height > tableTop - margin) { chunks.push(page); page = []; used = 0; }
+        page.push(part); used += height;
+      }
+    });
+    if (page.length) chunks.push(page);
+  } else {
+    for (let index = 0; index < sourceRows.length; index += pageRows) chunks.push(sourceRows.slice(index, index + pageRows));
+  }
   if (!chunks.length) chunks.push([]);
 
   const objects = ["", "", ""];
@@ -14871,20 +14910,26 @@ function makeTablePdf(title, headers, rows, options = {}) {
     const meta = `${options.subtitle || "Distribuidora Lopez"} - ${new Date().toLocaleString("es-AR")} - Pagina ${pageIndex + 1}/${chunks.length}`;
     commands.push("BT", "/F1 7 Tf", `${margin} ${pageHeight - 49} Td`, `(${pdfEscape(pdfCellText(meta, availableWidth, 7))}) Tj`, "ET");
 
-    const drawRow = (values, y, header = false) => {
+    const drawRow = (values, y, header = false, height = rowHeight) => {
       if (header) commands.push("0.92 g", `${margin} ${y} ${availableWidth} ${rowHeight} re f`, "0 g", "0 G");
-      commands.push(`${margin} ${y} ${availableWidth} ${rowHeight} re S`);
+      commands.push(`${margin} ${y} ${availableWidth} ${height} re S`);
       let x = margin;
       values.forEach((value, index) => {
         const width = widths[index];
-        if (index > 0) commands.push(`${x} ${y} m ${x} ${y + rowHeight} l S`);
-        commands.push("BT", `/F1 ${header ? Math.max(5.5, fontSize) : fontSize} Tf`, `${x + 3} ${y + 5} Td`, `(${pdfEscape(pdfCellText(value, width, fontSize))}) Tj`, "ET");
+        if (index > 0) commands.push(`${x} ${y} m ${x} ${y + height} l S`);
+        const lines = options.wrapText && !header ? value : [pdfCellText(value, width, fontSize)];
+        lines.forEach((line, lineIndex) => commands.push("BT", `/F1 ${header ? Math.max(5.5, fontSize) : fontSize} Tf`, `${x + 3} ${options.wrapText && !header ? y + height - fontSize - 4 - lineIndex * (fontSize + 3) : y + 5} Td`, `(${pdfEscape(line)}) Tj`, "ET"));
         x += width;
       });
     };
 
     drawRow(headers, tableTop, true);
-    pageData.forEach((row, index) => drawRow(headers.map((_, column) => row[column] ?? ""), tableTop - rowHeight * (index + 1), false));
+    let cursor = tableTop;
+    pageData.forEach((row, index) => {
+      const height = options.wrapText ? wrappedHeight(row) : rowHeight;
+      cursor -= height;
+      drawRow(headers.map((_, column) => row[column] ?? ""), options.wrapText ? cursor : tableTop - rowHeight * (index + 1), false, height);
+    });
     if (!pageData.length) {
       commands.push("BT", "/F1 9 Tf", `${margin + 4} ${tableTop - rowHeight + 5} Td`, "(Sin registros para exportar.) Tj", "ET");
     }
@@ -14931,10 +14976,13 @@ function exportStockPdf() {
     window.alert("Solo administracion puede exportar stock.");
     return;
   }
-  const lines = stockReportRows().map((row) => (
-    `${row.codigo || "S/C"} | ${row.producto} | Fisico ${row.fisico} | Reservado ${row.reservado} | Disponible ${row.disponible} | Transito ${row.transito} | Min ${row.minimo} | ${row.estado}`
-  ));
-  downloadBlob(`stock-distribuidora-lopez-${reportDateStamp()}.pdf`, makeSimplePdf("Distribuidora Lopez - Reporte de stock", lines));
+  const rows = stockReportRows().map((row) => [
+    `${row.codigo || "S/C"}\n${row.producto}\nBarras: ${row.barras || "-"}`,
+    `Rubro: ${row.rubro}\nMarca: ${row.marca}\nFamilia: ${row.familia}`,
+    `Fisico: ${row.fisico}\nReservado: ${row.reservado}\nDisponible: ${row.disponible}\nTransito: ${row.transito}\nMinimo: ${row.minimo}`,
+    `Costo: ${row.costo}\nPrecio: ${row.precio}\nEstado: ${row.estado}`
+  ]);
+  downloadBlob(`stock-distribuidora-lopez-${reportDateStamp()}.pdf`, makeTablePdf("Distribuidora Lopez - Reporte de stock", ["Codigo / Producto", "Clasificacion", "Stock", "Precios / Estado"], rows, { wrapText: true, fontSize: 10, weights: [3, 2, 2, 2] }));
 }
 
 function orderStageByKey(stageKey) {
