@@ -9512,8 +9512,9 @@ async function exportDeliveryPlannerManifest(format) {
     } else {
       const rows = compactRows.map((row) => row.map((value, index) => index === 7 ? money.format(value) : value));
       downloadBlob(`manifiesto-planificacion-${filePart}.pdf`, makeTablePdf(`Manifiesto para planificar - ${day}`, DELIVERY_PLANNER_PDF_HEADERS, rows, {
-        weights: [0.35, 0.75, 1.2, 2.35, 0.85, 1.15, 0.48, 0.8, 1.15, 0.85, 1.05, 0.4],
-        fontSize: 6.4,
+        wrapText: true,
+        weights: [0.35, 0.75, 1.2, 2.35, 0.85, 1.15, 0.65, 0.8, 1.15, 0.85, 1.05, 0.4],
+        fontSize: 8,
         rowHeight: 20,
         subtitle: `${records.length} pedidos - ${deliveryPlannerSelection.size ? "seleccion actual" : "resultados filtrados"}`
       }));
@@ -9936,6 +9937,8 @@ function exportDeliveryRouteManifest(routeId, format) {
     return;
   }
   downloadBlob(`manifiesto-ruta-${filePart}.pdf`, makeTablePdf(`Manifiesto de ruta - ${route.id}`, DELIVERY_MANIFEST_HEADERS, rows, {
+    wrapText: true,
+    fontSize: 8,
     weights: [0.55, 0.9, 1.6, 2.1, 1.4, 1.25, 1.05, 1, 0.6, 0.9, 0.9],
     subtitle: `${route.day || "Sin fecha"} - ${route.deviceLabel || route.driverUser || "Sin repartidor"} - ${rows.length} pedidos`
   }));
@@ -10671,6 +10674,8 @@ async function exportDeliveryCollectionsManifest(format, selectedRouteId) {
     });
   } else {
     downloadBlob(`manifiesto-cobros-${filePart}.pdf`, makeTablePdf(`Distribuidora Lopez - ${title}`, DELIVERY_COLLECTION_HEADERS, rows, {
+      wrapText: true,
+      fontSize: 8,
       subtitle: `${count} cobros. ${route ? "Todos los dias de la ruta seleccionada." : "Consolidado diario."} Transferencias sujetas a conciliacion bancaria.`
     }));
   }
@@ -14848,7 +14853,7 @@ function makeTablePdf(title, headers, rows, options = {}) {
   const pageWidth = landscape ? 842 : 595;
   const pageHeight = landscape ? 595 : 842;
   const margin = 28;
-  const tableTop = pageHeight - 76;
+  let tableTop = pageHeight - 76;
   const rowHeight = Math.max(15, numeric(options.rowHeight, 18));
   const fontSize = Math.max(5, numeric(options.fontSize, headers.length > 8 ? 6.4 : 8));
   const pageRows = Math.max(1, Math.floor((tableTop - margin - 18) / rowHeight));
@@ -14864,10 +14869,14 @@ function makeTablePdf(title, headers, rows, options = {}) {
   const chunks = [];
   const sourceRows = Array.isArray(rows) ? rows : [];
   const wrapCell = (value, width) => {
-    const limit = Math.max(1, Math.floor((width - 8) / fontSize));
+    const charWidth = (char) => fontSize * (/[MW@%mw]/.test(char) ? 1.02 : /[A-Z]/.test(char) ? 0.78 : /[ilI.,:;'!| ]/.test(char) ? 0.3 : 0.62);
     return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7E\n]/g, " ").split("\n").flatMap((line) => {
       const result = [];
-      while (line.length > limit) {
+      while (line.length) {
+        let limit = 0, used = 0;
+        while (limit < line.length && used + charWidth(line[limit]) <= width - 8) { used += charWidth(line[limit]); limit += 1; }
+        limit = Math.max(1, limit);
+        if (limit >= line.length) break;
         const space = line.lastIndexOf(" ", limit);
         const cut = space > 0 ? space : limit;
         result.push(line.slice(0, cut));
@@ -14878,6 +14887,9 @@ function makeTablePdf(title, headers, rows, options = {}) {
     });
   };
   const wrappedHeight = (row) => Math.max(rowHeight, Math.max(...row.map((cell) => cell.length)) * (fontSize + 3) + 8);
+  const headerCells = options.wrapText ? headers.map((header, index) => wrapCell(header, widths[index])) : headers;
+  const headerHeight = options.wrapText ? wrappedHeight(headerCells) : rowHeight;
+  tableTop -= headerHeight - rowHeight;
   if (options.wrapText) {
     const maxLines = Math.max(1, Math.floor((tableTop - margin - rowHeight - 8) / (fontSize + 3)));
     let page = [], used = 0;
@@ -14911,19 +14923,19 @@ function makeTablePdf(title, headers, rows, options = {}) {
     commands.push("BT", "/F1 7 Tf", `${margin} ${pageHeight - 49} Td`, `(${pdfEscape(pdfCellText(meta, availableWidth, 7))}) Tj`, "ET");
 
     const drawRow = (values, y, header = false, height = rowHeight) => {
-      if (header) commands.push("0.92 g", `${margin} ${y} ${availableWidth} ${rowHeight} re f`, "0 g", "0 G");
+      if (header) commands.push("0.92 g", `${margin} ${y} ${availableWidth} ${height} re f`, "0 g", "0 G");
       commands.push(`${margin} ${y} ${availableWidth} ${height} re S`);
       let x = margin;
       values.forEach((value, index) => {
         const width = widths[index];
         if (index > 0) commands.push(`${x} ${y} m ${x} ${y + height} l S`);
-        const lines = options.wrapText && !header ? value : [pdfCellText(value, width, fontSize)];
-        lines.forEach((line, lineIndex) => commands.push("BT", `/F1 ${header ? Math.max(5.5, fontSize) : fontSize} Tf`, `${x + 3} ${options.wrapText && !header ? y + height - fontSize - 4 - lineIndex * (fontSize + 3) : y + 5} Td`, `(${pdfEscape(line)}) Tj`, "ET"));
+        const lines = options.wrapText ? value : [pdfCellText(value, width, fontSize)];
+        lines.forEach((line, lineIndex) => commands.push("BT", `/F1 ${header ? Math.max(5.5, fontSize) : fontSize} Tf`, `${x + 3} ${options.wrapText ? y + height - fontSize - 4 - lineIndex * (fontSize + 3) : y + 5} Td`, `(${pdfEscape(line)}) Tj`, "ET"));
         x += width;
       });
     };
 
-    drawRow(headers, tableTop, true);
+    drawRow(headerCells, tableTop, true, headerHeight);
     let cursor = tableTop;
     pageData.forEach((row, index) => {
       const height = options.wrapText ? wrappedHeight(row) : rowHeight;
