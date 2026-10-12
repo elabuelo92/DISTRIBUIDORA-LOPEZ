@@ -2209,6 +2209,63 @@
     return order;
   }
 
+  function receiveRejectedOrderReturn(state, code, input = {}, context = {}) {
+    if (context.role !== "admin") throw new Error("Solo Administracion puede recibir devoluciones.");
+    const order = getOrder(state, code);
+    if (!order) throw new Error("Pedido no encontrado.");
+    if (order.stockReturnReceipt) return { order, repeated: true };
+    if (order.inventoryMode !== "reservation" || !order.stockSettled || order.status !== STATUS.REJECTED) {
+      throw new Error("Solo se reciben devoluciones completas de pedidos despachados y rechazados.");
+    }
+    if (order.collection || order.accountPosted || (order.items || []).some(item => positive(item.deliveredQty) || positive(item.returnedQty))) {
+      throw new Error("El pedido tiene cobros o entregas parciales; requiere conciliacion administrativa.");
+    }
+    if (input.physicalReceived !== true || input.noPreviousAdjustment !== true) throw new Error("Confirmar recepcion completa y ausencia de ajuste previo.");
+    const reason = String(input.reason || "").trim();
+    if (!reason || reason.length > 500) throw new Error("Indicar motivo de hasta 500 caracteres.");
+    if (input.expectedUpdatedAt !== String(order.updatedAt || "")) throw new Error("El pedido cambio. Actualizar antes de recibir la devolucion.");
+    const movements = state.stockMovements || [];
+    const linked = movements.filter(m => m.orderCode === order.code);
+    if (linked.some(m => !["Reserva", "Reserva parcial", "Despacho"].includes(m.type))) {
+      throw new Error("Hay movimientos adicionales del pedido. Revisar antes de reintegrar stock.");
+    }
+    const grouped = new Map();
+    for (const item of order.items || []) {
+      const product = findProduct(state, item);
+      const qty = Number(item.requestedQty);
+      if (!product || !Number.isFinite(qty) || qty <= 0) throw new Error("Producto o cantidad invalida en la devolucion.");
+      const key = productCode(product);
+      const entry = grouped.get(key) || { product, qty: 0 };
+      entry.qty += qty;
+      grouped.set(key, entry);
+    }
+    if (!grouped.size) throw new Error("El pedido no tiene productos para devolver.");
+    for (const [key, entry] of grouped) {
+      const dispatched = linked.filter(m => m.type === "Despacho" && String(m.productCode) === String(key))
+        .reduce((sum, m) => sum - Number(m.qty || 0), 0);
+      if (!Number.isFinite(dispatched) || Math.abs(dispatched - entry.qty) > 0.000001) throw new Error("No coincide la salida registrada con la devolucion. Revisar historial de stock.");
+    }
+    const at = nowIso();
+    const receipt = { id: `RETURN-${order.code}`, at, user: context.user || "Administracion", reason,
+      lines: Array.from(grouped, ([code, entry]) => ({ productCode: code, qty: entry.qty })) };
+    for (const [key, entry] of grouped) {
+      const before = inventory(entry.product);
+      entry.product.stock_fisico = before.physical + entry.qty;
+      refreshProductInventory(entry.product);
+      const after = inventory(entry.product);
+      movements.unshift({ id: `${receipt.id}-${key}`, at, type: "Devolucion de rechazo", productCode: key,
+        productName: productName(entry.product), qty: entry.qty, stockBefore: before.physical, stockAfter: after.physical,
+        previousStock: before.physical, newStock: after.physical, orderCode: order.code, client: order.client,
+        user: receipt.user, reason, receiptId: receipt.id });
+    }
+    state.stockMovements = movements;
+    order.stockReturnReceipt = receipt;
+    order.updatedAt = at;
+    order.reprogrammingPending = false;
+    addTrace(order, order.status, receipt.user, `Devolucion completa recibida: ${reason}`, at, null, "PEDIDO_DEVOLUCION_RECIBIDA");
+    return { order, repeated: false };
+  }
+
   function cancelOrder(state, code, actor) {
     migrateState(state);
     const order = getOrder(state, code);
@@ -2658,6 +2715,7 @@
     advanceOrder,
     setPriority,
     cancelOrder,
+    receiveRejectedOrderReturn,
     unusualOrderEditQuantities,
     editOrder,
     resolveCommercialApproval,

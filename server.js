@@ -8233,7 +8233,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    const orderActionMatch = requestUrl.pathname.match(/^\/api\/orders\/([^/]+)\/(advance|priority|cancel)$/);
+    const orderActionMatch = requestUrl.pathname.match(/^\/api\/orders\/([^/]+)\/(advance|priority|cancel|receive-return)$/);
     if (orderActionMatch && req.method === "POST") {
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
@@ -8248,8 +8248,9 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const input = JSON.parse(body || "{}");
       const currentPayload = readStateFileCached();
-      const currentState = currentPayload.state || {};
       const code = decodeURIComponent(orderActionMatch[1]);
+      const currentState = orderActionMatch[2] === "receive-return"
+        ? JSON.parse(JSON.stringify(currentPayload.state || {})) : currentPayload.state || {};
       try {
         const previousOrder = JSON.parse(JSON.stringify(entitySnapshot(currentState, "pedido", code)));
         let order;
@@ -8261,11 +8262,18 @@ const server = http.createServer(async (req, res) => {
           order = orderEngine.advanceOrder(currentState, code, sessionUser.name, { skipMigration: true });
         } else if (orderActionMatch[2] === "priority") {
           order = orderEngine.setPriority(currentState, code, input.priority, sessionUser.name);
+        } else if (orderActionMatch[2] === "receive-return") {
+          const result = orderEngine.receiveRejectedOrderReturn(currentState, code, input, { role: sessionUser.role, user: sessionUser.name });
+          order = result.order;
+          if (result.repeated) {
+            sendJson(res, 200, { ok: true, order, repeated: true, version: currentPayload.version });
+            return;
+          }
         } else {
           order = orderEngine.cancelOrder(currentState, code, sessionUser.name);
         }
         writeCompactStateResponse(res, currentState, { order }, auditEntry(req, sessionUser, input, {
-          action: orderActionMatch[2] === "advance" ? "PEDIDO_AVANZADO" : orderActionMatch[2] === "priority" ? "PEDIDO_PRIORIDAD" : "PEDIDO_CANCELADO",
+          action: orderActionMatch[2] === "receive-return" ? "PEDIDO_DEVOLUCION_RECIBIDA" : orderActionMatch[2] === "advance" ? "PEDIDO_AVANZADO" : orderActionMatch[2] === "priority" ? "PEDIDO_PRIORIDAD" : "PEDIDO_CANCELADO",
           entityType: "pedido",
           entityId: code,
           entityLabel: order && order.client || code,
@@ -8275,9 +8283,9 @@ const server = http.createServer(async (req, res) => {
         }), orderActionMatch[2] === "advance"
           ? orderStatusNotification(req, sessionUser, input, order, previousOrder, order && order.status === orderEngine.STATUS.DISPATCHED ? "PEDIDO_DESPACHADO" : "PEDIDO_ESTADO")
           : notificationEntry(req, sessionUser, input, {
-            action: orderActionMatch[2] === "priority" ? "PEDIDO_MODIFICADO" : "PEDIDO_CANCELADO",
+            action: orderActionMatch[2] === "receive-return" ? "PEDIDO_DEVOLUCION_RECIBIDA" : orderActionMatch[2] === "priority" ? "PEDIDO_MODIFICADO" : "PEDIDO_CANCELADO",
             category: "Pedidos",
-            title: orderActionMatch[2] === "priority" ? `Urgencia actualizada ${code}` : `Pedido cancelado ${code}`,
+            title: orderActionMatch[2] === "receive-return" ? `Devolucion recibida ${code}` : orderActionMatch[2] === "priority" ? `Urgencia actualizada ${code}` : `Pedido cancelado ${code}`,
             text: `${order && order.client || "Cliente"} - ${order && order.status || ""}.`,
             tone: orderActionMatch[2] === "cancel" ? "danger" : "warn",
             entityType: "pedido",
