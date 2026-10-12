@@ -132,15 +132,19 @@
 
   function clientCoordinates(client) {
     if (!client) return null;
-    const source = client.location || client.geolocation || client.gps || client;
-    const rawLat = source.lat ?? source.latitude ?? client.latitud;
-    const rawLng = source.lng ?? source.longitude ?? client.longitud;
-    if (rawLat === null || rawLat === undefined || rawLat === "" || rawLng === null || rawLng === undefined || rawLng === "") return null;
-    const lat = Number(rawLat);
-    const lng = Number(rawLng);
-    return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat !== 0 || lng !== 0)
-      ? { lat, lng }
-      : null;
+    // GPS approval writes these canonical fields; legacy aliases may be stale.
+    const sources = [{ lat: client.latitud, lng: client.longitud }, client.location,
+      client.geolocation, client.gps, client];
+    for (const source of sources) {
+      if (!source) continue;
+      const rawLat = source.lat ?? source.latitude;
+      const rawLng = source.lng ?? source.longitude;
+      if (rawLat === null || rawLat === undefined || rawLat === "" || rawLng === null || rawLng === undefined || rawLng === "") continue;
+      const lat = Number(rawLat);
+      const lng = Number(rawLng);
+      if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat !== 0 || lng !== 0)) return { lat, lng };
+    }
+    return null;
   }
 
   function clientAddress(client) {
@@ -419,7 +423,8 @@
           hours: refreshed.hours,
           priority: refreshed.priority,
           amount: refreshed.amount,
-          coordinates: refreshed.coordinates,
+          ...(route.closedAt || route.closure || route.status === ROUTE_STATUS.COMPLETED || FINAL_STOP_STATUSES.has(stop.status)
+            ? {} : { coordinates: refreshed.coordinates }),
           assembly: refreshed.assembly,
           assemblyOrderNumber: refreshed.assemblyOrderNumber,
           packages: refreshed.packages,

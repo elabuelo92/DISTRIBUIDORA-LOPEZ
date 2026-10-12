@@ -15,6 +15,10 @@ const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dl-gps-review-"));
 const stateFile = path.join(tempDir, "demo-state.json");
 const usersFile = path.join(tempDir, "users.json");
 const state = JSON.parse(JSON.stringify(buildState(1)));
+state.clients[0].location = { lat: state.clients[0].latitud, lng: state.clients[0].longitud };
+state.deliveryRoutes = [{ id: "GPS-REFRESH-ROUTE", status: "Planificada", day: "2026-10-12", manualOrder: true,
+  stops: [{ orderCode: state.orders[0].code, client: state.clients[0].name, status: Order.STATUS.READY_DISPATCH,
+    coordinates: { ...state.clients[0].location }, sequence: 1 }] }];
 Order.migrateState(state);
 fs.writeFileSync(stateFile, JSON.stringify({ version: Date.now(), state }), "utf8");
 const port = 22000 + Math.floor(Math.random() * 1000);
@@ -98,6 +102,12 @@ async function post(cookie, endpoint, input) {
     assert.equal(saved.gpsReview.status, "approved");
     const approvedState = await (await fetch(`${base}/api/state?version=${markedState.version}`, { headers: { Cookie: seller } })).json();
     assert.equal(approvedState.state.clients.find((c) => c.codigo_cliente === id).gpsReview.status, "approved");
+    const delivery = await (await fetch(`${base}/api/delivery`, { headers: { Cookie: admin } })).json();
+    assert.deepEqual(delivery.routes.find(r => r.id === "GPS-REFRESH-ROUTE").stops[0].coordinates,
+      { lat: -31.412345678, lng: -64.181234567 }, "Delivery refresh uses approved GPS despite stale location alias");
+    const sellerClient = approvedState.state.clients.find(c => c.codigo_cliente === id);
+    assert.equal(sellerClient.latitud, -31.412345678);
+    assert.equal(sellerClient.longitud, -64.181234567);
     assert.ok(saved.gpsReviewHistory.length >= 4);
     assert.equal(JSON.parse(fs.readFileSync(stateFile, "utf8")).state.orders.length, 1);
     const readState = () => JSON.parse(fs.readFileSync(stateFile, "utf8")).state;

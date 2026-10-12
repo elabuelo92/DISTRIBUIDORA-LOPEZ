@@ -10185,7 +10185,7 @@ async function renderDeliveryRouteMap(route) {
       return;
     }
     const { Map } = await google.maps.importLibrary("maps");
-    const nextSignature = `${route.id || route.code || "route"}:${located.map((item) => item.stop && item.stop.orderCode || item.label).join("|")}`;
+    const nextSignature = `${route.id || route.code || "route"}:${located.map((item) => `${item.stop && item.stop.orderCode || item.label}@${item.position.lat},${item.position.lng}`).join("|")}`;
     const shouldFitMap = !deliveryRouteMap || nextSignature !== deliveryRouteMapSignature;
     const center = located.reduce((sum, item) => ({
       lat: sum.lat + item.position.lat,
