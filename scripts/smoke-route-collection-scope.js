@@ -43,6 +43,11 @@ const before = JSON.stringify(state);
     await context.exportDeliveryCollectionsManifest(format, "R1");
     const report = exportsSeen.pop();
     assert.match(report.fileName, /R1/);
+    if (format === "xlsx") {
+      assert.equal(report.fontSize, 13);
+      assert.equal(report.columnFormats[3], "$ #,##0.00");
+      assert.ok(report.wrapColumns.includes(1));
+    }
     assert.ok(report.rows.some((row) => row[1] === "P1"));
     assert.ok(report.rows.some((row) => row[1] === "P2"), "Route includes collections after midnight");
     assert.ok(!report.rows.some((row) => row[1] === "P3"), "Other route never included");

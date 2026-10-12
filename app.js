@@ -10660,7 +10660,15 @@ async function exportDeliveryCollectionsManifest(format, selectedRouteId) {
     rows.push(...summary.map((row) => [...row, ...Array(DELIVERY_COLLECTION_HEADERS.length - row.length).fill("")]));
   }
   if (format === "xlsx") {
-    await downloadXlsxReport({ fileName: `manifiesto-cobros-${filePart}.xlsx`, sheetName: route ? "Rendicion de ruta" : "Cobros del dia", headers: DELIVERY_COLLECTION_HEADERS, rows });
+    await downloadXlsxReport({
+      fileName: `manifiesto-cobros-${filePart}.xlsx`,
+      sheetName: route ? "Rendicion de ruta" : "Cobros del dia",
+      headers: DELIVERY_COLLECTION_HEADERS, rows,
+      fontSize: 13,
+      columnWidths: [32, 24, 19, 19, 19, 25, 19, 19, 19],
+      columnFormats: ["@", "@", "$ #,##0.00", "$ #,##0.00", "$ #,##0.00", "@", "$ #,##0.00", "$ #,##0.00", "$ #,##0.00"],
+      wrapColumns: [1, 2, 6]
+    });
   } else {
     downloadBlob(`manifiesto-cobros-${filePart}.pdf`, makeTablePdf(`Distribuidora Lopez - ${title}`, DELIVERY_COLLECTION_HEADERS, rows, {
       subtitle: `${count} cobros. ${route ? "Todos los dias de la ruta seleccionada." : "Consolidado diario."} Transferencias sujetas a conciliacion bancaria.`

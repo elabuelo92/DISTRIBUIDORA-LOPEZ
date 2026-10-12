@@ -4757,6 +4757,9 @@ async function reportWorkbookBase64(input, user) {
   workbook.created = new Date();
   const sheetName = String(input.sheetName || "Reporte").replace(/[\\/*?:\[\]]/g, " ").slice(0, 31) || "Reporte";
   const sheet = workbook.addWorksheet(sheetName);
+  const requestedFontSize = Number(input.fontSize);
+  const reportFontSize = Number.isFinite(requestedFontSize) && requestedFontSize > 0
+    ? Math.max(8, Math.min(20, requestedFontSize)) : null;
   const title = String(input.title || "").trim().slice(0, 180);
   const subtitle = String(input.subtitle || "").trim().slice(0, 240);
   let headerRowNumber = 1;
@@ -4779,6 +4782,10 @@ async function reportWorkbookBase64(input, user) {
   sheet.getRow(headerRowNumber).font = { bold: true, color: { argb: "FFFFFFFF" } };
   sheet.getRow(headerRowNumber).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F766E" } };
   sheet.getRow(headerRowNumber).height = 22;
+  if (reportFontSize) {
+    sheet.getRow(headerRowNumber).font = { bold: true, size: reportFontSize, color: { argb: "FFFFFFFF" } };
+    sheet.getRow(headerRowNumber).height = Math.max(22, reportFontSize * 3);
+  }
   sheet.getRow(headerRowNumber).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
   sheet.views = [{ state: "frozen", ySplit: headerRowNumber }];
   sheet.autoFilter = { from: { row: headerRowNumber, column: 1 }, to: { row: headerRowNumber, column: headers.length } };
@@ -4796,11 +4803,20 @@ async function reportWorkbookBase64(input, user) {
     if (number > headerRowNumber && (number - headerRowNumber) % 2 === 0) row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F4" } };
     if (number > headerRowNumber) {
       row.alignment = { vertical: "top" };
+      if (reportFontSize) row.font = { name: "Calibri", size: reportFontSize };
+      let wrappedLines = 1;
       row.eachCell((cell, columnNumber) => {
         const format = String(columnFormats[columnNumber - 1] || "").trim();
         if (format) cell.numFmt = format;
         if (wrapColumns.has(columnNumber)) cell.alignment = { vertical: "top", wrapText: true };
+        if (reportFontSize && wrapColumns.has(columnNumber)) {
+          const charsPerLine = Math.max(1, Math.floor((sheet.getColumn(columnNumber).width - 2) * 11 / reportFontSize));
+          const lines = String(cell.value == null ? "" : cell.value).split(/\r?\n/)
+            .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / charsPerLine)), 0);
+          wrappedLines = Math.max(wrappedLines, lines);
+        }
       });
+      if (reportFontSize) row.height = Math.min(409, Math.max(24, wrappedLines * (reportFontSize + 3) + 6));
     }
   });
   sheet.pageSetup = { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
