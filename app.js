@@ -22489,8 +22489,7 @@ function applyDeliveryPaymentPreset(preset) {
     byId("deliveryTransferAmount").value = "0";
   } else {
     byId("deliveryPaymentMethod").value = "Mixto";
-    byId("deliveryCashAmount").value = "0";
-    byId("deliveryTransferAmount").value = "0";
+    // Abrir la edicion manual no descarta importes ya ingresados.
   }
   updateDeliveryPaymentDefaults();
 }
