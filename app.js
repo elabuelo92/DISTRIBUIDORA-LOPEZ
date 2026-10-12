@@ -5620,28 +5620,20 @@ function exportMobileSalesCsv() {
       return [order.code, parts.date, parts.time, order.client, numeric(order.amount, 0), order.status, order.paymentMethod || "", numeric((orderCommission(order).seller || {}).total, 0)];
     })
   ];
-  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
-  downloadBlob(`mis-ventas-${safeFilePart(mobileSeller)}-${reportDateStamp()}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  downloadCsvReport(`mis-ventas-${safeFilePart(mobileSeller)}-${reportDateStamp()}.csv`, rows[0], rows.slice(1));
   logMobileConsultation("MIS_VENTAS_EXPORT_CSV", `${orders.length} ventas exportadas`);
 }
 
 function exportMobileSalesPdf() {
   const orders = mobileSalesOrders();
   const totals = mobileSalesSummary(orders);
-  const lines = [
-    `Vendedor: ${mobileSeller}`,
-    `Pedidos: ${totals.count}`,
-    `Total vendido: ${money.format(totals.total)}`,
-    `Promedio: ${money.format(totals.avg)}`,
-    `Comision: ${money.format(totals.commission)}`,
-    "",
-    ...orders.flatMap((order) => {
+  const rows = orders.map((order) => {
       const parts = mobileSaleDate(order);
       const commission = numeric((orderCommission(order).seller || {}).total, 0);
-      return [`${order.code} | ${parts.date} ${parts.time} | ${order.client} | ${money.format(numeric(order.amount, 0))} | Comision ${money.format(commission)} | ${order.status}`];
-    })
-  ];
-  downloadBlob(`mis-ventas-${safeFilePart(mobileSeller)}-${reportDateStamp()}.pdf`, makeSimplePdf("Distribuidora Lopez - Mis Ventas", lines));
+      return [order.code, `${parts.date} ${parts.time}`, order.client, money.format(numeric(order.amount, 0)), money.format(commission), order.status, order.paymentMethod || ""];
+    });
+  rows.push(["TOTALES", `${totals.count} pedidos`, `Promedio: ${money.format(totals.avg)}`, money.format(totals.total), money.format(totals.commission), "", ""]);
+  downloadBlob(`mis-ventas-${safeFilePart(mobileSeller)}-${reportDateStamp()}.pdf`, makeReadableReportPdf("Distribuidora Lopez - Mis Ventas", ["Pedido", "Fecha / Hora", "Cliente", "Importe", "Comision", "Estado", "Forma de pago"], rows, { subtitle: `Vendedor: ${mobileSeller}` }));
   logMobileConsultation("MIS_VENTAS_EXPORT_PDF", `${orders.length} ventas exportadas`);
 }
 
@@ -6461,7 +6453,8 @@ async function exportDashboardDailyRoutesCsv() {
     const response = await fetchWithTimeout(apiUrl(`api/admin/presence/daily-routes?${gpsDailyRouteQuery({ format: "csv" })}`), { cache: "no-store" }, 20000);
     const blob = await response.blob();
     if (!response.ok) throw new Error("No se pudo descargar el CSV.");
-    downloadBlob(`recorridos-gps-${routeReportDateValue()}.csv`, blob);
+    const csv = (await blob.text()).replace(/^\uFEFF/, "");
+    downloadBlob(`recorridos-gps-${routeReportDateValue()}.csv`, new Blob([`\uFEFFsep=;\r\n${csv}`], { type: "text/csv;charset=utf-8" }));
   } catch (error) {
     window.alert(error.message || "No se pudo descargar el CSV de recorridos.");
   }
@@ -6492,7 +6485,9 @@ function printDashboardDailyRoutes(routeKey = "") {
     window.alert("No hay recorridos para imprimir.");
     return;
   }
-  downloadBlob(`recorridos-gps-${routeReportDateValue()}.pdf`, makeSimplePdf("Distribuidora Lopez - Recorridos GPS", gpsDailyRoutePrintableLines(selected)));
+  const payload = gpsDailyRoutesPayload || {};
+  const rows = selected.map(route => [route.user || route.username, roleLabel(route.role), route.deviceLabel || route.deviceId, routeReportTimeLabel(route.startedAt), routeReportTimeLabel(route.endedAt), route.distanceKm || 0, route.totalPoints || 0, route.mapsUrl || ""]);
+  downloadBlob(`recorridos-gps-${routeReportDateValue()}.pdf`, makeReadableReportPdf("Distribuidora Lopez - Recorridos GPS", ["Usuario", "Rol", "Dispositivo", "Inicio", "Ultima", "Km", "Puntos", "Maps"], rows, { subtitle: `Fecha: ${payload.date || routeReportDateValue()} - Jornada: ${payload.startHour || sessionSettings.workdayStartHour || 7}:00 a ${payload.endHour || sessionSettings.workdayEndHour || 22}:00 - Dispositivos: ${selected.length}` }));
 }
 
 async function renderGoogleRoutes() {
@@ -8415,9 +8410,7 @@ function renderCommercialApprovalBadge(order) {
 function exportSelectedOrdersCsv() {
   const rows = selectedOrders();
   const headers = ["pedido", "cliente", "vendedor", "zona", "ruta", "estado", "prioridad", "importe", "productos"];
-  const csv = [
-    headers.join(","),
-    ...rows.map((order) => [
+  const values = rows.map((order) => [
       order.code,
       order.client,
       order.seller,
@@ -8427,9 +8420,8 @@ function exportSelectedOrdersCsv() {
       order.priority,
       order.amount,
       order.products
-    ].map(csvCell).join(","))
-  ].join("\n");
-  downloadBlob(`pedidos-seleccionados-${reportDateStamp()}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    ]);
+  downloadCsvReport(`pedidos-seleccionados-${reportDateStamp()}.csv`, headers, values);
 }
 
 async function downloadXlsxReport({ fileName, sheetName, headers, rows, ...options }) {
@@ -8520,24 +8512,10 @@ function exportAssemblyList(orders) {
   }
   const rows = assemblyOrderRows(eligible);
   const headers = ["pedido", "cliente", "direccion", "zona", "ruta", "estado", "producto", "cantidad", "bultos", "observaciones"];
-  const csv = [
-    headers.join(","),
-    ...rows.map((row) => headers.map((key) => csvCell(row[key])).join(","))
-  ].join("\n");
-  downloadBlob(`listado-armado-${reportDateStamp()}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }));
-  const lines = [
-    `Pedidos seleccionados: ${eligible.length}`,
-    `Generado: ${new Date().toLocaleString("es-AR")}`,
-    "",
-    ...eligible.flatMap((order) => [
-      `${order.code} - ${order.client} - ${order.status} - ${money.format(order.amount || 0)}`,
-      `Direccion: ${orderAddressText(order) || "S/D"} | Zona: ${orderZoneText(order)} | Ruta: ${orderRouteText(order)}`,
-      `Productos: ${order.products || (order.items || []).map((item) => `${item.name} x${numeric(item.requestedQty ?? item.qty, 0)}`).join(", ")}`,
-      `Bultos: ${orderAssemblyInfo(order).bultos || 0} | Obs: ${orderAssemblyInfo(order).observations || order.observations || order.observaciones || "-"}`,
-      ""
-    ])
-  ];
-  downloadBlob(`listado-armado-${reportDateStamp()}.pdf`, makeSimplePdf("Distribuidora Lopez - Listado de Armado", lines));
+  const values = rows.map((row) => headers.map((key) => row[key]));
+  downloadCsvReport(`listado-armado-${reportDateStamp()}.csv`, headers, values);
+  const amounts = new Map(eligible.map(order => [order.code, money.format(order.amount || 0)]));
+  downloadBlob(`listado-armado-${reportDateStamp()}.pdf`, makeReadableReportPdf("Distribuidora Lopez - Listado de Armado", [...headers, "Importe pedido"], values.map(row => [...row, amounts.get(row[0]) || ""]), { subtitle: `${eligible.length} pedidos seleccionados` }));
 }
 
 function orderCanPrintInvoice(order) {
@@ -10917,9 +10895,7 @@ function downloadSelectedTransferProofs() {
     setBankBulkStatus("Los seleccionados no tienen comprobantes descargables.", "warn");
     return;
   }
-  const manifest = [
-    "id,pedido,cliente,banco,importe,archivo,url",
-    ...records.map((record) => [
+  const manifest = records.map((record) => [
       record.id,
       record.orderCode || "",
       record.client || "",
@@ -10927,9 +10903,8 @@ function downloadSelectedTransferProofs() {
       numeric(record.amount, 0),
       record.attachment.filename || "",
       record.attachment.url || ""
-    ].map(csvCell).join(","))
-  ].join("\n");
-  downloadBlob(`comprobantes-seleccionados-${reportDateStamp()}.csv`, new Blob([manifest], { type: "text/csv;charset=utf-8" }));
+    ]);
+  downloadCsvReport(`comprobantes-seleccionados-${reportDateStamp()}.csv`, ["ID", "Pedido", "Cliente", "Banco", "Importe", "Archivo", "URL"], manifest);
   records.forEach((record, index) => {
     window.setTimeout(() => {
       const link = document.createElement("a");
@@ -11593,8 +11568,7 @@ async function exportCommercialPortfolio(format) {
     return;
   }
   if (format === "csv") {
-    const csv = [COMMERCIAL_PORTFOLIO_HEADERS, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
-    downloadBlob(`cartera-comercial-${stamp}.csv`, new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }));
+    downloadCsvReport(`cartera-comercial-${stamp}.csv`, COMMERCIAL_PORTFOLIO_HEADERS, rows);
     return;
   }
   const context = `Filtros activos - vendedor ${portfolioSellerFilter}, dia ${portfolioDayFilter}, ruta ${portfolioRouteFilter}, zona ${portfolioZoneFilter}. Total ${rows.length}.`;
@@ -11602,7 +11576,7 @@ async function exportCommercialPortfolio(format) {
     openPrintableReport("CARTERA COMERCIAL", COMMERCIAL_PORTFOLIO_HEADERS, rows, context);
     return;
   }
-  downloadBlob(`cartera-comercial-${stamp}.pdf`, makeTablePdf("Distribuidora Lopez - Cartera Comercial", COMMERCIAL_PORTFOLIO_HEADERS, rows, {
+  downloadBlob(`cartera-comercial-${stamp}.pdf`, makeReadableReportPdf("Distribuidora Lopez - Cartera Comercial", COMMERCIAL_PORTFOLIO_HEADERS, rows, {
     subtitle: context
   }));
 }
@@ -11660,7 +11634,7 @@ function exportFullClientPortfolioCsv() {
 function exportFullClientPortfolioPdf() {
   if (!isAdminUser()) return;
   const rows = fullClientPortfolioRows();
-  downloadBlob(`cartera-completa-clientes-${reportDateStamp()}.pdf`, makeTablePdf("Distribuidora Lopez - Cartera completa de clientes", FULL_CLIENT_EXPORT_HEADERS, rows, {
+  downloadBlob(`cartera-completa-clientes-${reportDateStamp()}.pdf`, makeReadableReportPdf("Distribuidora Lopez - Cartera completa de clientes", FULL_CLIENT_EXPORT_HEADERS, rows, {
     weights: [0.8, 1.8, 1.1, 1.1, 2.1, 1.6, 1.1, 1, 1.2, 1.2, 1, 1.7, 1, 1, 0.5, 0.9, 0.8],
     subtitle: `${rows.length} clientes - filtros activos`
   }));
@@ -11698,7 +11672,7 @@ function exportFullProductPortfolioCsv() {
 function exportFullProductPortfolioPdf() {
   if (!isAdminUser()) return;
   const rows = fullProductPortfolioRows();
-  downloadBlob(`cartera-completa-productos-precios-${reportDateStamp()}.pdf`, makeTablePdf("Distribuidora Lopez - Productos y precios vigentes", FULL_PRODUCT_EXPORT_HEADERS, rows, {
+  downloadBlob(`cartera-completa-productos-precios-${reportDateStamp()}.pdf`, makeReadableReportPdf("Distribuidora Lopez - Productos y precios vigentes", FULL_PRODUCT_EXPORT_HEADERS, rows, {
     weights: [0.8, 1.1, 2.4, 1.2, 1.1, 1.4, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.7, 0.7],
     subtitle: `${rows.length} productos - costos y listas vigentes`
   }));
@@ -11793,7 +11767,7 @@ async function exportCommercialRoute(format) {
   if (format === "xlsx") return downloadXlsxReport({ fileName: `hoja-ruta-comercial-${filePart}.xlsx`, sheetName: "Ruta comercial", headers, rows });
   const subtitle = `Vendedor: ${seller}. Fecha: ${dateValue}. Dia: ${commercialRouteDay(dateValue)}. Clientes programados: ${rows.length}.`;
   if (format === "print") return openPrintableReport("HOJA DE RUTA COMERCIAL DIARIA", headers, rows, subtitle);
-  downloadBlob(`hoja-ruta-comercial-${filePart}.pdf`, makeSimplePdf("Distribuidora Lopez - Hoja de Ruta Comercial", [subtitle, "", headers.join(" | "), ...rows.map((row) => row.join(" | "))]));
+  downloadBlob(`hoja-ruta-comercial-${filePart}.pdf`, makeReadableReportPdf("Distribuidora Lopez - Hoja de Ruta Comercial", headers, rows, { subtitle }));
 }
 
 function setClientPortfolioImportMessage(message, tone = "info") {
@@ -13231,7 +13205,7 @@ function exportSelectedPriceListCsv() {
 function exportSelectedPriceListPdf() {
   const report = selectedPriceListExportData();
   if (!report) return;
-  downloadBlob(`lista-precios-${report.listNumber}-${reportDateStamp()}.pdf`, makeTablePdf(`Distribuidora Lopez - Lista Nº ${report.listNumber}`, ["Codigo", "Producto", "Precio"], report.rows, {
+  downloadBlob(`lista-precios-${report.listNumber}-${reportDateStamp()}.pdf`, makeReadableReportPdf(`Distribuidora Lopez - Lista Nº ${report.listNumber}`, ["Codigo", "Producto", "Precio"], report.rows, {
     weights: [1, 4.5, 1.2],
     subtitle: `Vigencia ${new Date().toLocaleDateString("es-AR")} - ${report.rows.length} productos`,
     landscape: false,
@@ -13515,7 +13489,7 @@ function salesCommissionExportRows() {
 function exportSalesCommissionPdf() {
   const rows = salesCommissionExportRows();
   const report = commissionReportData();
-  downloadBlob(`ventas-comisiones-${reportDateStamp()}.pdf`, makeTablePdf("Ventas y comisiones por vendedor", SALES_COMMISSION_EXPORT_HEADERS, rows, {
+  downloadBlob(`ventas-comisiones-${reportDateStamp()}.pdf`, makeReadableReportPdf("Ventas y comisiones por vendedor", SALES_COMMISSION_EXPORT_HEADERS, rows, {
     subtitle: `${report.seller === "all" ? "Todos" : report.seller} · ${report.from || "Inicio"} a ${report.to || "Hoy"} · ${report.orders.length} pedidos`,
     weights: [1, 0.8, 0.9, 1.4, 1.7, 0.6, 0.9, 0.9, 0.8, 0.7, 0.9, 0.8]
   }));
@@ -13878,8 +13852,7 @@ function exportCommissionsCsv() {
     row.returns,
     row.total
   ]);
-  const csv = [header, ...csvRows].map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
-  downloadBlob(`comisiones-distribuidora-lopez-${reportDateStamp()}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  downloadCsvReport(`comisiones-distribuidora-lopez-${reportDateStamp()}.csv`, header, csvRows);
 }
 
 function renderSupplyPlanner(shortages = OrderEngine.buildShortageList(state)) {
@@ -14856,6 +14829,23 @@ function pdfCellText(value, width, fontSize) {
   return plain.length > maxChars ? `${plain.slice(0, Math.max(1, maxChars - 3))}...` : plain;
 }
 
+function makeReadableReportPdf(title, headers, rows, options = {}) {
+  let reportHeaders = headers.slice();
+  let reportRows = rows.map(row => headers.map((_, index) => row[index] ?? ""));
+  if (headers.length > 8) {
+    const size = Math.ceil((headers.length - 1) / 4);
+    const groups = [[0]];
+    for (let start = 1; start < headers.length; start += size) {
+      groups.push(Array.from({ length: Math.min(size, headers.length - start) }, (_, index) => start + index));
+    }
+    reportHeaders = groups.map(group => group.map(index => headers[index]).join(" / "));
+    reportRows = rows.map(row => groups.map(group => group.length === 1 ? row[group[0]] ?? "" : group.map(index => `${headers[index]}: ${row[index] ?? ""}`).join("\n")));
+  }
+  if (!reportRows.length) reportRows.push(reportHeaders.map((_, index) => index === 0 ? "Sin registros para exportar." : ""));
+  if (options.subtitle) reportRows.unshift(reportHeaders.map((_, index) => index === 0 ? "Contexto" : index === 1 ? options.subtitle : ""));
+  return makeTablePdf(title, reportHeaders, reportRows, { ...options, weights: undefined, wrapText: true, fontSize: 9 });
+}
+
 function makeTablePdf(title, headers, rows, options = {}) {
   const landscape = options.landscape !== false;
   const pageWidth = landscape ? 842 : 595;
@@ -14975,8 +14965,8 @@ function makeTablePdf(title, headers, rows, options = {}) {
 }
 
 function downloadCsvReport(fileName, headers, rows) {
-  const csv = [headers, ...(rows || [])].map((row) => row.map(csvCell).join(",")).join("\r\n");
-  downloadBlob(fileName, new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }));
+  const csv = [headers, ...(rows || [])].map((row) => row.map(csvCell).join(";")).join("\r\n");
+  downloadBlob(fileName, new Blob([`\uFEFFsep=;\r\n${csv}`], { type: "text/csv;charset=utf-8" }));
 }
 
 async function downloadTabularExcel(fileName, headers, rows) {
@@ -15028,31 +15018,10 @@ function exportOrderStagePdf(stageKey) {
   const orders = orderStageOrders(stage);
   const totalAmount = orders.reduce((total, order) => total + numeric(order.amount, 0), 0);
   const generatedAt = new Date().toLocaleString("es-AR");
-  const lines = [
-    `Corte: ${stage.label}`,
-    `Fecha de emision: ${generatedAt}`,
-    `Estados incluidos: ${stage.statuses.join(", ")}`,
-    `Cantidad de pedidos: ${orders.length}`,
-    `Importe total: ${money.format(totalAmount)}`,
-    "",
-    "Codigo | Cliente | Vendedor | Importe | Estado | Demora | Prioridad",
-    "-".repeat(118),
-    ...orders.map((order) => {
-      const delay = orderDelayInfo(order);
-      const priority = orderPriorityInfo(order);
-      return `${order.code} | ${order.client} | ${order.seller} | ${money.format(order.amount)} | ${order.status} | ${delay.label} | ${priority.label}`;
-    }),
-    "",
-    "Detalle de productos",
-    "-".repeat(118),
-    ...orders.map((order) => `${order.code} | ${order.products || "Sin detalle de productos"}`)
-  ];
-  if (!orders.length) {
-    lines.push("", `Sin pedidos en estado ${stage.label} al momento del corte.`);
-  }
+  const rows = orders.map(order => [order.code, order.client, order.seller, money.format(order.amount), order.status, orderDelayInfo(order).label, orderPriorityInfo(order).label, order.products || "Sin detalle de productos"]);
   downloadBlob(
     `corte-pedidos-${safeFilePart(stage.label)}-${reportDateStamp()}.pdf`,
-    makeSimplePdf(`Distribuidora Lopez - Corte ${stage.label}`, lines)
+    makeReadableReportPdf(`Distribuidora Lopez - Corte ${stage.label}`, ["Codigo", "Cliente", "Vendedor", "Importe", "Estado", "Demora", "Prioridad", "Productos"], rows, { subtitle: `Emision: ${generatedAt} - Estados: ${stage.statuses.join(", ")} - ${orders.length} pedidos - Importe total: ${money.format(totalAmount)}` })
   );
 }
 
@@ -15510,7 +15479,7 @@ function exportSuppliersCsv() {
 function exportSuppliersPdf() {
   if (!isAdminUser()) return;
   const rows = supplierExportRows();
-  downloadBlob(`proveedores-${reportDateStamp()}.pdf`, makeTablePdf("Distribuidora Lopez - Proveedores", SUPPLIER_EXPORT_HEADERS, rows, {
+  downloadBlob(`proveedores-${reportDateStamp()}.pdf`, makeReadableReportPdf("Distribuidora Lopez - Proveedores", SUPPLIER_EXPORT_HEADERS, rows, {
     weights: [1.6, 1.5, 1, 0.8, 1, 1.1, 0.9, 0.9, 1.4, 1.6, 1, 1.2, 0.8],
     subtitle: `${rows.length} proveedores - filas y columnas`
   }));
@@ -16719,16 +16688,11 @@ function exportShortagesPdf() {
     return;
   }
   const rows = filteredShortageRows();
-  const lines = [
-    `Fecha de emision: ${new Date().toLocaleString("es-AR")}`,
-    `Registros: ${rows.length}`,
-    `Filtros: producto=${shortageProductTerm || "todos"} cliente=${shortageClientTerm || "todos"} vendedor=${shortageSellerFilter} zona=${shortageZoneFilter} estado=${shortageStatusFilter}`,
-    "",
-    "Pedido | Producto | Solicitado | Entregado/Reservado | Diferencia | Cliente | Vendedor | Fecha",
-    "-".repeat(118),
-    ...rows.map((row) => `${row.orderCode} | ${row.product} | ${row.requested} | ${row.delivered} | ${row.difference} | ${row.client} | ${row.seller} | ${row.date} ${row.time}`)
-  ];
-  downloadBlob(`faltantes-distribuidora-lopez-${reportDateStamp()}.pdf`, makeSimplePdf("Distribuidora Lopez - Faltantes", lines));
+  const headers = ["Pedido", "Producto", "Solicitado", "Entregado / Reservado", "Diferencia", "Cliente", "Vendedor", "Fecha / Hora"];
+  const values = rows.map(row => [row.orderCode, row.product, row.requested, row.delivered, row.difference, row.client, row.seller, `${row.date} ${row.time}`]);
+  downloadBlob(`faltantes-distribuidora-lopez-${reportDateStamp()}.pdf`, makeReadableReportPdf("Distribuidora Lopez - Faltantes", headers, values, {
+    subtitle: `${rows.length} registros. Producto=${shortageProductTerm || "todos"}; cliente=${shortageClientTerm || "todos"}; vendedor=${shortageSellerFilter}; zona=${shortageZoneFilter}; estado=${shortageStatusFilter}`
+  }));
 }
 
 function showShortageProductTrace(productKey) {
@@ -16842,12 +16806,7 @@ async function exportRouteSalesExcel() {
 
 function exportRouteSalesPdf() {
   const rows = filteredRouteSalesRows();
-  const lines = [
-    `Emision: ${new Date().toLocaleString("es-AR")}`, `Registros: ${rows.length}`, "",
-    "Fecha | Ruta | Vendedor | Producto | Unidades | Importe | Pedidos",
-    ...rows.map((row) => `${row.date} | ${row.zone} | ${row.seller} | ${row.product} | ${row.units} | ${money.format(row.amount)} | ${row.orderCount}`)
-  ];
-  downloadBlob(`productos-vendidos-ruta-${reportDateStamp()}.pdf`, makeSimplePdf("Productos vendidos por ruta", lines));
+  downloadBlob(`productos-vendidos-ruta-${reportDateStamp()}.pdf`, makeReadableReportPdf("Productos vendidos por ruta", ["Fecha", "Ruta", "Vendedor", "Producto", "Unidades", "Importe", "Pedidos"], rows.map(row => [row.date, row.zone, row.seller, row.product, row.units, money.format(row.amount), row.orderCount]), { subtitle: `${rows.length} registros - filtros activos` }));
 }
 
 function renderAnalytics() {
@@ -17061,19 +17020,12 @@ function printAuditReport() {
     window.alert("Solo administracion puede imprimir auditorias.");
     return;
   }
-  const entries = filteredAuditEntries().slice(0, 300);
-  const lines = [
-    `Fecha: ${new Date().toLocaleString("es-AR")}`,
-    `Filtro texto: ${auditSearchTerm || "Todos"}`,
-    `Entidad: ${auditEntityFilter}`,
-    `Accion: ${auditActionFilter}`,
-    `Registros impresos: ${entries.length}`,
-    "",
-    "Fecha | Usuario | Accion | Entidad | IP | Nota",
-    "-".repeat(118),
-    ...entries.map((entry) => `${entry.date || ""} ${entry.time || ""} | ${entry.user || entry.username || "Sistema"} | ${entry.action || ""} | ${entry.entityType || ""} ${entry.entityId || ""} | ${entry.ip || ""} | ${entry.note || ""}`)
-  ];
-  downloadBlob(`auditoria-distribuidora-lopez-${reportDateStamp()}.pdf`, makeSimplePdf("Distribuidora Lopez - Auditoria global", lines));
+  const filtered = filteredAuditEntries();
+  const entries = filtered.slice(0, 300);
+  const rows = entries.map(entry => [`${entry.date || ""} ${entry.time || ""}`, entry.user || entry.username || "Sistema", entry.action || "", `${entry.entityType || ""} ${entry.entityId || ""}`, entry.ip || "", entry.note || ""]);
+  downloadBlob(`auditoria-distribuidora-lopez-${reportDateStamp()}.pdf`, makeReadableReportPdf("Distribuidora Lopez - Auditoria global", ["Fecha / Hora", "Usuario", "Accion", "Entidad", "IP", "Nota"], rows, {
+    subtitle: `${entries.length} de ${filtered.length} registros (limite 300). Texto: ${auditSearchTerm || "Todos"}; entidad: ${auditEntityFilter}; accion: ${auditActionFilter}`
+  }));
 }
 
 function renderRejectedGps() {
