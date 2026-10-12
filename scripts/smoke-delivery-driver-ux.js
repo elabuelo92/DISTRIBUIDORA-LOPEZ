@@ -32,6 +32,7 @@ const stops = Array.from({ length: 100 }, (_, index) => ({
 }));
 const orders = stops.map((stop) => ({ code: stop.orderCode, status: stop.status, client: stop.client }));
 const context = {
+  currentUser: { username: "reparto1", role: "driver" },
   state: { orders },
   ORDER_STATUS: OrderEngine.STATUS,
   deliveryStopFilter: "pending",
@@ -54,9 +55,18 @@ const context = {
   money: { format: (value) => `$ ${value}` }
 };
 vm.createContext(context);
+vm.runInContext(app.slice(app.indexOf("function deliveryStopFinancialCells("), app.indexOf("function deliveryCollectionsManifestRows(")), context);
 vm.runInContext(`${app.slice(start, end)}\nthis.renderDeliveryDriverStops = renderDeliveryDriverStops;`, context);
 const render = () => context.renderDeliveryDriverStops({ stops, status: "En curso", deviceId: "TEST-DRIVER" }, stops[0], true);
 
+render();
+context.renderDeliveryDriverStops({ stops, status: "En curso", driverUser: "reparto1", deviceId: "OLD-DEVICE" }, stops[0], true);
+assert.match(nodes.get("deliveryStopList").innerHTML, /vinculada a otro dispositivo/);
+assert.match(nodes.get("deliveryStopList").innerHTML, /disabled[^>]*>Cobrar y entregar/);
+assert.doesNotMatch(nodes.get("deliveryStopList").innerHTML, /data-delivery-collect=/);
+context.renderDeliveryDriverStops({ stops, status: "En curso", driverUser: "reparto2", deviceId: "TEST-DRIVER" }, stops[0], true);
+assert.match(nodes.get("deliveryStopList").innerHTML, /pertenece a otro repartidor/);
+assert.doesNotMatch(nodes.get("deliveryStopList").innerHTML, /data-delivery-collect=/);
 render();
 assert.equal((nodes.get("deliveryStopList").innerHTML.match(/class="delivery-driver-stop /g) || []).length, 15);
 assert.match(nodes.get("deliveryStopList").innerHTML, /data-delivery-status="PED-1"/);

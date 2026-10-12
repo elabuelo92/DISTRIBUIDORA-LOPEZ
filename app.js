@@ -301,6 +301,7 @@ let state = loadState();
 let mobileSeller = "Sofia Benitez";
 let mobileClient = "";
 let mobileCart = {};
+let mobileLineDiscounts = {};
 let mobileProduct = "";
 let productPortfolioPreview = null;
 let clientPortfolioImportPreview = null;
@@ -5043,6 +5044,11 @@ function updateMobileCommercialRequestVisibility() {
 
 function mobileCommercialRequestPayload() {
   const type = byId("mobileCommercialChangeType") ? byId("mobileCommercialChangeType").value : "";
+  const lineDiscounts = getCartSummary().lines.map(line => ({ productCode: line.product.codigo_producto, ...mobileLineDiscounts[line.product.codigo_producto] })).filter(line => line.discountPct > 0);
+  if (lineDiscounts.length) {
+    if (type) throw new Error("El pedido ya tiene descuentos solicitados por producto. Quitar la otra solicitud comercial para continuar.");
+    return { type: "multi_product_discount", productCodes: lineDiscounts.map(line => line.productCode), lineDiscounts, motive: lineDiscounts.map(line => `${line.productCode}: ${line.motive}`).join("; ") };
+  }
   if (!type) return null;
   const motive = byId("mobileCommercialMotive") ? byId("mobileCommercialMotive").value.trim() : "";
   const proposedValue = Math.max(0, numeric(byId("mobileCommercialValue") ? byId("mobileCommercialValue").value : 0, 0));
@@ -5250,6 +5256,10 @@ function renderMobileProductInfo() {
     return;
   }
   const qty = Math.max(1, Number(qtyInput.value || 1));
+  const discountInput = byId("mobileProductDiscount");
+  const requestedDiscount = Number(discountInput?.value || 0);
+  const motiveField = byId("mobileProductDiscountMotiveField");
+  if (motiveField) motiveField.hidden = !(requestedDiscount > 0);
   const code = product.codigo_producto ? `Codigo ${product.codigo_producto} - ` : "";
   const rubric = product.rubro && product.rubro !== "S/D" ? `${product.rubro} - ` : "";
   const stock = OrderEngine.inventory(product);
@@ -5261,6 +5271,10 @@ function renderMobileProductInfo() {
   info.textContent = noStock
     ? `${code}${rubric}SIN STOCK. Se permite cargar; el faltante quedara pendiente para abastecimiento. Precio ${money.format(price)} - ${currentUserPriceListLabel()}`
     : `${code}${rubric}${lowStock ? "⚠ STOCK BAJO - " : ""}Disponible ${stock.available} - Fisico ${stock.physical} - En transito ${stock.inTransit} - Precio ${money.format(price)} - ${currentUserPriceListLabel()} - Subtotal ${money.format(qty * price)}`;
+  const offer = OrderEngine.authorizedOfferForLine(state, productWithUserPrice(product), qty);
+  const basePrice = offer?.specialUnitPrice > 0 ? offer.specialUnitPrice : price;
+  if (offer) info.textContent += ` - Oferta autorizada: ${offer.discountPct || 0}% - Unitario vigente ${money.format(basePrice * (1 - (offer.discountPct || 0) / 100))}`;
+  if (requestedDiscount > 0 && requestedDiscount <= 100) info.textContent += ` - Solicitado ${requestedDiscount}%: subtotal propuesto ${money.format(qty * basePrice * (1 - requestedDiscount / 100))}. Pendiente de autorizacion; no acumulable con otro porcentaje.`;
   addButton.disabled = false;
   qtyInput.disabled = false;
 }
@@ -5282,12 +5296,14 @@ function renderMobileCart() {
     const stockLabel = qty > stock.available
       ? `Reserva ${stock.available}, faltan ${qty - stock.available}`
       : `Disponible para reservar ${stock.available}`;
+    const requestedDiscount = mobileLineDiscounts[product.codigo_producto];
     return `
       <article class="product-line">
         <div>
           <strong>${escapeHtml(product.name)}</strong>
           <span class="tag ${tone}">${stockLabel}</span>
-          <small>${line.offer ? `<span class="tag ok">Oferta autorizada</span> ` : ""}${money.format(line.unitPrice)} x unidad - ${money.format(line.total)}</small>
+          <small>${line.offer ? `<span class="tag ok">Oferta autorizada: ${line.offer.discountPct || 0}%</span> ` : ""}${money.format(line.unitPrice)} x unidad - Subtotal vigente ${money.format(line.total)}</small>
+          ${requestedDiscount ? `<small class="tag warn">Solicitado ${requestedDiscount.discountPct}% - Pendiente de autorizacion</small><small>Subtotal propuesto: ${money.format(qty * line.unitPrice * (1 - requestedDiscount.discountPct / 100))}</small><small>${escapeHtml(requestedDiscount.motive)}</small><button class="mini-btn" type="button" data-remove-line-discount="${escapeHtml(product.codigo_producto)}">Quitar solicitud</button>` : ""}
         </div>
         <div class="cart-actions">
           <input class="qty-input" data-cart-product="${escapeHtml(product.name)}" type="number" min="0" max="999" value="${qty}" inputmode="numeric" aria-label="Cantidad ${index + 1}">
@@ -5319,6 +5335,7 @@ function sellerCurrentMonthTotals(sellerName, now = new Date()) {
 
 function renderMobileSummary() {
   const summary = getCartSummary();
+  const pendingLineDiscount = summary.lines.some(line => mobileLineDiscounts[line.product.codigo_producto]?.discountPct > 0);
   const seller = state.sellers.find((item) => item.name === mobileSeller);
   const client = getSelectedMobileClient();
   const credit = client ? clientAccountSummary(client.name, summary.total) : null;
@@ -5345,7 +5362,9 @@ function renderMobileSummary() {
     </div>
     ${summary.shortages.length
       ? `<p class="stock-error">El pedido se registrara pendiente de abastecimiento. ${summary.shortages.join(" ")}</p>`
-      : '<p class="stock-ok">Stock completo: el pedido quedara listo para armado.</p>'}
+      : pendingLineDiscount
+        ? '<p class="stock-error">Stock completo. Descuentos pendientes de autorizacion administrativa.</p>'
+        : '<p class="stock-ok">Stock completo: el pedido quedara listo para armado.</p>'}
     ${credit ? `<p class="${credit.requiresAuthorization ? "stock-error" : "stock-ok"}">Cuenta corriente: ${escapeHtml(credit.warning)} Proyectado ${money.format(credit.projectedBalance)}.</p>` : ""}
     ${gpsBlocked ? '<p class="stock-error">UBICACION PENDIENTE DE ACTUALIZACION. No se pueden enviar pedidos nuevos.</p>' : ""}
   `;
@@ -5599,7 +5618,7 @@ function renderMobileSalesPanel() {
         `).join("") || "<span><b>Sin detalle de articulos</b></span>"}
       </div>
       ${selected.observations || selected.observaciones ? `<p>Obs: ${escapeHtml(selected.observations || selected.observaciones)}</p>` : ""}
-      ${selected.commercialApproval ? `<p>Solicitud comercial: ${escapeHtml(selected.commercialApproval.status || "Pendiente")} - ${escapeHtml(selected.commercialApproval.motive || "")}</p>` : ""}
+      ${selected.commercialApproval ? `<p>Solicitud comercial: ${escapeHtml(selected.commercialApproval.status || "Pendiente")} - ${escapeHtml(commercialApprovalSummary(selected))}</p>` : ""}
     `;
   }
   const totals = mobileSalesSummary(orders);
@@ -8379,6 +8398,7 @@ function pendingCommercialApproval(order) {
 function commercialApprovalSummary(order) {
   if (!order || !order.commercialApproval) return "";
   const request = order.commercialApproval;
+  if (Array.isArray(request.lineDiscounts)) return request.lineDiscounts.map(line => `${line.productName || line.productCode}: ${line.discountPct}% (${line.motive || request.motive})`).join("; ");
   const typeLabel = {
     product_discount: "Descuento producto",
     multi_product_discount: "Descuento en varios productos",
@@ -9720,7 +9740,7 @@ function visibleDeliveryRoutes() {
       isDeliveryRoutePublished(route)
       && (
         route.driverUser === currentUser.username
-        || route.deviceId === deliveryDevice.id
+        || (!route.driverUser && route.deviceId === deliveryDevice.id)
         || (!route.driverUser && !route.deviceId)
       )
     ));
@@ -9877,7 +9897,7 @@ function deliveryRouteMapStops(route) {
   }).sort((a, b) => numeric(a.sequence, a.index + 1) - numeric(b.sequence, b.index + 1));
 }
 
-const DELIVERY_MANIFEST_HEADERS = ["Orden", "Pedido", "Cliente", "Direccion", "Referencia", "Horario", "Telefono", "Zona", "Bultos", "Importe", "Estado"];
+const DELIVERY_MANIFEST_HEADERS = ["Orden", "Pedido", "Cliente", "Direccion", "Referencia", "Horario", "Telefono", "Zona", "Bultos", "Importe", "Estado operativo", "Entrega", "Cobro registrado en ruta", "Pendiente en visita", "Transferencia"];
 
 function deliveryRouteManifestRows(route) {
   return [...(route && route.stops || [])]
@@ -9897,7 +9917,8 @@ function deliveryRouteManifestRows(route) {
         orderZoneText(order) || client.zona || client.zone || route.zone || "",
         assembly.bultos || stop.packages || 0,
         numeric(stop.amount || order.amount, 0),
-        stop.status || order.status || ""
+        stop.status || order.status || "",
+        ...deliveryStopFinancialCells(stop)
       ];
     });
 }
@@ -9917,8 +9938,8 @@ function exportDeliveryRouteManifest(routeId, format) {
   downloadBlob(`manifiesto-ruta-${filePart}.pdf`, makeTablePdf(`Manifiesto de ruta - ${route.id}`, DELIVERY_MANIFEST_HEADERS, rows, {
     wrapText: true,
     fontSize: 8,
-    weights: [0.55, 0.9, 1.6, 2.1, 1.4, 1.25, 1.05, 1, 0.6, 0.9, 0.9],
-    subtitle: `${route.day || "Sin fecha"} - ${route.deviceLabel || route.driverUser || "Sin repartidor"} - ${rows.length} pedidos`
+    weights: [0.55, 0.9, 1.6, 2.1, 1.4, 1.25, 1.05, 1, 0.6, 0.9, 0.9, 1, 1, 1, 1.2],
+    subtitle: `${route.day || "Sin fecha"} - ${route.deviceLabel || route.driverUser || "Sin repartidor"} - ${rows.length} pedidos. Importes de esta visita, no saldo actual de cuenta. Transferencias sujetas a conciliacion.`
   }));
 }
 
@@ -9964,6 +9985,7 @@ function renderDeliveryActivePanel(route, routes) {
     ${canPlanDeliveryRoutes() && !route.startedAt && !route.closure && route.stops?.length > 1 ? `<button class="secondary-btn" type="button" data-optimize-route="${escapeHtml(route.id)}">Optimizar ruta</button>` : ""}
     ${directionsUrl ? `<button class="secondary-btn" type="button" data-delivery-route-map-open="${escapeHtml(route.id)}">Abrir recorrido</button>` : ""}
     ${canClaim ? `<button class="primary-btn" type="button" data-claim-route="${escapeHtml(route.id)}">Tomar Ruta</button>` : ""}
+    ${isAdminUser() && route.deviceId && route.driverUser && !route.closure && route.status !== "Completada" ? `<button class="secondary-btn" type="button" data-release-route-device="${escapeHtml(route.id)}">Habilitar otro dispositivo</button>` : ""}
     ${canCloseRoute ? `<button class="primary-btn" type="button" data-close-route="${escapeHtml(route.id)}">Rendir caja</button>` : ""}
   `;
   summary.innerHTML = `
@@ -10251,9 +10273,9 @@ function renderDelivery() {
   const pending = routes.reduce((sum, route) => sum + numeric(route.pendingTotal, 0), 0);
   byId("deliveryKpis").innerHTML = [
     { label: "Rutas", value: routes.length, hint: "Visibles para este equipo" },
-    { label: "Entregas", value: `${delivered}/${allStops.length}`, hint: "Paradas finalizadas" },
+    { label: "Paradas finalizadas", value: `${delivered}/${allStops.length}`, hint: "Incluye entregas e incidencias cerradas" },
     { label: "Efectivo", value: money.format(cash), hint: "Acumulado de ruta" },
-    { label: "Cuenta corriente", value: money.format(pending), hint: "Saldo pendiente generado" }
+    { label: "Pendiente al registrar", value: money.format(pending), hint: "Incluye transferencias por conciliar; no es saldo actual" }
   ].map((item) => `
     <article class="delivery-kpi">
       <span>${escapeHtml(item.label)}</span>
@@ -10330,7 +10352,7 @@ function renderDeliveryStops(route) {
   meta.textContent = `${route.deviceLabel || "Sin dispositivo"} - Efectivo ${money.format(route.cashTotal || 0)} - Transferencias ${money.format(route.transferTotal || 0)} - Devoluciones ${money.format(route.returnTotal || 0)}`;
   const current = DeliveryEngine.nextStop(route);
   const ownsRoute = isAdminUser() || route.deviceId === deliveryDevice.id || route.driverUser === currentUser?.username;
-  const visibleStops = (route.stops || []).filter((stop) => !isDeliveryStopDelivered(stop.status));
+  const visibleStops = route.stops || [];
   const closureNote = route.closure ? `<article class="delivery-closure-card"><strong>Cierre diario registrado</strong><small>${escapeHtml(route.closure.user || "Reparto")} - ${escapeHtml(route.closure.date || "")} ${escapeHtml(route.closure.time || "")}</small>${deliveryClosureMetricsHtml(route.closure)}${route.closure.observations ? `<p>${escapeHtml(route.closure.observations)}</p>` : ""}</article>` : "";
   if (currentUser?.role === "driver") {
     if (toolbar) toolbar.hidden = false;
@@ -10339,7 +10361,7 @@ function renderDeliveryStops(route) {
   }
   if (toolbar) toolbar.hidden = true;
   if (!visibleStops.length) {
-    list.innerHTML = closureNote + '<div class="empty-note">No quedan pedidos visibles en esta ruta. Los entregados se ocultan automaticamente.</div>';
+    list.innerHTML = closureNote + '<div class="empty-note">No hay pedidos en esta ruta.</div>';
     return;
   }
   const rows = visibleStops.map((stop) => {
@@ -10354,7 +10376,7 @@ function renderDeliveryStops(route) {
     const collection = stop.collection;
     const exception = stop.exception || order && order.deliveryException;
     const detail = [
-      collection ? `${collection.method || "Cobranza"}: ${money.format(collection.amountPaid || 0)}` : "",
+      deliveryStopFinancialText(stop),
       exception ? `Incidencia: ${exception.reason || exception.status || stop.status}` : ""
     ].filter(Boolean).join(" - ");
     return `<tr class="delivery-stop-table-row ${isCurrent ? "current" : ""} ${isDeliveryStopClosed(stop.status) ? "completed" : ""}" ${canReorder ? `data-route-drop="${escapeHtml(route.id)}" data-order-code="${escapeHtml(stop.orderCode)}"` : ""}>
@@ -10387,6 +10409,12 @@ function renderDeliveryStops(route) {
 }
 
 function renderDeliveryDriverStops(route, current, ownsRoute, closureNote = "") {
+  ownsRoute = ownsRoute && (!route.driverUser || route.driverUser === currentUser?.username);
+  const deviceReady = ownsRoute && Boolean(route.deviceId) && route.deviceId === deliveryDevice.id;
+  if (!deviceReady && !isDeliveryRouteClosed(route) && route.status !== "Planificada") {
+    const message = !ownsRoute ? "Esta ruta pertenece a otro repartidor. Administracion debe revisar la asignacion." : route.deviceId ? "Esta ruta esta vinculada a otro dispositivo. Administracion debe habilitar el cambio; luego podras tomarla aqui." : "Toma la ruta en este dispositivo para habilitar el cobro.";
+    closureNote += `<div class="empty-note" role="status">${escapeHtml(message)}${ownsRoute && !route.deviceId ? `<button class="primary-btn" type="button" data-claim-route="${escapeHtml(route.id)}">Tomar Ruta</button>` : ""}</div>`;
+  }
   const list = byId("deliveryStopList");
   const stops = [...(route.stops || [])].sort((a, b) => numeric(a.sequence, 0) - numeric(b.sequence, 0));
   const pendingCount = stops.filter((stop) => !isDeliveryStopClosed(stop.status)).length;
@@ -10429,14 +10457,16 @@ function renderDeliveryDriverStops(route, current, ownsRoute, closureNote = "") 
           <span>${escapeHtml(formatAssemblyPedidoNumber(stop.orderCode))} · ${escapeHtml(stop.address || "Domicilio pendiente")}</span>
           ${client.referencia ? `<span>Ref: ${escapeHtml(client.referencia)}</span>` : ""}
           <small>${escapeHtml(stop.hours || "Sin horario")} · ${escapeHtml(String(assembly.bultos || stop.packages || 0))} bultos · ${money.format(stop.amount || 0)}</small>
+          <small>${escapeHtml(deliveryStopFinancialText(stop))}</small>
         </div>
         <div class="delivery-driver-stop-meta">
           <span class="tag ${deliveryTone(stop.status)}">${escapeHtml(stop.status || "Pendiente")}</span>
-          ${!isSelected && !isDeliveryStopClosed(stop.status) && ownsRoute && route.deviceId === deliveryDevice.id ? `<button class="secondary-btn" type="button" data-delivery-select-stop="${escapeHtml(stop.orderCode)}">Elegir</button>` : ""}
+          ${!isSelected && !isDeliveryStopClosed(stop.status) ? `<button class="secondary-btn" type="button" ${deviceReady ? `data-delivery-select-stop="${escapeHtml(stop.orderCode)}"` : 'disabled title="Resolver la asignacion de la ruta para continuar"'}>Elegir</button>` : ""}
           ${!isSelected && hasDestination ? `<button class="secondary-btn" type="button" data-delivery-map="${escapeHtml(stop.orderCode)}">Ir</button>` : ""}
         </div>
       </div>
       ${isSelected ? `<div class="delivery-driver-stop-actions">
+        ${!deviceReady && !isDeliveryStopClosed(stop.status) ? '<button class="primary-btn" type="button" disabled title="Resolver la asignacion de la ruta para continuar">Cobrar y entregar</button>' : ""}
         ${hasDestination ? `<button class="secondary-btn" type="button" data-delivery-map="${escapeHtml(stop.orderCode)}">Ir al cliente</button>` : ""}
         ${canOperate && [ORDER_STATUS.DISPATCHED, ORDER_STATUS.IN_ROUTE].includes(order?.status) ? `<button class="primary-btn" type="button" data-delivery-collect="${escapeHtml(stop.orderCode)}">Cobrar y entregar</button><button class="secondary-btn" type="button" data-delivery-exception="${escapeHtml(stop.orderCode)}" data-exception-status="${ORDER_STATUS.NOT_DELIVERED}">No entregado</button><button class="secondary-btn" type="button" data-delivery-exception="${escapeHtml(stop.orderCode)}" data-exception-status="${ORDER_STATUS.POSTPONED}">Postergar</button>` : ""}
         ${canOperate && order?.status === ORDER_STATUS.DISPATCHED ? `<button class="secondary-btn" type="button" data-delivery-status="${escapeHtml(stop.orderCode)}" data-status="${ORDER_STATUS.IN_ROUTE}">Iniciar visita</button>` : ""}
@@ -10574,7 +10604,38 @@ function deliveryClosureRecords() {
   return Array.from(byKey.values()).sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
 }
 
-const DELIVERY_COLLECTION_HEADERS = ["Cliente", "Pedido", "Total", "Efectivo", "Transferencia", "Banco", "Cuenta corriente", "Saldo a favor", "Diferencia"];
+const DELIVERY_COLLECTION_HEADERS = ["Cliente", "Pedido", "Total", "Efectivo", "Transferencia registrada", "Banco", "Cuenta corriente en visita", "Saldo a favor", "Diferencia", "Entrega", "Cobro registrado en ruta", "Pendiente en visita", "Transferencia"];
+
+function deliveryStopFinancialCells(stop) {
+  const collection = stop.collection;
+  const summary = collection?.deliverySummary;
+  const status = stop.status || "";
+  let delivery = "Sin entrega confirmada";
+  if (summary) {
+    delivery = Number(summary.pendingQty) > 0 ? "Entrega parcial"
+      : Number(summary.deliveredQty) > 0 ? (Number(summary.returnedQty) > 0 ? "Entregado con devolucion" : "Entregado")
+        : "Sin unidades entregadas";
+  } else if (status === "Parcialmente Entregado") delivery = "Entrega parcial";
+  else if (["Entregado", "Cobrado"].includes(status)) delivery = "Entregado";
+  else if (["No entregado", "Rechazado", "Postergado"].includes(status)) delivery = status;
+  if (!collection) return [delivery, "Sin registro", "Sin registro", "Sin registro"];
+  const hasBreakdown = collection.cashAmount != null || collection.transferAmount != null;
+  const paid = hasBreakdown ? numeric(collection.cashAmount, 0) + numeric(collection.transferAmount, 0)
+    : collection.amountPaid == null ? "Sin registro" : numeric(collection.amountPaid, 0);
+  // The visit snapshot is not the live customer ledger or bank reconciliation.
+  const pending = collection.creditAmount != null
+    ? numeric(collection.creditAmount, 0) + Math.max(0, numeric(collection.transferPendingAmount, 0) - numeric(collection.transferAmount, 0))
+    : "Sin registro";
+  return [delivery, typeof paid === "number" ? Math.round(paid * 100) / 100 : paid,
+    typeof pending === "number" ? Math.round(pending * 100) / 100 : pending,
+    numeric(collection.transferAmount, 0) > 0 ? "Sujeta a conciliacion" : "Sin transferencia registrada"];
+}
+
+function deliveryStopFinancialText(stop) {
+  const [delivery, paid, pending, transfer] = deliveryStopFinancialCells(stop);
+  const amount = value => typeof value === "number" ? money.format(value) : value;
+  return `${delivery} | Cobro registrado: ${amount(paid)} | Pendiente en visita: ${amount(pending)}${numeric(stop.collection?.transferAmount, 0) > 0 ? ` | Transferencia: ${transfer}` : ""}`;
+}
 
 function deliveryCollectionsManifestRows(day, routeId = "") {
   const totals = { total: 0, cash: 0, transfer: 0, credit: 0, customerCredit: 0, difference: 0 };
@@ -10591,7 +10652,8 @@ function deliveryCollectionsManifestRows(day, routeId = "") {
     const customerCredit = numeric(collection.customerCreditAmount, 0);
     const difference = Math.round((cash + transfer + credit - customerCredit - total) * 100) / 100;
     rows.push([order?.client || stop.client || "", stop.orderCode || "", total, cash, transfer,
-      Array.from(new Set((collection.transferReceipts || [collection.transferReceipt]).filter(Boolean).map(receipt => receipt.bank).filter(Boolean))).join(" / "), credit, customerCredit, difference]);
+      Array.from(new Set((collection.transferReceipts || [collection.transferReceipt]).filter(Boolean).map(receipt => receipt.bank).filter(Boolean))).join(" / "), credit, customerCredit, difference,
+      ...deliveryStopFinancialCells(stop)]);
     totals.total += total;
     totals.cash += cash;
     totals.transfer += transfer;
@@ -10600,8 +10662,9 @@ function deliveryCollectionsManifestRows(day, routeId = "") {
     totals.difference += difference;
   }));
   rows.sort((left, right) => String(left[1]).localeCompare(String(right[1]), "es", { numeric: true }));
+  const visitPending = rows.reduce((sum, row) => sum + (typeof row[11] === "number" ? row[11] : 0), 0);
   rows.push(["TOTALES", `${rows.length} pedidos`, ...[totals.total, totals.cash, totals.transfer], "",
-    totals.credit, totals.customerCredit, totals.difference].map((value) => typeof value === "number" ? Math.round(value * 100) / 100 : value));
+    totals.credit, totals.customerCredit, totals.difference, "", totals.cash + totals.transfer, visitPending, "Sujeta a conciliacion"].map((value) => typeof value === "number" ? Math.round(value * 100) / 100 : value));
   return rows;
 }
 
@@ -10646,15 +10709,15 @@ async function exportDeliveryCollectionsManifest(format, selectedRouteId) {
       sheetName: route ? "Rendicion de ruta" : "Cobros del dia",
       headers: DELIVERY_COLLECTION_HEADERS, rows,
       fontSize: 13,
-      columnWidths: [32, 24, 19, 19, 19, 25, 19, 19, 19],
-      columnFormats: ["@", "@", "$ #,##0.00", "$ #,##0.00", "$ #,##0.00", "@", "$ #,##0.00", "$ #,##0.00", "$ #,##0.00"],
-      wrapColumns: [1, 2, 6]
+      columnWidths: [32, 24, 19, 19, 19, 25, 19, 19, 19, 24, 22, 22, 26],
+      columnFormats: ["@", "@", "$ #,##0.00", "$ #,##0.00", "$ #,##0.00", "@", "$ #,##0.00", "$ #,##0.00", "$ #,##0.00", "@", "$ #,##0.00", "$ #,##0.00", "@"],
+      wrapColumns: [1, 2, 6, 10, 11, 12, 13]
     });
   } else {
     downloadBlob(`manifiesto-cobros-${filePart}.pdf`, makeTablePdf(`Distribuidora Lopez - ${title}`, DELIVERY_COLLECTION_HEADERS, rows, {
       wrapText: true,
       fontSize: 8,
-      subtitle: `${count} cobros. ${route ? "Todos los dias de la ruta seleccionada." : "Consolidado diario."} Transferencias sujetas a conciliacion bancaria.`
+      subtitle: `${count} cobros. ${route ? "Todos los dias de la ruta seleccionada." : "Consolidado diario."} Pendiente de la visita, no saldo actual de cuenta. Transferencias sujetas a conciliacion bancaria.`
     }));
   }
 }
@@ -18528,6 +18591,13 @@ function findClientForEdit(id) {
 
 function setClientDialogMode(mode, client) {
   const isEdit = mode === "edit";
+  const clientForm = byId("clientForm");
+  const balanceField = clientForm.elements.saldo_inicial;
+  balanceField.readOnly = isEdit;
+  balanceField.title = isEdit ? "Saldo actual: se modifica desde cuenta corriente, no desde la ficha." : "";
+  for (const name of ["razon_social", "localidad", "tipo_cliente", "zona"]) {
+    clientForm.elements[name].required = !isEdit;
+  }
   clientEditTargetId = isEdit && client ? clientIdentity(client) : "";
   byId("clientDialogTitle").textContent = isEdit ? `Editar cliente - ${client.name}` : "Nuevo cliente";
   byId("clientSubmitBtn").textContent = isEdit ? "Guardar modificacion" : "Guardar cliente";
@@ -19296,8 +19366,17 @@ function addSelectedMobileProduct() {
   if (!product) return;
   const qtyInput = byId("mobileProductQty");
   const qty = Math.max(1, Number(qtyInput.value || 1));
+  const discountPct = Number(byId("mobileProductDiscount")?.value || 0);
+  const motive = byId("mobileProductDiscountMotive")?.value.trim() || "";
+  if (!Number.isFinite(discountPct) || discountPct < 0 || discountPct > 100 || (discountPct > 0 && (!motive || !product.codigo_producto))) {
+    window.alert("Indicar descuento entre 0 y 100 y un motivo. El producto debe tener codigo.");
+    return;
+  }
+  if (discountPct > 0) mobileLineDiscounts[product.codigo_producto] = { discountPct, motive };
   mobileCart[product.name] = Math.max(0, Number(mobileCart[product.name] || 0)) + qty;
   qtyInput.value = "1";
+  if (byId("mobileProductDiscount")) byId("mobileProductDiscount").value = "0";
+  if (byId("mobileProductDiscountMotive")) byId("mobileProductDiscountMotive").value = "";
   renderMobileCart();
   renderMobileSummary();
   renderMobileProductInfo();
@@ -19305,6 +19384,9 @@ function addSelectedMobileProduct() {
 
 function clearMobileOrderDraft() {
   mobileCart = {};
+  mobileLineDiscounts = {};
+  if (byId("mobileProductDiscount")) byId("mobileProductDiscount").value = "0";
+  if (byId("mobileProductDiscountMotive")) byId("mobileProductDiscountMotive").value = "";
   mobileProduct = "";
   ["mobileProductSearch", "mobileClientSearch"].forEach((id) => {
     const field = byId(id);
@@ -21183,6 +21265,8 @@ byId("noPurchaseReasonSelect").addEventListener("change", renderNoPurchaseObserv
 byId("submitNoPurchaseBtn").addEventListener("click", submitNoPurchaseVisit);
 byId("mobileProductSelect").addEventListener("change", (event) => {
   mobileProduct = event.target.value;
+  byId("mobileProductDiscount").value = "0";
+  byId("mobileProductDiscountMotive").value = "";
   renderMobileProductInfo();
 });
 byId("mobileProductPickerBtn").addEventListener("click", () => {
@@ -21204,6 +21288,8 @@ byId("mobileProductOptions").addEventListener("click", (event) => {
   const button = event.target.closest("[data-mobile-product-option]");
   if (!button) return;
   mobileProduct = button.dataset.mobileProductOption;
+  byId("mobileProductDiscount").value = "0";
+  byId("mobileProductDiscountMotive").value = "";
   byId("mobileProductSelect").value = mobileProduct;
   byId("mobileProductSearch").value = "";
   setMobilePickerOpen("product", false);
@@ -21211,18 +21297,32 @@ byId("mobileProductOptions").addEventListener("click", (event) => {
   renderMobileProductInfo();
 });
 byId("mobileProductQty").addEventListener("input", renderMobileProductInfo);
+byId("mobileProductDiscount").addEventListener("input", renderMobileProductInfo);
 byId("addMobileProductBtn").addEventListener("click", addSelectedMobileProduct);
 byId("phoneProducts").addEventListener("input", (event) => {
   const input = event.target.closest("[data-cart-product]");
   if (!input) return;
   mobileCart[input.dataset.cartProduct] = Math.max(0, Number(input.value || 0));
+  if (!mobileCart[input.dataset.cartProduct]) {
+    const product = state.products.find(item => item.name === input.dataset.cartProduct);
+    if (product) delete mobileLineDiscounts[product.codigo_producto];
+  }
   renderMobileCart();
   renderMobileSummary();
 });
 byId("phoneProducts").addEventListener("click", (event) => {
+  const discountButton = event.target.closest("[data-remove-line-discount]");
+  if (discountButton) {
+    delete mobileLineDiscounts[discountButton.dataset.removeLineDiscount];
+    renderMobileCart();
+    renderMobileSummary();
+    return;
+  }
   const button = event.target.closest("[data-remove-cart]");
   if (!button) return;
   delete mobileCart[button.dataset.removeCart];
+  const product = state.products.find(item => item.name === button.dataset.removeCart);
+  if (product) delete mobileLineDiscounts[product.codigo_producto];
   renderMobileCart();
   renderMobileSummary();
 });
@@ -23536,6 +23636,18 @@ document.addEventListener("click", async (event) => {
     } finally {
       move.disabled = false;
     }
+    return;
+  }
+  const release = event.target.closest("[data-release-route-device]");
+  if (release) {
+    const route = state.deliveryRoutes.find((item) => item.id === release.dataset.releaseRouteDevice);
+    if (!isAdminUser() || !route) return;
+    if (!window.confirm(`Habilitar otro dispositivo para ${route.driverUser} en ${route.id}? El dispositivo anterior dejara de poder operar esta ruta. Se conservan pedidos y cobros.`)) return;
+    release.disabled = true;
+    try {
+      await postOperationalAction(`api/delivery/routes/${encodeURIComponent(route.id)}/claim`, { releaseDevice: true, expectedDeviceId: route.deviceId });
+    } catch (error) { window.alert(error.message || "No se pudo liberar el dispositivo."); }
+    finally { release.disabled = false; }
     return;
   }
   const claim = event.target.closest("[data-claim-route]");

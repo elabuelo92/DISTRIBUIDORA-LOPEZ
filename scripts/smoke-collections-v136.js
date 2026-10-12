@@ -192,6 +192,7 @@ const end = app.indexOf("async function exportDeliveryCollectionsManifest(", sta
 assert.ok(start >= 0 && end > start);
 const reportContext = { state: data.state, numeric: (value) => Number(value) || 0, routeDayToday: () => "2026-09-27" };
 vm.createContext(reportContext);
+vm.runInContext(app.slice(app.indexOf("function deliveryStopFinancialCells("), app.indexOf("function deliveryCollectionsManifestRows(")), reportContext);
 vm.runInContext(`${app.slice(start, end)}\nthis.manifestRows = deliveryCollectionsManifestRows;`, reportContext);
 const manifest = reportContext.manifestRows(new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" }));
 assert.equal(manifest.length, 4);

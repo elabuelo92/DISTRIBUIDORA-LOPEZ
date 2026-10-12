@@ -1,0 +1,32 @@
+"use strict";
+const assert = require("node:assert/strict");
+const Engine = require("../order-engine");
+const fixture = () => ({ products: ["ACEITE", "ARROZ", "YERBA"].map(code => ({codigo_producto:code,name:code,price:1000,stock_fisico:100,stock_actual:100,stock_disponible:100,activo:"SI"})), clients:[{codigo_cliente:"C1",name:"Cliente"}], sellers:[],accounts:[],orders:[],activity:[],stockMovements:[] });
+const request = () => ({type:"multi_product_discount",productCodes:["ACEITE","ARROZ"],lineDiscounts:[{productCode:"ACEITE",discountPct:5,motive:"Volumen"},{productCode:"ARROZ",discountPct:8,motive:"Comercial"}],motive:"Solicitud por producto"});
+const input = () => ({code:"PED-LINE",client:"Cliente",seller:"Vendedor",items:["ACEITE","ARROZ","YERBA"].map(productCode=>({productCode,qty:2})),commercialRequest:request()});
+const s=fixture();
+const order=Engine.createOrder(s,input(),"Vendedor");
+assert.equal(order.amount,6000);
+assert.equal(order.commercialApproval.status,"Pendiente");
+assert.equal(order.status,Engine.STATUS.COMMERCIAL_APPROVAL);
+assert.ok(order.commercialApproval.lineDiscounts.every(x=>x.targetLineId));
+Engine.editOrder(s,order.code,{motive:"Reordenar",items:["YERBA","ARROZ","ACEITE"].map(productCode=>({productCode,qty:2}))},{role:"admin",user:"Admin"});
+const approved=Engine.resolveCommercialApproval(s,order.code,{decision:"approve",motive:"Autorizado"},{role:"admin",user:"Admin"}).order;
+assert.equal(approved.amount,5740);
+assert.equal(approved.items.find(x=>x.productCode==="ACEITE").discountPct,5);
+assert.equal(approved.items.find(x=>x.productCode==="ARROZ").discountPct,8);
+assert.equal(approved.items.find(x=>x.productCode==="YERBA").discountPct,0);
+assert.throws(()=>Engine.resolveCommercialApproval(s,order.code,{decision:"approve",motive:"Repetido"}),/pendiente/);
+const rejectedState=fixture(),rejected=Engine.createOrder(rejectedState,input(),"Vendedor");
+Engine.resolveCommercialApproval(rejectedState,rejected.code,{decision:"reject",motive:"Sin margen"},{user:"Admin"});
+assert.equal(rejected.amount,6000);
+for(const pct of [-1,101,NaN,Infinity]) {
+ const state=fixture(),data=input();data.commercialRequest.lineDiscounts[0].discountPct=pct;
+ assert.throws(()=>Engine.createOrder(state,data,"Vendedor"),/invalido/);
+ assert.ok(state.products.every(p=>!p.stock_reservado));
+}
+const singleState=fixture(),single=input();single.commercialRequest.productCodes=["ACEITE"];single.commercialRequest.lineDiscounts.splice(1);
+const one=Engine.createOrder(singleState,single,"Vendedor");
+const singleApproved=Engine.resolveCommercialApproval(singleState,one.code,{decision:"approve",motive:"OK"},{user:"Admin"}).order;
+assert.equal(singleApproved.amount,5900);
+console.log("PASS per-product 5%/8%, pending unchanged, approval by line ID after reorder, rejection, single product, invalid percentages before stock reservation, duplicate approval rejected.");

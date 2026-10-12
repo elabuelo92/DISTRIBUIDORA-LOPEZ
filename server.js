@@ -3655,7 +3655,7 @@ function editedClientFromInput(previous, input, user) {
   }
   const zone = String(input.zona || input.zone || previous.zona || previous.zone || "Sin zona").trim() || "Sin zona";
   const seller = String(input.vendedor_asignado || input.seller || previous.vendedor_asignado || previous.seller || "").trim();
-  const balance = Math.max(0, numeric(previous.balance ?? previous.saldo_actual ?? previous.saldo_inicial, 0));
+  const balance = numeric(previous.balance ?? previous.saldo_actual ?? previous.saldo_inicial, 0);
   const visitDays = normalizedClientVisitDays(input, previous);
   const visitOrders = Object.prototype.hasOwnProperty.call(input, "ordenes_visita")
     ? normalizedVisitOrders(input.ordenes_visita)
@@ -9716,24 +9716,24 @@ const server = http.createServer(async (req, res) => {
       try {
         const routeId = decodeURIComponent(claimRouteMatch[1]);
         const previousRoute = entitySnapshot(currentState, "ruta", routeId);
-        const route = deliveryEngine.claimRoute(
+        const route = input.releaseDevice === true ? deliveryEngine.releaseRouteDevice(currentState, routeId, input.expectedDeviceId, deliveryContext(sessionUser, input)) : deliveryEngine.claimRoute(
           currentState,
           routeId,
           deliveryContext(sessionUser, input)
         );
         writeCompactStateResponse(res, currentState, { route, refreshRequired: true }, auditEntry(req, sessionUser, input, {
-          action: "RUTA_TOMADA",
+          action: input.releaseDevice === true ? "DISPOSITIVO_RUTA_LIBERADO" : "RUTA_TOMADA",
           entityType: "ruta",
           entityId: routeId,
           entityLabel: route.zone || routeId,
           previousValue: previousRoute,
           newValue: route,
-          note: "Dispositivo tomo la ruta"
+          note: input.releaseDevice === true ? "Administracion libero el dispositivo; se conserva el repartidor" : "Dispositivo tomo la ruta"
         }), notificationEntry(req, sessionUser, input, {
           action: "RUTA_INICIADA",
           category: "Reparto",
-          title: `Repartidor inicio ruta ${route.id}`,
-          text: `${route.deviceLabel || sessionUser.name} tomo ${route.zone || "ruta"} con ${(route.stops || []).length} paradas.`,
+          title: input.releaseDevice === true ? `Dispositivo liberado: ${route.id}` : `Repartidor inicio ruta ${route.id}`,
+          text: input.releaseDevice === true ? `${route.driverUser} puede tomar la ruta desde su dispositivo.` : `${route.deviceLabel || sessionUser.name} tomo ${route.zone || "ruta"} con ${(route.stops || []).length} paradas.`,
           tone: "ok",
           entityType: "ruta",
           entityId: route.id,

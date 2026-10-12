@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-168-r20261007b">
+    <link rel="manifest" href="manifest.json?v=8790-169-r20261012">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-168-r20261012driverproofs">
+    <link rel="stylesheet" href="styles.css?v=8790-169-r20261012">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -465,7 +465,7 @@
                   </label>
                   <label class="phone-field">
                     Limite
-                    <input id="mobileNewClientLimit" type="number" min="0" step="1000" value="0">
+                    <input id="mobileNewClientLimit" type="number" min="0" step="0.01" value="0">
                   </label>
                 </div>
                 <label class="phone-field">
@@ -518,8 +518,16 @@
                     Cantidad
                     <input id="mobileProductQty" type="number" min="1" step="1" value="1" inputmode="numeric">
                   </label>
+                  <label class="phone-field">
+                    Descuento solicitado %
+                    <input id="mobileProductDiscount" type="number" min="0" max="100" step="0.01" value="0" inputmode="decimal">
+                  </label>
                   <button class="secondary-btn" id="addMobileProductBtn" type="button">Agregar</button>
                 </div>
+                <label class="phone-field" id="mobileProductDiscountMotiveField" hidden>
+                  Motivo del descuento
+                  <input id="mobileProductDiscountMotive" type="text" maxlength="300">
+                </label>
                 <p class="product-info" id="mobileProductInfo"></p>
               </div>
               <div class="phone-products" id="phoneProducts"></div>
@@ -3194,11 +3202,11 @@
         <div class="form-grid">
           <label>
             Latitud entrega
-            <input name="latitud" type="number" step="0.000001" placeholder="-31.416700">
+            <input name="latitud" type="number" step="any" min="-90" max="90" placeholder="-31.416700">
           </label>
           <label>
             Longitud entrega
-            <input name="longitud" type="number" step="0.000001" placeholder="-64.183300">
+            <input name="longitud" type="number" step="any" min="-180" max="180" placeholder="-64.183300">
           </label>
         </div>
         <div class="form-grid">
@@ -3243,11 +3251,11 @@
         <div class="form-grid">
           <label>
             Limite de cuenta
-            <input name="limite_credito" id="clientCreditLimitInput" required type="number" min="0" step="1000" value="0">
+            <input name="limite_credito" id="clientCreditLimitInput" required type="number" min="0" step="0.01" value="0">
           </label>
           <label>
             Saldo inicial
-            <input name="saldo_inicial" type="number" min="0" step="1000" value="0">
+            <input name="saldo_inicial" type="number" min="0" step="0.01" value="0">
           </label>
         </div>
         <div class="form-grid">
@@ -4650,19 +4658,19 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-168-r20261007b"></script>
-    <script src="maps-config.js?v=8790-168-r20261007b"></script>
-    <script src="order-engine.js?v=8790-168-r20261007b"></script>
-    <script src="account-engine.js?v=8790-168-r20261012proofs"></script>
-    <script src="route-optimizer.js?v=8790-168-r20261007b"></script>
-    <script src="delivery-engine.js?v=8790-168-r20261012driverproofs"></script>
-    <script src="sales-commission-report.js?v=8790-168-r20261007b"></script>
-    <script src="legal-engine.js?v=8790-168-r20261007b"></script>
-    <script src="client-portfolio-engine.js?v=8790-168-r20261007b"></script>
-    <script src="client-hours.js?v=8790-168-r20261007b"></script>
-    <script src="share-engine.js?v=8790-168-r20261007b"></script>
-    <script src="portfolio-export-engine.js?v=8790-168-r20261007b"></script>
-    <script src="progressive-list.js?v=8790-168-r20261007b"></script>
-    <script src="app.js?v=8790-168-r20261012exports"></script>
+    <script src="config.js?v=8790-169-r20261012"></script>
+    <script src="maps-config.js?v=8790-169-r20261012"></script>
+    <script src="order-engine.js?v=8790-169-r20261012"></script>
+    <script src="account-engine.js?v=8790-169-r20261012"></script>
+    <script src="route-optimizer.js?v=8790-169-r20261012"></script>
+    <script src="delivery-engine.js?v=8790-169-r20261012"></script>
+    <script src="sales-commission-report.js?v=8790-169-r20261012"></script>
+    <script src="legal-engine.js?v=8790-169-r20261012"></script>
+    <script src="client-portfolio-engine.js?v=8790-169-r20261012"></script>
+    <script src="client-hours.js?v=8790-169-r20261012"></script>
+    <script src="share-engine.js?v=8790-169-r20261012"></script>
+    <script src="portfolio-export-engine.js?v=8790-169-r20261012"></script>
+    <script src="progressive-list.js?v=8790-169-r20261012"></script>
+    <script src="app.js?v=8790-169-r20261012"></script>
   </body>
 </html>

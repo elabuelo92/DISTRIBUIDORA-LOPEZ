@@ -755,12 +755,13 @@
     };
   }
 
-  function assertDevice(route, context) {
+  function assertDevice(route, context, allowUnclaimed = false) {
     const deviceId = String(context.deviceId || "");
     if (!deviceId) throw new Error("El dispositivo no esta identificado.");
     if (route.driverUser && route.driverUser !== context.username && context.role !== "admin") {
       throw new Error(`La ruta esta asignada a ${route.driverUser}.`);
     }
+    if (!route.deviceId && context.role !== "admin" && !allowUnclaimed) throw new Error("Tomar la ruta en este dispositivo antes de operar.");
     if (route.deviceId && route.deviceId !== deviceId && context.role !== "admin") {
       throw new Error(`La ruta esta asignada a ${route.deviceLabel || route.deviceId}.`);
     }
@@ -771,7 +772,8 @@
     const route = findRoute(state, routeIdValue);
     if (!route) throw new Error("Hoja de ruta no encontrada.");
     if (route.status === ROUTE_STATUS.PLANNED) throw new Error("La ruta todavia no fue publicada por administracion.");
-    assertDevice(route, context);
+    if (route.closure || route.status === ROUTE_STATUS.COMPLETED) throw new Error("La ruta ya esta cerrada.");
+    assertDevice(route, context, true);
     route.deviceId = String(context.deviceId);
     route.deviceLabel = String(context.deviceLabel || context.deviceId);
     route.driverUser = String(route.driverUser || context.username || "").trim().toLowerCase();
@@ -779,6 +781,20 @@
     route.startedAt = route.startedAt || nowIso();
     route.updatedAt = nowIso();
     appendAudit(state, "RUTA_ASIGNADA", null, route, context);
+    return route;
+  }
+
+  function releaseRouteDevice(state, routeIdValue, expectedDeviceId, context) {
+    if (context?.role !== "admin") throw new Error("Solo Administracion puede liberar el dispositivo.");
+    const route = findRoute(state, routeIdValue);
+    if (!route || route.closure || route.status === ROUTE_STATUS.COMPLETED || route.status === ROUTE_STATUS.PLANNED) throw new Error("Seleccionar una ruta publicada y abierta.");
+    if (!route.driverUser) throw new Error("La ruta debe tener un repartidor asignado.");
+    if (!route.deviceId || route.deviceId !== expectedDeviceId) throw new Error("La asignacion cambio. Actualizar antes de liberar.");
+    const previous = { deviceId: route.deviceId, deviceLabel: route.deviceLabel, driverUser: route.driverUser };
+    route.deviceId = "";
+    route.deviceLabel = route.driverUser;
+    route.updatedAt = nowIso();
+    appendAudit(state, "DISPOSITIVO_RUTA_LIBERADO", null, route, { ...context, note: JSON.stringify(previous) });
     return route;
   }
 
@@ -1543,6 +1559,7 @@
     proposeRouteOrder,
     publishRoute,
     claimRoute,
+    releaseRouteDevice,
     updateStopStatus,
     markStopException,
     collectAndDeliver,

@@ -1659,8 +1659,22 @@
       : null;
     let commercialTarget = null;
     if (commercialInput && commercialInput.type === "multi_product_discount") {
+      if (commercialInput.lineDiscounts !== undefined) {
+        const lines = commercialInput.lineDiscounts;
+        if (!Array.isArray(lines) || !lines.length || !String(commercialInput.motive || "").trim()) throw new Error("Indicar productos y motivo del descuento solicitado.");
+        const seen = new Set();
+        lines.forEach(line => {
+          const key = normalizeText(line.productCode);
+          const pct = Number(line.discountPct);
+          if (!key || seen.has(key) || !Number.isFinite(pct) || pct <= 0 || pct > 100) throw new Error("Descuento por producto invalido o duplicado.");
+          if (requested.filter(({product}) => normalizeText(productCode(product)) === key).length !== 1) throw new Error("El producto del descuento no pertenece a una linea unica del pedido.");
+          seen.add(key);
+        });
+      }
       const selectedCodes = new Set((Array.isArray(commercialInput.productCodes) ? commercialInput.productCodes : []).map(normalizeText));
-      if (selectedCodes.size < 2 || requested.filter(({ product }) => selectedCodes.has(normalizeText(productCode(product) || productName(product)))).length !== selectedCodes.size) {
+      const minimum = Array.isArray(commercialInput.lineDiscounts) ? 1 : 2;
+      if (selectedCodes.size < minimum || requested.filter(({ product }) => selectedCodes.has(normalizeText(productCode(product) || productName(product)))).length !== selectedCodes.size
+        || (commercialInput.lineDiscounts && (commercialInput.lineDiscounts.length !== selectedCodes.size || commercialInput.lineDiscounts.some(line => !selectedCodes.has(normalizeText(line.productCode)))))) {
         throw new Error("Seleccionar al menos dos productos distintos del pedido para el descuento solicitado.");
       }
     } else if (commercialInput && commercialInput.type && commercialInput.type !== "general_discount") {
@@ -1732,6 +1746,10 @@
     } else if (commercialRequest && commercialRequest.type === "multi_product_discount") {
       const selectedCodes = new Set(commercialRequest.productCodes.map(normalizeText));
       commercialRequest.targetLineIds = items.filter((line) => selectedCodes.has(normalizeText(line.productCode || line.name))).map((line) => line.lineId);
+      if (commercialInput.lineDiscounts) commercialRequest.lineDiscounts = commercialInput.lineDiscounts.map(request => {
+        const line = items.find(item => normalizeText(item.productCode) === normalizeText(request.productCode));
+        return { targetLineId: line.lineId, productCode: line.productCode, productName: line.name, discountPct: Number(request.discountPct), motive: String(request.motive || commercialRequest.motive).trim() };
+      });
     }
     const requiresCommercialApproval = Boolean(commercialRequest && commercialRequest.type && commercialRequest.motive);
     const status = requiresCommercialApproval ? STATUS.COMMERCIAL_APPROVAL : (hasShortage ? STATUS.PENDING : STATUS.READY);
@@ -2461,6 +2479,12 @@
     const targetItems = commercialTargetItems(order.items || [], request, type);
     if (!targetItems.length) throw new Error("No se encontro el producto asociado a la solicitud comercial.");
 
+    const lineDiscounts = Array.isArray(request.lineDiscounts) ? request.lineDiscounts : null;
+    if (lineDiscounts && (lineDiscounts.length !== targetItems.length || targetItems.some(line => {
+      const matches = lineDiscounts.filter(item => item.targetLineId === line.lineId);
+      return matches.length !== 1 || !Number.isFinite(matches[0].discountPct) || matches[0].discountPct <= 0 || matches[0].discountPct > 100 || normalizeText(matches[0].productCode) !== normalizeText(line.productCode);
+    }))) throw new Error("La solicitud comercial contiene descuentos por linea invalidos.");
+
     targetItems.forEach((line) => {
       const before = clone(line);
       line.originalUnitPrice = positive(line.originalUnitPrice || before.unitPrice || request.originalPrice);
@@ -2470,7 +2494,7 @@
         line.unitPrice = proposedPrice;
         line.discountPct = 0;
       } else {
-        const discountPct = Math.min(100, Math.max(0, positive(request.discountPct || request.proposedValue)));
+        const discountPct = lineDiscounts ? lineDiscounts.find(item => item.targetLineId === line.lineId).discountPct : Math.min(100, Math.max(0, positive(request.discountPct || request.proposedValue)));
         line.discountPct = discountPct;
       }
       recalculateOrderLine(line);
