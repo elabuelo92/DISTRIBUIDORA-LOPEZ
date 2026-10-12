@@ -9932,7 +9932,7 @@ function exportDeliveryRouteManifest(routeId, format) {
   const rows = deliveryRouteManifestRows(route);
   const filePart = safeFilePart(`${route.id}-${route.day || reportDateStamp()}`);
   if (format === "csv") {
-    downloadCsvReport(`manifiesto-ruta-${filePart}.csv`, DELIVERY_MANIFEST_HEADERS, rows);
+    downloadTabularExcel(`manifiesto-ruta-${filePart}.xlsx`, DELIVERY_MANIFEST_HEADERS, rows);
     return;
   }
   downloadBlob(`manifiesto-ruta-${filePart}.pdf`, makeTablePdf(`Manifiesto de ruta - ${route.id}`, DELIVERY_MANIFEST_HEADERS, rows, {
@@ -9978,7 +9978,7 @@ function renderDeliveryActivePanel(route, routes) {
   meta.textContent = `${route.id} - ${stats.closed}/${stats.stops.length} gestionadas`;
   actions.innerHTML = `
     <button class="secondary-btn" type="button" data-delivery-map-mode="${showMap ? "table" : "map"}">${showMap ? "Ocultar mapa" : "Ver mapa"}</button>
-    ${canPlanDeliveryRoutes() ? `<button class="secondary-btn" type="button" data-route-manifest="csv" data-route-id="${escapeHtml(route.id)}">Manifiesto CSV</button>` : ""}
+    ${canPlanDeliveryRoutes() ? `<button class="secondary-btn" type="button" data-route-manifest="csv" data-route-id="${escapeHtml(route.id)}">Manifiesto Excel</button>` : ""}
     ${canPlanDeliveryRoutes() ? `<button class="secondary-btn" type="button" data-route-manifest="pdf" data-route-id="${escapeHtml(route.id)}">Manifiesto PDF</button>` : ""}
     ${canPlanDeliveryRoutes() && !route.startedAt && !route.closure && route.stops?.length > 1 ? `<button class="secondary-btn" type="button" data-optimize-route="${escapeHtml(route.id)}">Optimizar ruta</button>` : ""}
     ${directionsUrl ? `<button class="secondary-btn" type="button" data-delivery-route-map-open="${escapeHtml(route.id)}">Abrir recorrido</button>` : ""}
@@ -11641,7 +11641,7 @@ function fullClientPortfolioRows() {
 
 function exportFullClientPortfolioCsv() {
   if (!isAdminUser()) return;
-  downloadCsvReport(`cartera-completa-clientes-${reportDateStamp()}.csv`, FULL_CLIENT_EXPORT_HEADERS, fullClientPortfolioRows());
+  downloadTabularExcel(`cartera-completa-clientes-${reportDateStamp()}.xlsx`, FULL_CLIENT_EXPORT_HEADERS, fullClientPortfolioRows());
 }
 
 function exportFullClientPortfolioPdf() {
@@ -11679,7 +11679,7 @@ function fullProductPortfolioRows() {
 
 function exportFullProductPortfolioCsv() {
   if (!isAdminUser()) return;
-  downloadCsvReport(`cartera-completa-productos-precios-${reportDateStamp()}.csv`, FULL_PRODUCT_EXPORT_HEADERS, fullProductPortfolioRows());
+  downloadTabularExcel(`cartera-completa-productos-precios-${reportDateStamp()}.xlsx`, FULL_PRODUCT_EXPORT_HEADERS, fullProductPortfolioRows());
 }
 
 function exportFullProductPortfolioPdf() {
@@ -13212,7 +13212,7 @@ function selectedPriceListExportData() {
 function exportSelectedPriceListCsv() {
   const report = selectedPriceListExportData();
   if (!report) return;
-  downloadCsvReport(`lista-precios-${report.listNumber}-${reportDateStamp()}.csv`, ["Codigo", "Producto", "Precio"], report.rows);
+  downloadTabularExcel(`lista-precios-${report.listNumber}-${reportDateStamp()}.xlsx`, ["Codigo", "Producto", "Precio"], report.rows);
 }
 
 function exportSelectedPriceListPdf() {
@@ -14466,7 +14466,7 @@ function physicalStockReportRows() {
   return rows;
 }
 
-function exportPhysicalStockCsv() {
+async function exportPhysicalStockCsv() {
   if (!isAdminUser()) {
     window.alert("Solo administracion puede exportar inventario fisico.");
     return;
@@ -14494,25 +14494,20 @@ function exportPhysicalStockCsv() {
   }));
   if (physicalStockReportType === "adjustments") {
     const adjustmentHeaders = ["producto", "stock_anterior", "stock_nuevo", "motivo", "usuario", "fecha"];
-    const csv = [
-      adjustmentHeaders.join(","),
-      ...(state.physicalStockAdjustments || []).map((entry) => adjustmentHeaders.map((key) => csvCell({
+    const adjustmentRows = (state.physicalStockAdjustments || []).map((entry) => adjustmentHeaders.map((key) => ({
         producto: entry.productName,
         stock_anterior: entry.previousStock,
         stock_nuevo: entry.newStock,
         motivo: entry.reason,
         usuario: entry.user,
         fecha: formatOrderTime(entry.at)
-      }[key])).join(","))
-    ].join("\r\n");
-    downloadBlob(`ajustes-stock-fisico-${reportDateStamp()}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }));
+      }[key])));
+    await downloadTabularExcel(`ajustes-stock-fisico-${reportDateStamp()}.xlsx`, ["Producto", "Stock anterior", "Stock nuevo", "Motivo", "Usuario", "Fecha"], adjustmentRows);
     return;
   }
-  const csv = [
-    headers.join(","),
-    ...rows.map((row) => headers.map((key) => csvCell(row[key])).join(","))
-  ].join("\r\n");
-  downloadBlob(`control-stock-fisico-${safeFilePart(physicalStockReportType)}-${reportDateStamp()}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  await downloadTabularExcel(`control-stock-fisico-${safeFilePart(physicalStockReportType)}-${reportDateStamp()}.xlsx`,
+    ["Codigo", "Producto", "Rubro", "Marca", "Proveedor", "Deposito", "Disponible", "Comprometida", "Preparandose", "Armada", "Etiquetada", "Pendiente despacho", "Fisico esperado", "Conteo", "Diferencia", "Porcentaje", "Usuario conteo", "Fecha conteo"],
+    rows.map((row) => headers.map((key) => key === "porcentaje" && row[key] !== "" ? Number(row[key]) : row[key])));
 }
 
 function exportPhysicalStockPdf() {
@@ -14739,18 +14734,16 @@ function downloadBlob(filename, blob) {
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
 
-function exportStockCsv() {
+async function exportStockCsv() {
   if (!isAdminUser()) {
     window.alert("Solo administracion puede exportar stock.");
     return;
   }
   const rows = stockReportRows();
   const headers = ["codigo", "barras", "producto", "rubro", "marca", "familia", "fisico", "reservado", "disponible", "transito", "minimo", "costo", "precio", "estado"];
-  const csv = [
-    headers.join(","),
-    ...rows.map((row) => headers.map((key) => csvCell(row[key])).join(","))
-  ].join("\r\n");
-  downloadBlob(`stock-distribuidora-lopez-${reportDateStamp()}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  await downloadTabularExcel(`stock-distribuidora-lopez-${reportDateStamp()}.xlsx`,
+    ["Codigo", "Barras", "Producto", "Rubro", "Marca", "Familia", "Fisico", "Reservado", "Disponible", "Transito", "Minimo", "Costo", "Precio", "Estado"],
+    rows.map((row) => headers.map((key) => row[key])));
 }
 
 function pdfEscape(value) {
@@ -14919,6 +14912,18 @@ function makeTablePdf(title, headers, rows, options = {}) {
 function downloadCsvReport(fileName, headers, rows) {
   const csv = [headers, ...(rows || [])].map((row) => row.map(csvCell).join(",")).join("\r\n");
   downloadBlob(fileName, new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }));
+}
+
+async function downloadTabularExcel(fileName, headers, rows) {
+  try {
+    await downloadXlsxReport({
+      fileName: fileName.replace(/\.csv$/i, ".xlsx"), sheetName: "Reporte",
+      headers, rows, fontSize: 13,
+      wrapColumns: headers.map((_, index) => index + 1)
+    });
+  } catch (error) {
+    showCompactNotice(error.message || "No se pudo exportar el Excel. Volver a intentar.", "warn");
+  }
 }
 
 function exportStockPdf() {
@@ -15431,7 +15436,7 @@ function supplierExportRows() {
 
 function exportSuppliersCsv() {
   if (!isAdminUser()) return;
-  downloadCsvReport(`proveedores-${reportDateStamp()}.csv`, SUPPLIER_EXPORT_HEADERS, supplierExportRows());
+  downloadTabularExcel(`proveedores-${reportDateStamp()}.xlsx`, SUPPLIER_EXPORT_HEADERS, supplierExportRows());
 }
 
 function exportSuppliersPdf() {
