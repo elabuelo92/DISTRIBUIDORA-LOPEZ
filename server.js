@@ -9245,6 +9245,16 @@ const server = http.createServer(async (req, res) => {
         const previousTransfer = entitySnapshot(currentState, "transferencia", transferId);
         const transferBefore = (accountEngine.ensureTransferReconciliation(currentState) || []).find((item) => item.id === transferId);
         if (!transferBefore) throw new Error("Transferencia no encontrada para adjuntar comprobante.");
+        const proofInput = {
+          observations: input.observations || input.note || "", amount: input.amount,
+          expectedAmount: input.expectedAmount, requestId: input.proofRequestId,
+          proofDigest: crypto.createHash("sha256").update(String(input.dataUrl || input.fileDataUrl || "")).digest("hex")
+        };
+        const proofCheck = accountEngine.checkTransferProof(transferBefore, proofInput);
+        if (proofCheck.repeated) {
+          sendJson(res, 200, { ok: true, transfer: transferBefore, upload: transferBefore.attachment, repeated: true, refreshRequired: true });
+          return;
+        }
         const upload = saveDeliveryUpload({
           orderCode: transferBefore.orderCode || transferId,
           kind: "transfer-proof",
@@ -9253,7 +9263,7 @@ const server = http.createServer(async (req, res) => {
         const transfer = accountEngine.attachTransferProof(
           currentState,
           transferId,
-          { attachment: upload, observations: input.observations || input.note || "" },
+          { ...proofInput, attachment: upload },
           { user: sessionUser.name, username: sessionUser.username, role: sessionUser.role }
         );
         if (transfer && transfer.orderCode) {

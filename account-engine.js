@@ -495,6 +495,7 @@
     historicalOrders(state).forEach((order) => {
       (Array.isArray(order.transferReceipts) ? order.transferReceipts : []).forEach((receipt) => {
         if (receipt.reconciliationId === record.id || receipt.id === record.id) {
+          receipt.amount = record.amount;
           receipt.status = record.status;
           receipt.statusReason = record.statusReason;
           receipt.attachment = record.attachment;
@@ -630,13 +631,56 @@
     return syncTransferWithOrders(state, saved);
   }
 
+  function checkTransferProof(record, input) {
+    if (!record) throw new Error("Transferencia no encontrada para conciliacion.");
+    const requestId = String(input && input.requestId || "").trim();
+    const prior = requestId && (record.history || []).find((entry) => entry.action === "COMPROBANTE_RECIBIDO" && entry.requestId === requestId);
+    if (prior) {
+      if (Number(input.amount) !== prior.amount) throw new Error("El reintento tiene otro importe. Reabrir la transferencia.");
+      if (prior.proofDigest && input.proofDigest !== prior.proofDigest) throw new Error("El reintento tiene otro archivo. Reabrir la transferencia.");
+      return { repeated: true, requestId, amount: prior.amount };
+    }
+    if (FINAL_TRANSFER_STATUSES.has(record.status)) throw new Error("La transferencia ya fue validada y no puede reemplazar comprobante.");
+    const amount = input.amount == null ? record.amount : Number(input.amount);
+    if (!Number.isFinite(amount) || amount <= 0 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001 || amount > record.amount) throw new Error("El importe del comprobante debe ser positivo y no superar el pendiente.");
+    if (input.expectedAmount != null && Number(input.expectedAmount) !== record.amount) throw new Error("La transferencia cambio. Reabrir antes de cargar el comprobante.");
+    if (amount < record.amount) {
+      if (!requestId || !/^[a-zA-Z0-9-]{8,100}$/.test(requestId)) throw new Error("Falta identificador valido para el comprobante parcial.");
+      if (record.attachment || record.accountPaymentApplied) throw new Error("No dividir una transferencia con comprobante o pago aplicado.");
+      if (record.status !== TRANSFER_STATUS.PENDING) throw new Error("Solo se puede dividir una transferencia pendiente sin comprobante.");
+    }
+    return { repeated: false, requestId, amount };
+  }
+
   function attachTransferProof(state, transferId, input, context) {
     ensureTransferReconciliation(state);
     const record = state.bankReconciliation.find((item) => item.id === transferId);
-    if (!record) throw new Error("Transferencia no encontrada para conciliacion.");
-    if (FINAL_TRANSFER_STATUSES.has(record.status)) throw new Error("La transferencia ya fue validada y no puede reemplazar comprobante.");
+    const { repeated, requestId, amount } = checkTransferProof(record, input);
+    if (repeated) return record;
     const attachment = input && input.attachment;
     if (!attachment || !attachment.url || !attachment.filename) throw new Error("Adjuntar comprobante valido.");
+    if (amount < record.amount) {
+      const remainingId = `TRF-REST-${requestId}`;
+      if (state.bankReconciliation.some((entry) => entry.id === remainingId)) throw new Error("El remanente ya existe. Actualizar la lista.");
+      const remaining = normalizeTransferRecord({
+        ...record, id: remainingId, amount: Math.round((record.amount - amount) * 100) / 100,
+        status: TRANSFER_STATUS.PENDING, attachment: null, uploadedAt: null, uploadedBy: "",
+        uploadObservations: "", validatedAt: null, validatedBy: "", operationNumber: "",
+        paymentConfirmedAt: null, accountUpdatedAt: null, accountUpdatedBy: "",
+        previousBalance: null, newBalance: null, accountPaymentApplied: false, accountEntryId: "",
+        supplierPaymentId: "", rejectedAt: null, rejectedBy: "", statusReason: "",
+        history: []
+      });
+      pushTransferHistory(remaining, "REMANENTE_COMPROBANTE_PARCIAL", context, { originalTransferId: record.id, requestId, amount: remaining.amount });
+      pushTransferHistory(record, "TRANSFERENCIA_DIVIDIDA", context, { previousAmount: record.amount, amount, remainingId, remainingAmount: remaining.amount, requestId });
+      record.amount = amount;
+      record.matchKey = transferReconciliationKey(record);
+      state.bankReconciliation.unshift(remaining);
+      historicalOrders(state).filter((order) => record.orderCode && order.code === record.orderCode).forEach((order) => {
+        order.transferReceipts = Array.isArray(order.transferReceipts) ? order.transferReceipts : [];
+        order.transferReceipts.push({ ...remaining, reconciliationId: remaining.id });
+      });
+    }
     const at = nowIso();
     const user = String(context && context.user || "Administracion");
     record.attachment = attachment;
@@ -648,6 +692,7 @@
     record.rejectedBy = "";
     record.statusReason = "";
     pushTransferHistory(record, "COMPROBANTE_RECIBIDO", context, {
+      requestId, amount, proofDigest: input.proofDigest || "",
       attachment: attachment.filename,
       observations: record.uploadObservations
     });
@@ -1085,6 +1130,7 @@
     registerTransferReceipt,
     registerPendingTransfer,
     attachTransferProof,
+    checkTransferProof,
     validateTransfer,
     rejectTransferProof,
     isTransferDebtOpen,

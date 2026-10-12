@@ -4229,6 +4229,9 @@
           <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
         </div>
         <input id="transferProofId" type="hidden">
+        <label>Importe de este comprobante
+          <input id="transferProofAmount" type="number" min="0.01" step="0.01" required inputmode="decimal">
+        </label>
         <div class="transfer-proof-dropzone" id="transferProofDropzone" tabindex="0">
           <strong>Soltar comprobante aca</strong>
           <span>Tambien puede pegar una captura con Ctrl+V o usar los botones.</span>
@@ -4644,7 +4647,7 @@
     <script src="config.js?v=8790-168-r20261007b"></script>
     <script src="maps-config.js?v=8790-168-r20261007b"></script>
     <script src="order-engine.js?v=8790-168-r20261007b"></script>
-    <script src="account-engine.js?v=8790-168-r20261007b"></script>
+    <script src="account-engine.js?v=8790-168-r20261012proofs"></script>
     <script src="route-optimizer.js?v=8790-168-r20261007b"></script>
     <script src="delivery-engine.js?v=8790-168-r20261012gps"></script>
     <script src="sales-commission-report.js?v=8790-168-r20261007b"></script>
@@ -4654,6 +4657,6 @@
     <script src="share-engine.js?v=8790-168-r20261007b"></script>
     <script src="portfolio-export-engine.js?v=8790-168-r20261007b"></script>
     <script src="progressive-list.js?v=8790-168-r20261007b"></script>
-    <script src="app.js?v=8790-168-r20261012manifest"></script>
+    <script src="app.js?v=8790-168-r20261012proofs"></script>
   </body>
 </html>

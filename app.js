@@ -10856,6 +10856,11 @@ function openTransferProofDialog(transferId) {
   const transfer = (state.bankReconciliation || []).find((item) => item.id === transferId);
   if (!transfer) return;
   byId("transferProofId").value = transfer.id;
+  byId("transferProofAmount").value = String(transfer.amount);
+  byId("transferProofAmount").max = String(transfer.amount);
+  byId("transferProofAmount").readOnly = Boolean(transfer.attachment);
+  byId("transferProofAmount").dataset.expectedAmount = String(transfer.amount);
+  byId("transferProofAmount").dataset.requestId = crypto.randomUUID();
   byId("transferProofTitle").textContent = `${transfer.orderCode || "Transferencia"} - ${transfer.client || "Sin cliente"}`;
   byId("transferProofObservations").value = transfer.uploadObservations || "";
   byId("transferProofMessage").textContent = "";
@@ -10892,6 +10897,9 @@ async function submitTransferProof(event) {
     const dataUrl = await fileToEvidenceDataUrl(file);
     await postOperationalAction(`api/bank-reconciliation/transfers/${encodeURIComponent(transferId)}/proof`, {
       dataUrl,
+      amount: Number(byId("transferProofAmount").value),
+      expectedAmount: Number(byId("transferProofAmount").dataset.expectedAmount),
+      proofRequestId: byId("transferProofAmount").dataset.requestId,
       observations: byId("transferProofObservations").value.trim()
     });
     byId("transferProofDialog").close("default");
