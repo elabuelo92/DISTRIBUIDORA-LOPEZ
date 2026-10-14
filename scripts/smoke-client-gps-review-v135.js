@@ -22,6 +22,7 @@ const users = [["admin1", "admin", "Administracion 1"], ["sofia", "seller", "Sof
 });
 fs.writeFileSync(usersFile, JSON.stringify({ users }), "utf8");
 const state = JSON.parse(JSON.stringify(buildState(1)));
+state.suppliers = [{ name: "Proveedor Fotos", razon_social: "Proveedor Fotos", balance: 0 }];
 state.clients[0].location = { lat: state.clients[0].latitud, lng: state.clients[0].longitud };
 state.deliveryRoutes = [{ id: "GPS-REFRESH-ROUTE", driverUser: "reparto1", status: "Planificada", day: "2026-10-12", manualOrder: true,
   stops: [{ orderCode: state.orders[0].code, client: state.clients[0].name, status: Order.STATUS.READY_DISPATCH,
@@ -40,6 +41,7 @@ const child = spawn(process.execPath, [path.join(root, "server.js")], {
 const base = `http://127.0.0.1:${port}`;
 let serverError = "";
 child.stderr.on("data", (chunk) => { serverError += chunk.toString(); });
+child.stdout.on("data", () => {});
 
 async function waitHealth() {
   for (let attempt = 0; attempt < 600; attempt += 1) {
@@ -173,8 +175,34 @@ async function post(cookie, endpoint, input) {
     const unblocked = await post(seller, "/api/orders", { operationId: "GPS-CANCEL-ORDER-1", client: state.clients[0].name, items: [{ productCode: "P-132", qty: 1 }] });
     assert.ok(unblocked.status >= 200 && unblocked.status < 300, unblocked.body.error || "Sales should resume after cancellation");
     console.log(JSON.stringify({ ok: true, blockedDuringReview: true, originalOrderPreserved: true, precision: saved.gpsReview.proposal.accuracy }));
+    const beforeRemits = JSON.parse(fs.readFileSync(stateFile, "utf8")).state;
+    const stockBefore = JSON.stringify(beforeRemits.products);
+    const balancesBefore = JSON.stringify(beforeRemits.suppliers.map(s => s.balance));
+    const photo = "data:image/png;base64,iVBORw0KGgo=";
+    const pdf = "data:application/pdf;base64,JVBERi0xLjQ=";
+    const remitBody = { supplier: "Proveedor Fotos", remitNumber: "MULTI-1", items: [{ productCode: "P-132", name: "Producto operativo", qty: 2, stockQty: 2, unitPrice: 10 }], fileDataUrls: [photo, pdf, photo] };
+    const invalid = await post(admin, "/api/suppliers/remits", { ...remitBody, fileDataUrls: [photo, "invalid"] });
+    assert.equal(invalid.status, 400);
+    const concurrent = await Promise.all([post(admin, "/api/suppliers/remits", remitBody), post(admin, "/api/suppliers/remits", remitBody)]);
+    assert.equal(concurrent.filter(r => r.status === 200).length, 1, JSON.stringify(concurrent));
+    assert.equal(concurrent.filter(r => r.status === 400).length, 1);
+    const savedRemit = concurrent.find(r => r.status === 200).body.remit;
+    assert.equal(savedRemit.uploads.length, 2);
+    assert.equal(savedRemit.upload.url, savedRemit.uploads[0].url);
+    for (const upload of savedRemit.uploads) assert.equal((await fetch(base + upload.url, { headers: { Cookie: admin } })).status, 200);
+    assert.equal((await post(admin, "/api/suppliers/remits", { ...remitBody, remitNumber: "MULTI-2" })).status, 200);
+    assert.equal((await post(admin, "/api/suppliers/remits", { ...remitBody, remitNumber: "MULTI-3", fileDataUrls: Array(11).fill(photo) })).status, 400);
+    const legacy = { ...remitBody, remitNumber: "LEGACY", fileDataUrl: photo };
+    delete legacy.fileDataUrls;
+    assert.equal((await post(admin, "/api/suppliers/remits", legacy)).status, 200);
+    const afterRemits = JSON.parse(fs.readFileSync(stateFile, "utf8")).state;
+    assert.equal(afterRemits.supplierMovements.filter(m => m.remitNumber === "MULTI-1").length, 1);
+    assert.equal(JSON.stringify(afterRemits.products), stockBefore);
+    assert.equal(JSON.stringify(afterRemits.suppliers.map(s => s.balance)), balancesBefore);
+    console.log("PASS remitos: multiple files, deduplication, concurrent duplicate blocked, separate numbers, limits, legacy and downloads; stock/debt unchanged pending validation.");
   } finally {
     child.kill();
+    await new Promise(resolve => child.once("exit", resolve));
     const resolved = fs.realpathSync(tempDir);
     const tempRoot = fs.realpathSync(os.tmpdir());
     if (!resolved.startsWith(tempRoot + path.sep)) throw new Error("Ruta temporal fuera de lugar.");

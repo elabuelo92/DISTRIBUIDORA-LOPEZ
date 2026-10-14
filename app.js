@@ -10341,6 +10341,8 @@ function renderDelivery() {
 }
 
 let deliveryGpsCorrectionBusy = false;
+let deliveryGpsCorrectionClientId = "";
+let deliveryGpsCorrectionError = "";
 
 function deliveryGpsCorrectionClients() {
   return (state.clients || []).filter(client => ["needs_correction", "rejected", "pending_validation"].includes(client.gpsReview?.status));
@@ -10354,7 +10356,8 @@ function renderDeliveryGpsCorrections() {
     <strong>${escapeHtml(client.name || client.nombre_comercial || "Cliente")}</strong>
     <p>${escapeHtml(client.direccion || client.address || "Sin direccion")}</p>
     <span class="tag warn">${client.gpsReview.status === "pending_validation" ? "Pendiente de validacion administrativa" : "Correccion solicitada por Administracion"}</span>
-    ${client.gpsReview.status !== "pending_validation" ? `<button class="primary-btn" type="button" data-delivery-gps-client="${escapeHtml(client.codigo_cliente || client.name)}" ${deliveryGpsCorrectionBusy ? "disabled" : ""}>${deliveryGpsCorrectionBusy ? "Tomando GPS..." : "Registrar ubicacion actual"}</button>` : ""}
+    ${client.gpsReview.status !== "pending_validation" ? `<button class="primary-btn" type="button" data-delivery-gps-client="${escapeHtml(client.codigo_cliente || client.name)}" ${deliveryGpsCorrectionBusy ? "disabled" : ""} aria-busy="${deliveryGpsCorrectionBusy && deliveryGpsCorrectionClientId === (client.codigo_cliente || client.name)}">${deliveryGpsCorrectionBusy && deliveryGpsCorrectionClientId === (client.codigo_cliente || client.name) ? "Tomando GPS..." : "Registrar ubicacion actual"}</button>` : ""}
+    ${deliveryGpsCorrectionError && deliveryGpsCorrectionClientId === (client.codigo_cliente || client.name) ? `<p role="alert">${escapeHtml(deliveryGpsCorrectionError)}</p>` : ""}
   </article>`).join("") : '<div class="empty-note">Sin correcciones GPS solicitadas para sus clientes.</div>';
 }
 
@@ -10366,10 +10369,11 @@ async function captureDeliveryClientGps() {
     return new Promise((resolve, reject) => {
       const timer = setInterval(() => {
         const point = deliveryLocation;
-        if (point && point !== previous && Date.parse(point.deviceAt) >= started - 1000
-            && !gpsClientRejectReason(point) && Number(point.accuracy) > 0) {
+        const pointAt = point && (typeof point.deviceAt === "number" ? point.deviceAt : Date.parse(point.deviceAt));
+        if (point && point !== previous && Number.isFinite(pointAt) && pointAt >= started - 1000 && pointAt <= Date.now() + 10000
+            && !gpsClientRejectReason(point) && Number.isFinite(Number(point.accuracy)) && Number(point.accuracy) > 0) {
           clearInterval(timer);
-          resolve({ ...point });
+          resolve({ ...point, deviceAt: new Date(pointAt).toISOString() });
         } else if (Date.now() - started >= 20000) {
           clearInterval(timer);
           reject(new Error("No se obtuvo GPS nuevo. Revise el permiso de ubicacion precisa y vuelva a intentar."));
@@ -10393,6 +10397,8 @@ async function submitDeliveryClientGpsCorrection(id) {
   if (!client || !["needs_correction", "rejected"].includes(client.gpsReview.status)) return;
   if (!window.confirm(`Registrar ubicacion actual para ${client.name}? Debe estar frente al comercio. Administracion validara el cambio.`)) return;
   const expectedUpdatedAt = String(client.updatedAt || client.createdAt || "");
+  deliveryGpsCorrectionClientId = id;
+  deliveryGpsCorrectionError = "";
   deliveryGpsCorrectionBusy = true;
   renderDeliveryGpsCorrections();
   try {
@@ -10402,7 +10408,8 @@ async function submitDeliveryClientGpsCorrection(id) {
     });
     showCompactNotice("Ubicacion enviada a Administracion. La anterior se conserva hasta aprobarla.", "ok");
   } catch (error) {
-    showCompactNotice(error.message || "No se pudo enviar la ubicacion.", "danger");
+    deliveryGpsCorrectionError = error.message || "No se pudo enviar la ubicacion.";
+    showCompactNotice(deliveryGpsCorrectionError, "danger");
   } finally {
     deliveryGpsCorrectionBusy = false;
     renderDeliveryGpsCorrections();
@@ -15601,7 +15608,7 @@ function renderSuppliers() {
         <span class="tag ${supplierMovementStatusClass(movement)}">${escapeHtml(supplierMovementStatusLabel(movement))}</span>
         <strong>${escapeHtml(movement.supplier || movement.proveedor || "Proveedor")}</strong>
         <p>${escapeHtml(supplierMovementDescription(movement))}</p>
-        ${movement.upload && movement.upload.url ? `<a href="${escapeHtml(movement.upload.url)}" target="_blank" rel="noopener">Ver adjunto</a>` : ""}
+        ${(movement.uploads || [movement.upload]).filter(upload => upload && upload.url).map((upload, index) => `<a href="${escapeHtml(upload.url)}" target="_blank" rel="noopener">Ver adjunto ${index + 1}</a>`).join(" | ")}
         ${movement.invoiceUpload && movement.invoiceUpload.url ? `<a href="${escapeHtml(movement.invoiceUpload.url)}" target="_blank" rel="noopener">Ver factura</a>` : ""}
         ${isAdminUser() && movement.type === "Remito" && normalizeSearchText(supplierMovementStatusLabel(movement)).includes("pendiente") ? `<button class="mini-btn primary-mini" type="button" data-supplier-remit-validate="${escapeHtml(movement.id)}">Conciliar remito</button>` : ""}
         ${isAdminUser() && movement.type === "Pago proveedor" && normalizeSearchText(supplierMovementStatusLabel(movement)).includes("pendiente") ? `<button class="mini-btn primary-mini" type="button" data-supplier-payment-reconcile="${escapeHtml(movement.id)}">Conciliar pago</button>` : ""}
@@ -16108,17 +16115,11 @@ function addSupplierRemitItem() {
   renderSupplierRemitItems();
 }
 
-function supplierRemitAttachmentFile() {
-  return byId("supplierRemitCamera").files[0]
-    || byId("supplierRemitGallery").files[0]
-    || byId("supplierRemitFile").files[0]
-    || null;
-}
+let supplierRemitAttachments = [];
 
 function updateSupplierRemitFileStatus() {
-  const file = supplierRemitAttachmentFile();
   const status = byId("supplierRemitFileStatus");
-  if (status) status.textContent = file ? `Adjunto listo: ${file.name}` : "Sin adjunto seleccionado.";
+  if (status) status.innerHTML = supplierRemitAttachments.length ? supplierRemitAttachments.map((file, index) => `<div>${index + 1}. ${escapeHtml(file.name)} <button type="button" data-remit-remove-file="${index}" aria-label="Quitar ${escapeHtml(file.name)}">Quitar</button></div>`).join("") : "Sin adjunto seleccionado.";
 }
 
 function supplierInvoiceAttachmentFile() {
@@ -16175,6 +16176,7 @@ function openSupplierRemitDialog() {
   supplierRemitItems = [];
   const form = byId("supplierRemitForm");
   form.reset();
+  supplierRemitAttachments = [];
   byId("supplierRemitDate").value = localDateInputValue(new Date().toISOString());
   if (isSupplierReceiverMode()) {
     byId("supplierRemitAmount").value = "0";
@@ -16197,6 +16199,7 @@ async function submitSupplierRemit(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
   const submit = byId("supplierRemitSubmitBtn");
+  if (submit.disabled) return;
   submit.disabled = true;
   submit.textContent = "Guardando...";
   setSupplierRemitMessage("Registrando remito pendiente de validacion administrativa...", "info");
@@ -16204,11 +16207,13 @@ async function submitSupplierRemit(event) {
     if (!supplierRemitItems.length) {
       throw new Error("Agregar al menos un producto existente o nuevo al remito.");
     }
-    const attachment = supplierRemitAttachmentFile();
-    if (!attachment) {
+    const attachments = supplierRemitAttachments.slice();
+    if (!attachments.length) {
       throw new Error("Adjuntar foto, imagen o PDF del remito.");
     }
-    const fileData = await fileToEvidenceDataUrl(attachment);
+    const files = [];
+    for (const attachment of attachments) files.push(await fileToEvidenceDataUrl(attachment));
+    if (files.reduce((sum, file) => sum + file.length, 0) > 12 * 1024 * 1024) throw new Error("Los adjuntos juntos superan 12 MB. Reduzca el tamano de las fotos.");
     const payload = await postOperationalAction("api/suppliers/remits", {
       supplier: form.get("supplier"),
       remitNumber: form.get("remitNumber"),
@@ -16217,10 +16222,11 @@ async function submitSupplierRemit(event) {
       productsText: form.get("productsText"),
       items: supplierRemitItems,
       observations: form.get("observations"),
-      fileDataUrl: fileData,
+      fileDataUrls: files,
       receiverMode: isSupplierReceiverMode()
     });
     cleanupOperationalLocalData("remito proveedor");
+    supplierRemitAttachments = [];
     byId("supplierRemitDialog").close("default");
     const completed = payload.completedOrders && payload.completedOrders.length
       ? ` Pedidos completos: ${payload.completedOrders.join(", ")}.`
@@ -21064,9 +21070,23 @@ byId("supplierRemitItemsList").addEventListener("click", (event) => {
 });
 ["supplierRemitCamera", "supplierRemitGallery", "supplierRemitFile"].forEach((id) => {
   byId(id).addEventListener("change", () => {
-    keepOnlySelectedFileInput(id, ["supplierRemitCamera", "supplierRemitGallery", "supplierRemitFile"]);
+    const input = byId(id);
+    const next = supplierRemitAttachments.slice();
+    for (const file of Array.from(input.files || [])) {
+      if (!next.some(old => old.name === file.name && old.size === file.size && old.lastModified === file.lastModified)) next.push(file);
+    }
+    if (next.length > 10 || next.reduce((sum, file) => sum + file.size, 0) > 9 * 1024 * 1024) {
+      setSupplierRemitMessage("Maximo 10 adjuntos y 9 MB en total. Reduzca el tamano de las fotos.");
+    } else supplierRemitAttachments = next;
+    input.value = "";
     updateSupplierRemitFileStatus();
   });
+});
+byId("supplierRemitFileStatus").addEventListener("click", event => {
+  const button = event.target.closest("[data-remit-remove-file]");
+  if (!button) return;
+  supplierRemitAttachments.splice(Number(button.dataset.remitRemoveFile), 1);
+  updateSupplierRemitFileStatus();
 });
 ["supplierInvoiceCamera", "supplierInvoiceGallery", "supplierInvoiceFile"].forEach((id) => {
   byId(id).addEventListener("change", () => {

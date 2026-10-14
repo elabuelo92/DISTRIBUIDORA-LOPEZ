@@ -2287,7 +2287,7 @@ function saveDeliveryUpload(input, user) {
   };
 }
 
-function saveSupplierUpload(input, user) {
+function saveSupplierUpload(input, user, validateOnly = false) {
   ensureDataFiles();
   if (!input.dataUrl) return null;
   const match = String(input.dataUrl || "").match(/^data:(image\/png|image\/jpeg|image\/jpg|image\/webp|application\/pdf);base64,([A-Za-z0-9+/=]+)$/);
@@ -2298,6 +2298,7 @@ function saveSupplierUpload(input, user) {
   if (!buffer.length || buffer.length > maxBytes) {
     throw new Error(mimeType === "application/pdf" ? "El PDF del remito debe pesar menos de 8 MB." : "La imagen del remito debe pesar menos de 5 MB.");
   }
+  if (validateOnly) return null;
   const extension = mimeType === "application/pdf" ? "pdf" : (mimeType === "image/png" ? "png" : (mimeType === "image/webp" ? "webp" : "jpg"));
   const kind = String(input.kind || "supplier-remit").replace(/[^a-z0-9_-]/gi, "").slice(0, 24) || "supplier-remit";
   const supplier = String(input.supplier || "proveedor").replace(/[^a-z0-9_-]/gi, "").slice(0, 32) || "proveedor";
@@ -3243,6 +3244,7 @@ function stateForUser(state, user) {
     })) : [],
     observations: movement.observations,
     upload: movement.upload,
+    uploads: movement.uploads,
     user: movement.user,
     username: movement.username,
     adminValidationStatus: movement.adminValidationStatus
@@ -8626,7 +8628,11 @@ const server = http.createServer(async (req, res) => {
         const remitNumber = String(input.remitNumber || input.numero_remito || "").trim();
         if (!supplierName) throw new Error("Seleccionar proveedor.");
         if (!remitNumber) throw new Error("Indicar numero de remito.");
-        if (!input.fileDataUrl && !input.dataUrl) throw new Error("Adjuntar foto, imagen o PDF del remito.");
+        const remitFiles = input.fileDataUrls === undefined ? [input.fileDataUrl || input.dataUrl || ""] : input.fileDataUrls;
+        if (!Array.isArray(remitFiles) || !remitFiles.length || remitFiles.length > 10) throw new Error("Adjuntar entre 1 y 10 fotos o PDF del remito.");
+        if (remitFiles.some(file => typeof file !== "string" || !file)) throw new Error("Adjunto de remito invalido.");
+        if (remitFiles.reduce((sum, file) => sum + file.length, 0) > 12 * 1024 * 1024) throw new Error("Los adjuntos superan 12 MB.");
+        remitFiles.forEach(dataUrl => saveSupplierUpload({ dataUrl }, sessionUser, true));
         currentState.suppliers = Array.isArray(currentState.suppliers) ? currentState.suppliers.map(normalizeSupplierServerRecord) : [];
         currentState.products = Array.isArray(currentState.products) ? currentState.products : [];
         let supplier = currentState.suppliers.find((item) => sameText(item.name, supplierName) || sameText(item.razon_social, supplierName));
@@ -8663,12 +8669,13 @@ const server = http.createServer(async (req, res) => {
             throw new Error(`No se puede crear ${line.name}: el codigo o codigo de barras ya existe en ${exactDuplicates[0].name || exactDuplicates[0].descripcion}.`);
           }
         });
-        const upload = saveSupplierUpload({
-          dataUrl: input.fileDataUrl || input.dataUrl || "",
+        const uploads = [...new Set(remitFiles)].map(dataUrl => saveSupplierUpload({
+          dataUrl,
           supplier: supplier.name,
           remitNumber,
           kind: "supplier-remit"
-        }, sessionUser);
+        }, sessionUser));
+        const upload = uploads[0];
         const previousSupplier = cloneAuditValue(supplier);
         lines = lines.map((line) => {
           if (!line.isNewProduct || !(line.newProduct && line.newProduct.photoDataUrl)) return line;
@@ -8726,6 +8733,7 @@ const server = http.createServer(async (req, res) => {
           products: productResults,
           observations: String(input.observations || input.note || "").trim(),
           upload,
+          uploads,
           user: sessionUser.name,
           username: sessionUser.username,
           receiverOnly: receiverMode,
