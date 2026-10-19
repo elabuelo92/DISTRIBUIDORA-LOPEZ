@@ -16977,12 +16977,72 @@ function exportRouteSalesPdf() {
   downloadBlob(`productos-vendidos-ruta-${reportDateStamp()}.pdf`, makeReadableReportPdf("Productos vendidos por ruta", ["Fecha", "Ruta", "Vendedor", "Producto", "Unidades", "Importe", "Pedidos"], rows.map(row => [row.date, row.zone, row.seller, row.product, row.units, money.format(row.amount), row.orderCount]), { subtitle: `${rows.length} registros - filtros activos` }));
 }
 
+function statisticsPeriodReport() {
+  if (!byId("statisticsFrom").value && !byId("statisticsTo").value) {
+    const week = DLSalesCommissionReport.currentWeek();
+    byId("statisticsFrom").value = week.from;
+    byId("statisticsTo").value = week.to;
+  }
+  return DLSalesCommissionReport.buildStatistics([...(state.orders || []), ...(state.archivedOrders || [])], {
+    from: byId("statisticsFrom").value, to: byId("statisticsTo").value, costHistory: state.costHistory
+  });
+}
+
+function renderStatisticsPeriod() {
+  try {
+    const report = statisticsPeriodReport();
+    byId("statisticsExport").disabled = false;
+    byId("statisticsStatus").textContent = `${report.orders} pedidos. ${report.missingCostLines ? `${report.missingCostLines} lineas sin costo historico: CMV y ganancia bruta no disponibles.` : "Costos historicos completos."}${report.invalidDates ? ` ${report.invalidDates} pedidos con fecha invalida excluidos; revisar datos.` : ""}`;
+    byId("statisticsStatus").textContent += report.costRecordingFrom
+      ? ` Registro de costos iniciado: ${new Date(report.costRecordingFrom).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })}. Historicos anteriores sin reconstruccion.`
+      : " Registro de costos pendiente de la primera carga posterior al corte. Historicos anteriores sin reconstruccion.";
+    byId("analyticsKpis").innerHTML = [["Ventas brutas", report.gross], ["Devoluciones", report.returns], ["Ventas menos devoluciones", report.netSales], ["CMV", report.cmv], ["Ganancia bruta", report.profit]].map(([label,value]) => `<article class="analytics-kpi"><span>${label}</span><strong>${value === null ? "No disponible" : money.format(value)}</strong></article>`).join("");
+    byId("sellerSalesChart").innerHTML = `<div class="responsive-table"><table><thead><tr><th>Vendedor</th><th>Pedidos</th><th>Importe</th></tr></thead><tbody>${report.sellers.map(row => `<tr><td>${escapeHtml(row.seller)}</td><td>${row.orders}</td><td>${money.format(row.gross)}</td></tr>`).join("")}<tr><th>Total</th><td>${report.orders}</td><td>${money.format(report.gross)}</td></tr></tbody></table></div>`;
+    byId("productConsumptionChart").innerHTML = `<div class="responsive-table"><table><thead><tr><th>Codigo</th><th>Producto</th><th>Unidades</th><th>Importe</th></tr></thead><tbody>${report.products.slice(0, 250).map(row => `<tr><td>${escapeHtml(row.code)}</td><td>${escapeHtml(row.product)}</td><td>${row.units}</td><td>${money.format(row.gross)}</td></tr>`).join("")}</tbody></table></div>${report.products.length > 250 ? '<p>Primeros 250 productos. El Excel incluye todos.</p>' : ""}`;
+  } catch (error) {
+    byId("statisticsStatus").textContent = error.message;
+    byId("statisticsExport").disabled = true;
+    for (const id of ["analyticsKpis", "sellerSalesChart", "productConsumptionChart"]) byId(id).innerHTML = "";
+  }
+}
+
+async function exportStatisticsPeriod() {
+  try {
+    const r = statisticsPeriodReport();
+    await downloadXlsxReport({ fileName: `estadisticas-${r.from}-${r.to}.xlsx`, sheetName: "Estadisticas", headers: ["Concepto / Codigo", "Detalle", "Cantidad / Pedidos", "Importe"], rows: [
+      ["Periodo", `${r.from} al ${r.to}`, "", ""],
+      ["Ventas brutas", "", r.orders, r.gross], ["CMV", r.missingCostLines ? "Costo historico incompleto" : "", "", r.cmv],
+      ["Ganancia bruta", r.missingCostLines ? "No disponible" : "", "", r.profit],
+      ["Devoluciones", "", "", r.returns], ["Ventas menos devoluciones", "", "", r.netSales],
+      ["Criterio de costo", "Costo de catalogo registrado al cargar la linea; sin reconstruccion automatica de historicos", "", ""],
+      ["Inicio del registro de costos", r.costRecordingFrom || "Pendiente de primera carga posterior al corte", "", ""],
+      ["Lineas sin costo historico", "", r.missingCostLines, ""], ["Pedidos con fecha invalida excluidos", "", r.invalidDates, ""],
+      ["POR VENDEDOR", "", "", ""], ...r.sellers.map(row => ["", row.seller, row.orders, row.gross]),
+      ["TOTAL VENDEDORES", "", r.orders, r.gross], ["POR PRODUCTO", "", "", ""],
+      ...r.products.map(row => [row.code, row.product, row.units, row.gross]),
+      ["COSTOS HISTORICOS PENDIENTES", "Pedido / fecha / producto", "Unidades", ""],
+      ...r.missingCosts.map(row => [row.code, `${row.orderCode} / ${row.date} / ${row.product}`, row.quantity, ""])
+    ] });
+  } catch (error) { showCompactNotice(error.message || "No se pudo exportar Estadisticas.", "danger"); }
+}
+
+byId("statisticsFrom").addEventListener("change", renderStatisticsPeriod);
+byId("statisticsTo").addEventListener("change", renderStatisticsPeriod);
+byId("statisticsWeek").addEventListener("click", () => {
+  const week = DLSalesCommissionReport.currentWeek();
+  byId("statisticsFrom").value = week.from;
+  byId("statisticsTo").value = week.to;
+  renderStatisticsPeriod();
+});
+byId("statisticsExport").addEventListener("click", exportStatisticsPeriod);
+
 function renderAnalytics() {
   renderStatisticsWorkspace();
   const selected = operationalWorkspaces.get("estadisticas")?.selected;
   if (!selected) return;
   if (selected === "routes") { renderRouteSalesReport(); return; }
   if (selected === "shortages") { renderShortageStats(); return; }
+  if (selected === "sales") { renderStatisticsPeriod(); return; }
   const analytics = buildAnalytics();
   byId("analyticsKpis").innerHTML = [
     { label: "Ventas registradas", value: money.format(analytics.totalSales), hint: `${state.orders.length} pedidos` },

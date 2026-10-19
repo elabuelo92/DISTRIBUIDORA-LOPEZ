@@ -1649,6 +1649,22 @@
     return offer;
   }
 
+  function captureCostSnapshot(state, product, at) {
+    if (!state.costHistory?.startedAt) {
+      state.costHistory = { startedAt: at, method: "catalog_at_order_entry", legacyPolicy: "unknown_no_backfill" };
+    }
+    const raw = product.costo ?? product.cost;
+    const valid = raw !== null && raw !== undefined && String(raw).trim() !== "" && typeof raw !== "boolean"
+      && Number.isFinite(Number(raw)) && Number(raw) >= 0;
+    return {
+      unitCost: valid ? Number(raw) : null,
+      capturedAt: at,
+      productCode: productCode(product),
+      source: "catalog_at_order_entry",
+      status: valid ? "recorded" : "missing"
+    };
+  }
+
   function createOrder(state, input, actor, options = {}) {
     if (options.skipMigration !== true) migrateState(state);
     const now = nowIso();
@@ -1703,6 +1719,7 @@
       const priceList = productPriceListMeta(product);
       return {
         lineId: `${code}-L${index + 1}`,
+        costSnapshot: captureCostSnapshot(state, product, now),
         productCode: productCode(product),
         name: productName(product),
         requestedQty: qty,
@@ -2406,6 +2423,11 @@
       const priceList = productPriceListMeta(product);
       return {
         lineId: String(previousLine.lineId || raw && raw.lineId || `${order.code}-L${Date.now()}-${Math.random().toString(16).slice(2, 6)}`),
+        // Existing lines without evidence remain unknown; never backfill from today's catalog.
+        ...(previousItemsByKey.has(key)
+          ? { ...(previousLine.costSnapshot ? { costSnapshot: clone(previousLine.costSnapshot) } : {}),
+              ...(previousLine.unitCostAtSale !== undefined ? { unitCostAtSale: previousLine.unitCostAtSale } : {}) }
+          : { costSnapshot: captureCostSnapshot(state, product, nowIso()) }),
         productCode: productCode(product),
         name: productName(product),
         requestedQty: qty,

@@ -19,7 +19,7 @@
     <link rel="manifest" href="manifest.json?v=8790-169-r20261012">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-169-r20261012">
+    <link rel="stylesheet" href="styles.css?v=8790-170-r20261018p1">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -2208,17 +2208,23 @@
             <section class="panel wide">
               <div class="panel-header">
                 <div>
-                  <h2>Consumo y tendencia de venta</h2>
-                  <p>Lectura operativa para decidir reposicion y foco comercial</p>
+                  <h2>Ventas y ganancia bruta</h2>
                 </div>
               </div>
+              <div class="filters">
+                <label>Desde <input id="statisticsFrom" type="date"></label>
+                <label>Hasta <input id="statisticsTo" type="date"></label>
+                <button id="statisticsWeek" type="button" class="secondary-btn">Semana actual</button>
+                <button id="statisticsExport" type="button" class="secondary-btn">Exportar Excel</button>
+              </div>
+              <p id="statisticsStatus" role="status"></p>
               <div class="analytics-kpis" id="analyticsKpis"></div>
               <div class="chart-card">
                 <h3>Ventas por vendedor</h3>
                 <div class="horizontal-chart" id="sellerSalesChart"></div>
               </div>
               <div class="chart-card">
-                <h3>Productos mas consumidos</h3>
+                <h3>Ventas por producto</h3>
                 <div class="horizontal-chart" id="productConsumptionChart"></div>
               </div>
             </section>
@@ -4662,19 +4668,19 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-169-r20261012"></script>
+    <script src="config.js?v=8790-170-r20261018p1"></script>
     <script src="maps-config.js?v=8790-169-r20261012"></script>
-    <script src="order-engine.js?v=8790-169-r20261012d"></script>
+    <script src="order-engine.js?v=8790-170-r20261018p1"></script>
     <script src="account-engine.js?v=8790-169-r20261012"></script>
     <script src="route-optimizer.js?v=8790-169-r20261012"></script>
     <script src="delivery-engine.js?v=8790-169-r20261012"></script>
-    <script src="sales-commission-report.js?v=8790-169-r20261012"></script>
+    <script src="sales-commission-report.js?v=8790-170-r20261018p1"></script>
     <script src="legal-engine.js?v=8790-169-r20261012"></script>
     <script src="client-portfolio-engine.js?v=8790-169-r20261012"></script>
     <script src="client-hours.js?v=8790-169-r20261012"></script>
     <script src="share-engine.js?v=8790-169-r20261012"></script>
     <script src="portfolio-export-engine.js?v=8790-169-r20261012"></script>
     <script src="progressive-list.js?v=8790-169-r20261012"></script>
-    <script src="app.js?v=8790-169-r20261014a"></script>
+    <script src="app.js?v=8790-170-r20261018p1"></script>
   </body>
 </html>

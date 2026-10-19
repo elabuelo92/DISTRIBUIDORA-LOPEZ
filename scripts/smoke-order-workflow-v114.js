@@ -12,7 +12,10 @@ const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dl-v114-"));
 const port = 20300 + Math.floor(Math.random() * 200);
 const stateFile = path.join(tempDir, "demo-state.json");
 const usersFile = path.join(tempDir, "users.json");
-fs.copyFileSync(path.join(root, "data", "users.json"), usersFile);
+const crypto = require("node:crypto");
+const salt = crypto.randomBytes(16).toString("hex");
+const passwordHash = crypto.pbkdf2Sync("Lopez2026!", salt, 120000, 32, "sha256").toString("hex");
+fs.writeFileSync(usersFile, JSON.stringify({ users: [{ username: "admin1", name: "Smoke Admin", role: "admin", active: true, salt, passwordHash }] }));
 
 const state = {
   products: [{ codigo_producto: "P-V114", name: "Producto v114", descripcion: "Producto v114", stock_fisico: 100, stock_actual: 100, stock: 100, stock_reservado: 0, stock_en_transito: 0, price: 1000 }],
@@ -27,11 +30,15 @@ const state = {
   accounts: [],
   performanceFixture: "x".repeat(2_000_000)
 };
+state.products[0].costo = 300;
 const created = orderEngine.createOrder(state, {
   client: "Cliente v114",
   seller: "Sofia",
   items: [{ productCode: "P-V114", qty: 2 }]
 }, "Smoke v114");
+const originalCost = structuredClone(created.items[0].costSnapshot);
+assert.equal(originalCost.unitCost, 300);
+const originalCutoff = state.costHistory.startedAt;
 assert.equal(created.status, orderEngine.STATUS.READY);
 fs.writeFileSync(stateFile, JSON.stringify({ version: Date.now(), state }), "utf8");
 
@@ -131,6 +138,10 @@ async function post(cookie, endpoint, body, expectedStatus = 200) {
   const savedOrder = persisted.state.orders.find((order) => order.code === code);
   assert.equal(savedOrder.status, orderEngine.STATUS.READY_DISPATCH);
   assert.equal(savedOrder.assembly.label.scanned, true);
+  assert.deepEqual(savedOrder.items[0].costSnapshot, originalCost);
+  assert.equal(persisted.state.costHistory.startedAt, originalCutoff);
+  assert.equal(savedOrder.amount, created.amount);
+  assert.equal(persisted.state.products[0].stock_fisico, 100);
   assert.ok((savedOrder.trace || []).some((entry) => entry.action === "PEDIDO_ETIQUETA_GENERADA"));
   assert.ok((savedOrder.trace || []).some((entry) => entry.action === "PEDIDO_ETIQUETA_ESCANEADA"));
 
