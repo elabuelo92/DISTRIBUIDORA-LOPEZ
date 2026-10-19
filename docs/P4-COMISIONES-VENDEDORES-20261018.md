@@ -1,6 +1,10 @@
 # P4 - Comisiones de vendedores
 
-Estado: implementado localmente. Pendiente revision visual y despliegue controlado.
+Estado: paquete P4 preparado para despliegue excepcional autorizado el 19/10/2026.
+Revision de componente aislado: selector Todos, Kevin/Ruggero y edicion verificados
+en navegador con datos ficticios. No equivale a una operacion administrativa real.
+Siete suites locales aprobadas, incluyendo XLSX real y actualizacion de cache.
+P5-P11 quedan fuera de esta publicacion; se preservan en el directorio de desarrollo.
 No se modificaron reglas reales, pedidos, pagos ni liquidaciones de produccion.
 
 ## Causas y correcciones
