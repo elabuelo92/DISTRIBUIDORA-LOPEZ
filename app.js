@@ -13459,6 +13459,20 @@ function filteredCommissionRules() {
     .sort((a, b) => numeric(b.priority, 0) - numeric(a.priority, 0) || a.role.localeCompare(b.role));
 }
 
+function commissionPeople(role, includeInactive = false) {
+  const candidates = role === "driver" ? (demoUsers || []).filter((user) => user.role === "driver")
+    : [...(state.sellers || []), ...(demoUsers || []).filter((user) => user.role === "seller")];
+  const people = new Map();
+  for (const person of candidates) {
+    if (!person.name || (!includeInactive && person.active === false)) continue;
+    const key = normalizeSearchText(person.name);
+    const previous = people.get(key);
+    if (!previous) people.set(key, { ...person });
+    else if (!previous.username && person.username) previous.username = person.username;
+  }
+  return [...people.values()];
+}
+
 function renderCommissionOptions() {
   const users = byId("commissionUserOptions");
   const rubrics = byId("commissionRubricOptions");
@@ -13466,9 +13480,7 @@ function renderCommissionOptions() {
   if (users) {
     const selected = users.value;
     const role = byId("commissionRuleForm")?.elements.role.value || "seller";
-    const people = role === "driver"
-      ? (demoUsers || []).filter((user) => user.role === "driver" && user.active !== false)
-      : (state.sellers || []).filter((seller) => seller.active !== false);
+    const people = commissionPeople(role);
     const generalLabel = role === "driver" ? "Regla general para todos los repartidores" : "Regla general para todos los vendedores";
     users.innerHTML = `<option value="">${generalLabel}</option>` + people
       .filter((person) => person.name)
@@ -13486,7 +13498,8 @@ function renderCommissionOptions() {
   const reportSeller = byId("commissionReportSeller");
   if (reportSeller) {
     const selected = reportSeller.value || "all";
-    const names = [...new Set((state.sellers || []).map((seller) => seller.name).filter(Boolean))]
+    const names = [...new Set([...commissionPeople("seller", true).map((seller) => seller.name),
+      ...commissionHistoryOrders().map((order) => order.seller)].filter(Boolean))]
       .sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
     reportSeller.innerHTML = '<option value="all">Todos los vendedores</option>' + names.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
     reportSeller.value = names.includes(selected) ? selected : "all";
@@ -13494,7 +13507,7 @@ function renderCommissionOptions() {
   const simulatorSeller = byId("commissionSimulatorSeller");
   if (simulatorSeller) {
     const selected = simulatorSeller.value;
-    const sellers = (state.sellers || []).filter((seller) => seller.name).sort((a, b) => a.name.localeCompare(b.name, "es"));
+    const sellers = commissionPeople("seller").sort((a, b) => a.name.localeCompare(b.name, "es"));
     simulatorSeller.innerHTML = sellers.map((seller) => `<option value="${escapeHtml(seller.name)}">${escapeHtml(seller.name)}</option>`).join("");
     if (sellers.some((seller) => seller.name === selected)) simulatorSeller.value = selected;
   }
@@ -13512,7 +13525,7 @@ function renderCommissionSimulator() {
   const container = byId("commissionSimulatorResult");
   if (!container || !OrderEngine || typeof OrderEngine.previewCommissionRule !== "function") return;
   const sellerName = byId("commissionSimulatorSeller").value;
-  const seller = (state.sellers || []).find((item) => item.name === sellerName) || {};
+  const seller = commissionPeople("seller").find((item) => item.name === sellerName) || {};
   const productName = byId("commissionSimulatorProduct").value.trim();
   if (!sellerName || !productName) {
     container.innerHTML = '<p class="empty-note">Seleccionar vendedor y producto para validar la regla.</p>';
@@ -13631,6 +13644,8 @@ function renderSalesCommissionReport() {
 const SALES_COMMISSION_EXPORT_HEADERS = ["Vendedor", "Fecha", "Pedido", "Cliente", "Producto", "Cantidad", "Bruto", "Mercaderia general", "Cigarrillos", "% aplicado", "Comision", "Regla"];
 
 function salesCommissionExportRows() {
+  const filters = commissionReportData();
+  if (filters.from && filters.to && filters.from > filters.to) throw new Error("La fecha desde no puede ser posterior a hasta.");
   const report = salesCommissionReportData();
   return [
     ...report.sellers.map((row) => [row.seller, "", "RESUMEN", `${row.clients} clientes / ${row.orders} pedidos`, "", row.units, row.gross, row.general, row.cigarettes, row.percent.toFixed(2), row.commission, ""]),
@@ -13639,6 +13654,8 @@ function salesCommissionExportRows() {
 }
 
 function exportSalesCommissionPdf() {
+  const filters = commissionReportData();
+  if (filters.from && filters.to && filters.from > filters.to) return showCompactNotice("La fecha desde no puede ser posterior a hasta.", "danger");
   const rows = salesCommissionExportRows();
   const report = commissionReportData();
   downloadBlob(`ventas-comisiones-${reportDateStamp()}.pdf`, makeReadableReportPdf("Ventas y comisiones por vendedor", SALES_COMMISSION_EXPORT_HEADERS, rows, {
@@ -13733,6 +13750,14 @@ function renderCommissionSummary() {
   const report = commissionReportData();
   byId("commissionReportSettleBtn").disabled = report.seller === "all" || Boolean(report.from && report.to && report.from > report.to);
   renderSalesCommissionReport();
+  if (report.from && report.to && report.from > report.to) {
+    list.innerHTML = '<p class="inline-alert warn">La fecha desde no puede ser posterior a hasta.</p>';
+    for (const id of ["commissionProductDetailTable", "commissionPaymentsTable", "salesCommissionSummaryTable", "salesCommissionDetailTable"]) {
+      if (byId(id)) byId(id).innerHTML = '<tr><td colspan="9">Corregir el periodo seleccionado.</td></tr>';
+    }
+    if (byId("commissionAccountCards")) byId("commissionAccountCards").innerHTML = "";
+    return;
+  }
   const rows = report.users;
   list.innerHTML = rows.length ? rows.map((row) => `
     <article class="stock-item commission-summary-card">
@@ -13761,7 +13786,7 @@ function renderCommissionSummary() {
   const paymentsTable = byId("commissionPaymentsTable");
   if (paymentsTable) {
     paymentsTable.innerHTML = account && account.payments.length ? account.payments.map((payment) => `<tr>
-      <td>${escapeHtml(formatDateTimeParts(payment.at).date)} ${escapeHtml(formatDateTimeParts(payment.at).time)}</td>
+      <td>${escapeHtml(localTraceParts(payment.at).date)} ${escapeHtml(localTraceParts(payment.at).time)}</td>
       <td><strong>${money.format(payment.amount)}</strong></td>
       <td>${escapeHtml(payment.method)}</td>
       <td>${escapeHtml(payment.reference || payment.motive || "-")}</td>
@@ -13776,12 +13801,14 @@ function commissionReportHtml() {
   const rows = report.products.map((row) => `<tr><td>${escapeHtml(row.product)}</td><td class="num">${escapeHtml(row.qty)}</td><td class="num">${money.format(row.gross)}</td><td class="num">${row.percent.toFixed(2)}%</td><td class="num"><strong>${money.format(row.commission)}</strong></td></tr>`).join("");
   const totalGross = report.products.reduce((sum, row) => sum + numeric(row.gross, 0), 0);
   const totalCommission = report.products.reduce((sum, row) => sum + numeric(row.commission, 0), 0);
-  const payments = account && account.payments.length ? `<h2>Pagos registrados</h2><table><thead><tr><th>Fecha</th><th>Medio</th><th>Referencia</th><th class="num">Importe</th></tr></thead><tbody>${account.payments.map((payment) => `<tr><td>${escapeHtml(formatDateTimeParts(payment.at).date)}</td><td>${escapeHtml(payment.method)}</td><td>${escapeHtml(payment.reference || payment.motive)}</td><td class="num">${money.format(payment.amount)}</td></tr>`).join("")}</tbody></table>` : "";
+  const payments = account && account.payments.length ? `<h2>Pagos registrados</h2><table><thead><tr><th>Fecha</th><th>Medio</th><th>Referencia</th><th class="num">Importe</th></tr></thead><tbody>${account.payments.map((payment) => `<tr><td>${escapeHtml(localTraceParts(payment.at).date)}</td><td>${escapeHtml(payment.method)}</td><td>${escapeHtml(payment.reference || payment.motive)}</td><td class="num">${money.format(payment.amount)}</td></tr>`).join("")}</tbody></table>` : "";
   const balance = account ? `<div class="totals"><span>Devengado <b>${money.format(account.accrued)}</b></span><span>Pagado <b>${money.format(account.paid)}</b></span><span>Saldo <b>${money.format(account.balance)}</b></span></div>` : "";
   return `<!doctype html><html><head><meta charset="utf-8"><title>Rendicion de comisiones</title><style>body{font:12px Arial;margin:0;color:#111}h1{font-size:19px;margin:0 0 5px}h2{font-size:14px;margin:18px 0 5px}p{margin:0 0 12px}.totals{display:flex;gap:24px;border:1px solid #999;padding:8px;margin:10px 0}.totals span{display:grid;gap:3px}.totals b{font-size:15px}table{width:100%;border-collapse:collapse}th,td{padding:5px;border-bottom:1px solid #bbb;text-align:left}th{background:#eee}.num{text-align:right;white-space:nowrap}tfoot td{font-weight:bold;border-top:2px solid #333}@page{size:A4;margin:10mm}</style></head><body><h1>Rendicion de comisiones</h1><p>Vendedor: ${escapeHtml(report.seller === "all" ? "Todos" : report.seller)} | Periodo: ${escapeHtml(report.from || "Inicio")} a ${escapeHtml(report.to || "Hoy")}</p>${balance}<table><thead><tr><th>Producto</th><th class="num">Cantidad</th><th class="num">Monto bruto</th><th class="num">%</th><th class="num">Comision</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td>TOTAL</td><td></td><td class="num">${money.format(totalGross)}</td><td></td><td class="num">${money.format(totalCommission)}</td></tr></tfoot></table>${payments}</body></html>`;
 }
 
 function printCommissionReport() {
+  const report = commissionReportData();
+  if (report.from && report.to && report.from > report.to) return showCompactNotice("La fecha desde no puede ser posterior a hasta.", "danger");
   const popup = window.open("", "_blank");
   if (!popup) return showCompactNotice("Habilitar ventanas emergentes para imprimir.", "danger");
   popup.opener = null;
@@ -13794,6 +13821,7 @@ function printCommissionReport() {
 async function exportCommissionReportExcel() {
   try {
   const report = commissionReportData();
+  if (report.from && report.to && report.from > report.to) throw new Error("La fecha desde no puede ser posterior a hasta.");
   const account = commissionAccountData(report);
   const number = (value) => {
     if (value === null || value === undefined || value === "" || !Number.isFinite(Number(value))) {
@@ -13808,7 +13836,7 @@ async function exportCommissionReportExcel() {
       ["Pagado", "", number(account.paid), "", ""],
       ["Saldo", "", number(account.balance), "", ""],
       ["", "", "", "", ""], ["Fecha pago", "Medio", "Importe", "Referencia", "Usuario"],
-      ...account.payments.map((payment) => [formatDateTimeParts(payment.at).date, payment.method,
+      ...account.payments.map((payment) => [localTraceParts(payment.at).date, payment.method,
         number(payment.amount), payment.reference || payment.motive || "", payment.user || ""]));
   }
   await downloadXlsxReport({
@@ -13981,7 +14009,11 @@ function fillCommissionRuleForm(ruleId) {
   form.elements.id.value = rule.id;
   form.elements.role.value = rule.role;
   renderCommissionOptions();
-  form.elements.userName.value = rule.userLabel || rule.username || "";
+  const target = rule.userLabel || rule.username || "";
+  if (target && ![...form.elements.userName.options].some((option) => option.value === target)) {
+    form.elements.userName.add(new Option(target, target));
+  }
+  form.elements.userName.value = target;
   form.elements.scopeType.value = rule.productCode || rule.productName ? "product" : (rule.rubro && rule.rubro !== "*" ? "rubro" : "general");
   form.elements.rubro.value = rule.rubro || "";
   form.elements.productName.value = rule.productName || rule.productCode || "";
@@ -14003,9 +14035,9 @@ function commissionRulePayload(extra = {}) {
   const data = new FormData(form);
   const role = String(data.get("role") || "seller").trim();
   const userName = String(data.get("userName") || "").trim();
-  const person = role === "driver"
-    ? (demoUsers || []).find((user) => normalizeSearchText(user.name) === normalizeSearchText(userName) || normalizeSearchText(user.username) === normalizeSearchText(userName))
-    : (state.sellers || []).find((seller) => normalizeSearchText(seller.name) === normalizeSearchText(userName) || normalizeSearchText(seller.username) === normalizeSearchText(userName));
+  const person = userName ? commissionPeople(role, true).find((user) =>
+    normalizeSearchText(user.name) === normalizeSearchText(userName) ||
+    (user.username && normalizeSearchText(user.username) === normalizeSearchText(userName))) : null;
   const scopeType = String(data.get("scopeType") || "general");
   const productInput = String(data.get("productName") || "").trim();
   const product = scopeType === "product" ? (state.products || []).find((item) => normalizeSearchText(item.codigo_producto) === normalizeSearchText(productInput) || normalizeSearchText(item.name) === normalizeSearchText(productInput)) : null;
@@ -14033,6 +14065,9 @@ function commissionRulePayload(extra = {}) {
 
 async function saveCommissionRule(extra = {}) {
   if (!isAdminUser()) return;
+  const button = byId("saveCommissionRuleBtn");
+  if (button.disabled) return;
+  button.disabled = true;
   try {
     const payload = commissionRulePayload(extra);
     if (!payload.percent && payload.action !== "deactivate") throw new Error("Indicar porcentaje de comision.");
@@ -14040,9 +14075,12 @@ async function saveCommissionRule(extra = {}) {
     await postOperationalAction("api/commissions/rules", payload);
     resetCommissionRuleForm();
     renderCommissionsModule();
+    byId("commissionRuleFormHint").textContent = `Guardado: ${payload.percent}% para ${payload.userLabel || (payload.role === "driver" ? "todos los repartidores" : "todos los vendedores")} - ${payload.productName || payload.rubro}. Las liquidaciones anteriores no se modificaron.`;
     showCompactNotice("Regla de comision guardada.", "ok");
   } catch (error) {
     window.alert(error.message || "No se pudo guardar la regla.");
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -20390,15 +20428,15 @@ byId("priceListProductsTable").addEventListener("click", (event) => {
 });
 byId("commissionRulesSearch").addEventListener("input", (event) => {
   commissionSearchTerm = event.target.value;
-  renderCommissionsModule();
+  renderCommissionRulesTable();
 });
 byId("commissionRoleFilter").addEventListener("change", (event) => {
   commissionRoleFilter = event.target.value;
-  renderCommissionsModule();
+  renderCommissionRulesTable();
 });
 byId("commissionStatusFilter").addEventListener("change", (event) => {
   commissionStatusFilter = event.target.value;
-  renderCommissionsModule();
+  renderCommissionRulesTable();
 });
 byId("commissionRulesTable").addEventListener("click", (event) => {
   const edit = event.target.closest("[data-commission-edit]");

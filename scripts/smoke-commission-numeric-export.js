@@ -21,10 +21,11 @@ let payload;
 let notice;
 const context = vm.createContext({
   commissionReportData: () => report, commissionAccountData: () => account,
-  formatDateTimeParts: (at) => ({ date: at }), normalizeSearchText: (s) => s.toLowerCase(),
+  normalizeSearchText: (s) => s.toLowerCase(),
   reportDateStamp: () => "2026-10-12", downloadXlsxReport: async (input) => { payload = input; },
   showCompactNotice: (message) => { notice = message; }
 });
+vm.runInContext(extract(app, "function localTraceParts(", "function normalizeOrderTrace("), context);
 vm.runInContext(extract(app, "async function exportCommissionReportExcel()", "function settleCommissionReport()"), context);
 const renderWorkbook = new Function("ExcelJS", "Buffer", `${extract(server, "async function reportWorkbookBase64(", "function applyProductPortfolioImport(")}\nreturn reportWorkbookBase64;`)(ExcelJS, Buffer);
 async function exportSheet() {
@@ -59,9 +60,16 @@ async function exportSheet() {
   sheet = await exportSheet();
   assert.equal(sheet.getCell("C10").value, -100);
   assert.equal(sheet.getCell("C13").value, 400);
+  assert.equal(sheet.getCell("A13").value, "11/10/2026");
   assert.equal(sheet.getCell("C13").numFmt, "$ #,##0.00");
   assert.equal(sheet.getCell("D13").value, "REF-1");
   assert.equal(sheet.getCell("E13").value, "Admin");
+  report.from = "2026-10-13";
+  payload = undefined;
+  await context.exportCommissionReportExcel();
+  assert.equal(payload, undefined);
+  assert.match(notice, /posterior/);
+  report.from = "2026-10-01";
   report.products[0].gross = NaN;
   payload = undefined;
   await context.exportCommissionReportExcel();
