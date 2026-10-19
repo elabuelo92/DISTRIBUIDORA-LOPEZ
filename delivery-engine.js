@@ -810,6 +810,17 @@
     };
   }
 
+  function routeTransferSummary(route) {
+    const promisedTransfer = moneyValue((route && route.stops || []).reduce((sum, stop) => {
+      const collection = stop.collection;
+      if (!collection || collection.transferAmount == null || collection.transferPendingAmount == null) return sum;
+      return sum + Math.max(0, moneyValue(collection.transferPendingAmount) - moneyValue(collection.transferAmount));
+    }, 0));
+    // Legacy route totals include promises. This is a visit snapshot, not bank validation.
+    return { promisedTransfer, expectedTransfer: moneyValue(Math.max(0,
+      moneyValue(route && route.transferTotal) - promisedTransfer)) };
+  }
+
   function routeClosureSummary(route, input) {
     const stops = Array.isArray(route && route.stops) ? route.stops : [];
     const deliveredOrders = stops.filter((stop) => DELIVERY_FINAL_STATUSES.has(stop.status)).length;
@@ -829,7 +840,7 @@
     const expenseTotal = moneyValue(expenses.reduce((sum, item) => sum + item.amount, 0));
     if (expenseTotal > grossCash) throw new Error("Los gastos de caja no pueden superar el efectivo cobrado en la ruta.");
     const expectedCash = moneyValue(grossCash - expenseTotal);
-    const expectedTransfer = moneyValue(route && route.transferTotal);
+    const { expectedTransfer, promisedTransfer } = routeTransferSummary(route);
     const pendingAmount = moneyValue(route && route.pendingTotal);
     const returnedAmount = moneyValue(returnedAmountFromStops || route && route.returnTotal);
     const reportedCash = moneyValue(input && (input.reportedCash ?? input.totalCash ?? input.cash));
@@ -849,6 +860,7 @@
       expenseTotal,
       expectedCash,
       expectedTransfer,
+      promisedTransfer,
       expectedTotal: moneyValue(expectedCash + expectedTransfer),
       reportedCash,
       reportedTransfer,
@@ -1566,6 +1578,7 @@
     closeRoute,
     relocateOrders,
     routeClosureSummary,
+    routeTransferSummary,
     updateSettings,
     navigationUrl,
     nextStop,

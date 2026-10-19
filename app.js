@@ -9807,11 +9807,11 @@ function deliveryClosureMetricsHtml(summary) {
         <strong>${money.format(summary.expectedCash)}</strong>
       </div>
       <div class="delivery-closure-metric">
-        <span>Transferencias esperadas</span>
+        <span>${summary.promisedTransfer == null ? "Transferencias esperadas (cierre historico)" : "Transferencias registradas en visita"}</span>
         <strong>${money.format(summary.expectedTransfer)}</strong>
       </div>
       <div class="delivery-closure-metric">
-        <span>Saldo pendiente</span>
+        <span>Pendiente de cobro / validacion</span>
         <strong>${money.format(summary.pendingAmount)}</strong>
       </div>
       <div class="delivery-closure-metric">
@@ -9827,6 +9827,7 @@ function deliveryClosureMetricsHtml(summary) {
         <strong>${money.format(summary.totalDifference)}</strong>
       </div>
     </div>
+    <p class="empty-note">${summary.promisedTransfer == null ? "Cierre historico conservado sin recalcular. " : `Promesas sin comprobante: ${money.format(summary.promisedTransfer)}. `}Una transferencia registrada no equivale a validacion bancaria. El pendiente corresponde al momento de la visita, no al saldo actual.</p>
   `;
 }
 
@@ -10018,8 +10019,8 @@ function renderDeliveryActivePanel(route, routes) {
     </article>
     <div class="delivery-route-finance">
       <span><small>Efectivo</small><strong>${money.format(route.cashTotal || 0)}</strong></span>
-      <span><small>Transferencias</small><strong>${money.format(route.transferTotal || 0)}</strong></span>
-      <span><small>Pendiente</small><strong>${money.format(route.pendingTotal || 0)}</strong></span>
+      <span><small>Transferencias registradas en visita</small><strong>${money.format(DeliveryEngine.routeTransferSummary(route).expectedTransfer)}</strong></span>
+      <span><small>Pendiente de cobro / validacion</small><strong>${money.format(route.pendingTotal || 0)}</strong></span>
     </div>
   `;
   const mapShell = byId("deliveryRouteMap")?.closest(".delivery-route-map-shell");
@@ -10432,7 +10433,7 @@ function renderDeliveryStops(route) {
     return;
   }
   title.textContent = `${route.zone} - ${route.id}`;
-  meta.textContent = `${route.deviceLabel || "Sin dispositivo"} - Efectivo ${money.format(route.cashTotal || 0)} - Transferencias ${money.format(route.transferTotal || 0)} - Devoluciones ${money.format(route.returnTotal || 0)}`;
+  meta.textContent = `${route.deviceLabel || "Sin dispositivo"} - Efectivo ${money.format(route.cashTotal || 0)} - Transferencias registradas en visita ${money.format(DeliveryEngine.routeTransferSummary(route).expectedTransfer)} - Devoluciones ${money.format(route.returnTotal || 0)}`;
   const current = DeliveryEngine.nextStop(route);
   const ownsRoute = isAdminUser() || route.deviceId === deliveryDevice.id || route.driverUser === currentUser?.username;
   const visibleStops = route.stops || [];
@@ -10731,7 +10732,8 @@ function deliveryCollectionsManifestRows(day, routeId = "") {
     const total = numeric(collection.collectibleAmount ?? order?.amount ?? stop.amount, 0);
     const cash = numeric(collection.cashAmount, 0);
     const transfer = numeric(collection.transferAmount, 0);
-    const credit = numeric(collection.creditAmount, 0);
+    const promisedTransfer = Math.max(0, numeric(collection.transferPendingAmount, 0) - transfer);
+    const credit = numeric(collection.creditAmount, 0) + promisedTransfer;
     const customerCredit = numeric(collection.customerCreditAmount, 0);
     const difference = Math.round((cash + transfer + credit - customerCredit - total) * 100) / 100;
     rows.push([order?.client || stop.client || "", stop.orderCode || "", total, cash, transfer,
@@ -10773,6 +10775,7 @@ async function exportDeliveryCollectionsManifest(format, selectedRouteId) {
       ["PARADAS TOTALES", (route.stops || []).length], ["COBROS REGISTRADOS", count]
     ];
     if (closure) summary.push(
+      ["ALCANCE DEL CIERRE", "Historico conservado sin recalcular; no equivale al saldo actual del cliente"],
       ["CIERRE", closure.id || ""], ["FECHA DEL CIERRE", closure.at || closure.date || ""],
       ["EFECTIVO COBRADO", closure.grossCash ?? closure.expectedCash ?? 0], ["GASTOS DE CAJA", closure.expenseTotal || 0],
       ["EFECTIVO ESPERADO", closure.expectedCash || 0], ["EFECTIVO RENDIDO", closure.reportedCash || 0],
@@ -10784,6 +10787,8 @@ async function exportDeliveryCollectionsManifest(format, selectedRouteId) {
       ["RESPONSABLE CIERRE", closure.user || ""]
     );
     if (closure) (closure.expenses || []).forEach((expense) => summary.push([`GASTO: ${expense.concept}`, expense.amount]));
+    summary.push(["TRANSFERENCIAS DEL DETALLE", "Registradas en visita, sujetas a conciliacion bancaria"],
+      ["CUENTA CORRIENTE DEL DETALLE", "Incluye promesas sin comprobante; pendiente al momento de la visita"]);
     rows.push(...summary.map((row) => [...row, ...Array(DELIVERY_COLLECTION_HEADERS.length - row.length).fill("")]));
   }
   if (format === "xlsx") {
@@ -22649,7 +22654,7 @@ function openDeliveryRouteClosure(routeId) {
   byId("deliveryRouteClosureTitle").textContent = `Cerrar ${route.id}`;
   renderDeliveryCashBreakdown();
   byId("deliveryClosureCashReported").value = "0";
-  byId("deliveryClosureTransferReported").value = String(numeric(route.transferTotal, 0));
+  byId("deliveryClosureTransferReported").value = String(DeliveryEngine.routeTransferSummary(route).expectedTransfer);
   byId("deliveryClosureDifferenceReason").value = "";
   byId("deliveryClosureObservations").value = "";
   setDeliveryClosureMessage("");
