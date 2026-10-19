@@ -11,7 +11,13 @@ const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dl-remit-reconcile-"));
 const port = 21600 + Math.floor(Math.random() * 500);
 const stateFile = path.join(tempDir, "demo-state.json");
 const usersFile = path.join(tempDir, "users.json");
-fs.copyFileSync(path.join(root, "data", "users.json"), usersFile);
+const crypto = require("node:crypto");
+const salt = crypto.randomBytes(16).toString("hex");
+const passwordHash = crypto.pbkdf2Sync("Lopez2026!", salt, 120000, 32, "sha256").toString("hex");
+fs.writeFileSync(usersFile, JSON.stringify({ users: [
+  { username: "admin1", name: "Admin ficticio", role: "admin", active: true, salt, passwordHash },
+  { username: "deposito1", name: "Deposito ficticio", role: "depot", active: true, salt, passwordHash }
+] }));
 const product = (code) => ({ codigo_producto: code, name: `Producto ${code}`, costo: 10, cost: 10, stock_fisico: 0, stock_actual: 0, stock: 0 });
 fs.writeFileSync(stateFile, JSON.stringify({ version: 1, state: {
   products: [product("P-A"), product("P-B"), product("P-C")],

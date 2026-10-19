@@ -1868,12 +1868,44 @@
     return completed;
   }
 
+  function reconcilePhysicalCount(state, input, actor) {
+    const code = String(input.productCode || "");
+    const product = (state.products || []).find(p => productCode(p) === code);
+    const count = (state.physicalStockCounts || []).find(c => c.id === input.countId && c.productCode === code);
+    if (!product || !count) throw new Error("Producto o conteo no encontrado. Actualizar antes de ajustar.");
+    const existing = (state.physicalStockAdjustments || []).find(a => a.countId === count.id);
+    if (existing) return { product, adjustment: existing, completedOrders: [], replayed: true };
+    const reason = String(input.reason || "").trim();
+    if (!reason) throw new Error("Indicar motivo del ajuste.");
+    const quantity = Number(count.countedQty);
+    if (typeof count.countedQty !== "number" || !Number.isSafeInteger(quantity) || quantity < 0) throw new Error("Conteo fisico invalido.");
+    const before = inventory({ ...product });
+    if (Number(count.expectedQty) !== before.physical) throw new Error("El stock cambio desde el conteo. Registrar un nuevo conteo antes de ajustar.");
+    if (quantity < before.reserved) throw new Error(`El conteo es menor al reservado (${before.reserved}). Resolver las reservas antes de ajustar.`);
+    const at = nowIso();
+    const adjustment = { id: `ADJ-${count.id}`, at, productCode: code, productName: productName(product),
+      previousStock: before.physical, newStock: quantity, reason, user: actor || "Administracion", countId: count.id };
+    product.stock_fisico = quantity;
+    refreshProductInventory(product);
+    state.physicalStockAdjustments = state.physicalStockAdjustments || [];
+    state.physicalStockAdjustments.unshift(adjustment);
+    if (quantity !== before.physical) {
+      state.stockMovements = state.stockMovements || [];
+      state.stockMovements.unshift({ ...adjustment, id: `STK-${count.id}`, type: "Ajuste fisico",
+        qty: quantity - before.physical, stockBefore: before.physical, stockAfter: quantity,
+        title: productName(product), text: `Conteo ${count.id}. Motivo: ${reason}` });
+    }
+    state.shortages = buildShortageList(state);
+    return { product, adjustment, completedOrders: [], replayed: false };
+  }
+
   function applyStockEntry(state, input, actor) {
+    const movementType = String(input.movementType || input.movement_type || "Ingreso");
+    if (movementType.startsWith("Ajuste") && !String(input.note || "").trim()) throw new Error("Indicar motivo del ajuste.");
     migrateState(state);
     const product = findProduct(state, { productCode: input.productCode, name: input.product });
     if (!product) throw new Error("Producto no encontrado.");
     const qty = Math.max(1, positive(input.qty) || 1);
-    const movementType = String(input.movementType || input.movement_type || "Ingreso");
     const before = inventory(product);
     let triggersAllocation = false;
 
@@ -2726,6 +2758,7 @@
     createOrder,
     allocatePendingOrders,
     applyStockEntry,
+    reconcilePhysicalCount,
     nextStatus,
     assertDispatchChecklist,
     assemblyLineKey,

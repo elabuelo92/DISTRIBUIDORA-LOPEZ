@@ -22,7 +22,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-170";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-171";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -4150,10 +4150,10 @@ function findProductForInitialInventory(state, row) {
   const code = normalizeSearchText(row && (row.productCode || row.codigo_producto || row.code));
   const barcode = normalizeSearchText(row && (row.barcode || row.codigo_barras || row.ean));
   const description = normalizeSearchText(row && (row.description || row.descripcion || row.product || row.name));
-  return products.find((product) => code && normalizeSearchText(product.codigo_producto) === code)
-    || products.find((product) => barcode && normalizeSearchText(product.codigo_barras) === barcode)
-    || products.find((product) => description && normalizeSearchText(product.name || product.descripcion) === description)
-    || null;
+  const matches = products.filter(product => code ? normalizeSearchText(product.codigo_producto) === code
+    : barcode ? normalizeSearchText(product.codigo_barras) === barcode
+    : description && normalizeSearchText(product.name || product.descripcion) === description);
+  return matches.length === 1 ? matches[0] : null;
 }
 
 function buildInitialInventoryPreview(state, rows) {
@@ -4167,7 +4167,7 @@ function buildInitialInventoryPreview(state, rows) {
     const key = product ? productRecordKey(product) : "";
     const errors = [];
     if (!product) errors.push("Producto inexistente");
-    if (!Number.isFinite(quantity) || quantity < 0) errors.push("Cantidad fisica invalida");
+    if (!rawQuantity.trim() || !Number.isSafeInteger(quantity) || quantity < 0) errors.push("Cantidad fisica invalida");
     if (product && seen.has(key)) errors.push("Producto duplicado en archivo");
     if (product) seen.add(key);
     if (product && Number.isFinite(quantity) && quantity < inventory.reserved) {
@@ -4192,6 +4192,12 @@ function buildInitialInventoryPreview(state, rows) {
 function applyInitialInventoryLoad(state, input, user) {
   const rows = Array.isArray(input.rows) ? input.rows : [];
   if (!rows.length) throw new Error("No hay filas para aplicar.");
+  const operationId = String(input.operationId || "");
+  if (!/^[a-zA-Z0-9-]{10,100}$/.test(operationId)) throw new Error("Generar una nueva vista previa antes de aplicar.");
+  if ((state.initialInventoryLoads || []).some(load => load.operationId === operationId)
+    || (state.stockMovements || []).some(move => move.operationId === operationId)) {
+    throw new Error("Esta carga ya fue aplicada. Revisar el historial antes de generar otro conteo.");
+  }
   const preview = buildInitialInventoryPreview(state, rows);
   const errors = preview.filter((row) => row.errors.length);
   if (errors.length) {
@@ -4199,6 +4205,12 @@ function applyInitialInventoryLoad(state, input, user) {
   }
   if (input.confirmed !== true || String(input.confirmText || "").trim() !== "CONFIRMAR") {
     throw new Error("Escribir CONFIRMAR para aplicar el inventario inicial.");
+  }
+  for (let i = 0; i < preview.length; i++) {
+    if (rows[i].expectedPhysical !== preview[i].currentPhysical || rows[i].expectedReserved !== preview[i].reserved) {
+      throw new Error("El stock cambio desde la vista previa. Volver a revisar el conteo; no se aplico ningun cambio.");
+    }
+    if (!String(preview[i].observation || input.observation || "").trim()) throw new Error("Indicar motivo de la carga de inventario.");
   }
   const backup = createMaintenanceBackup("inventario-inicial", state);
   const at = new Date().toISOString();
@@ -4222,6 +4234,7 @@ function applyInitialInventoryLoad(state, input, user) {
     const after = orderEngine.inventory(product);
     const movement = {
       id: `STK-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
+      operationId,
       at,
       date: parts.date,
       time: parts.time,
@@ -4244,14 +4257,17 @@ function applyInitialInventoryLoad(state, input, user) {
       title: product.name || row.productName,
       text: `Inventario inicial ${before.physical} -> ${after.physical}. Diferencia ${after.physical - before.physical}. ${row.observation || generalObservation || ""}`.trim()
     };
-    state.stockMovements.unshift(movement);
-    applied.push(movement);
+    if (movement.qty !== 0) {
+      state.stockMovements.unshift(movement);
+      applied.push(movement);
+    }
   });
   const completedOrders = orderEngine.allocatePendingOrders(state, user && user.name || "Inventario inicial");
   state.physicalStockCounts = Array.isArray(state.physicalStockCounts) ? state.physicalStockCounts : [];
   state.initialInventoryLoads = Array.isArray(state.initialInventoryLoads) ? state.initialInventoryLoads : [];
   const loadRecord = {
     id: `INVINI-${Date.now()}`,
+    operationId,
     at,
     date: parts.date,
     time: parts.time,
@@ -8373,7 +8389,14 @@ const server = http.createServer(async (req, res) => {
       try {
         const previousProduct = entitySnapshot(currentState, "producto", input.productCode || input.product);
         const previousOrdersByCode = new Map((currentState.orders || []).map((order) => [order.code, cloneAuditValue(order)]));
-        const result = orderEngine.applyStockEntry(currentState, input, sessionUser.name);
+        if (input.action === "reconcileCount" && !verifyCurrentUserPassword(sessionUser, input.admin_password || "")) throw new Error("Clave de administrador incorrecta.");
+        const result = input.action === "reconcileCount"
+          ? orderEngine.reconcilePhysicalCount(currentState, input, sessionUser.name)
+          : orderEngine.applyStockEntry(currentState, input, sessionUser.name);
+        if (result.replayed) {
+          sendJson(res, 200, { ok: true, replayed: true, state: stateForUser(currentState, sessionUser), product: result.product });
+          return;
+        }
         writeStateResponse(res, currentState, {
           completedOrders: result.completedOrders,
           product: result.product
@@ -8384,7 +8407,7 @@ const server = http.createServer(async (req, res) => {
           entityLabel: result.product && (result.product.name || result.product.descripcion) || input.product,
           previousValue: previousProduct,
           newValue: result.product,
-          note: `${input.movementType || input.movement_type || "Ingreso"} ${input.qty || ""}`.trim()
+          note: input.action === "reconcileCount" ? input.reason : `${input.movementType || input.movement_type || "Ingreso"} ${input.qty || ""}`.trim()
         }), (result.completedOrders || []).map((code) => {
           const order = (currentState.orders || []).find((item) => item.code === code);
           return order ? orderStatusNotification(req, sessionUser, input, order, previousOrdersByCode.get(code), "PEDIDO_ESTADO") : null;

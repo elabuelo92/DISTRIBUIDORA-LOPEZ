@@ -457,6 +457,7 @@ let stockLedgerTypeFilter = "all";
 let stockLedgerUserFilter = "all";
 let stockLedgerDateFilter = "";
 let initialStockPreviewRows = [];
+let initialStockOperationId = "";
 let priceListSearchTerm = "";
 let priceListListFilter = "all";
 let priceListRubricFilter = "all";
@@ -12369,7 +12370,8 @@ function stockMovementDateKey(value) {
 
 function stockMovementRows() {
   const movements = Array.isArray(state.stockMovements) ? state.stockMovements : [];
-  const adjustments = (state.physicalStockAdjustments || []).map((entry) => ({
+  const recordedCounts = new Set(movements.filter(entry => entry.countId).map(entry => entry.countId));
+  const adjustments = (state.physicalStockAdjustments || []).filter(entry => !recordedCounts.has(entry.countId)).map((entry) => ({
     ...entry,
     type: "Ajuste fisico",
     productCode: entry.productCode,
@@ -12544,22 +12546,23 @@ function resolveInitialStockProduct(row) {
   const code = normalizeSearchText(row.productCode);
   const barcode = normalizeSearchText(row.barcode);
   const description = normalizeSearchText(row.description);
-  return state.products.find((product) => code && normalizeSearchText(product.codigo_producto) === code)
-    || state.products.find((product) => barcode && normalizeSearchText(product.codigo_barras) === barcode)
-    || state.products.find((product) => description && normalizeSearchText(product.name) === description)
-    || null;
+  const matches = state.products.filter(product => code ? normalizeSearchText(product.codigo_producto) === code
+    : barcode ? normalizeSearchText(product.codigo_barras) === barcode
+    : description && normalizeSearchText(product.name) === description);
+  return matches.length === 1 ? matches[0] : null;
 }
 
 function buildInitialStockPreview(rows) {
   const seen = new Set();
   return rows.map((row) => {
     const product = resolveInitialStockProduct(row);
-    const quantity = numeric(String(row.quantityPhysical || "").replace(",", "."), NaN);
+    const rawQuantity = String(row.quantityPhysical ?? "").trim();
+    const quantity = numeric(rawQuantity.replace(",", "."), NaN);
     const inventory = product ? OrderEngine.inventory(product) : null;
     const key = product ? productInventoryKey(product) : "";
     const errors = [];
     if (!product) errors.push("Producto inexistente");
-    if (!Number.isFinite(quantity) || quantity < 0) errors.push("Cantidad invalida");
+    if (!rawQuantity || !Number.isSafeInteger(quantity) || quantity < 0) errors.push("Cantidad invalida");
     if (product && seen.has(key)) errors.push("Codigo duplicado");
     if (product) seen.add(key);
     if (product && Number.isFinite(quantity) && quantity < inventory.reserved) errors.push(`Menor al reservado (${inventory.reserved})`);
@@ -12617,6 +12620,7 @@ function previewInitialStockImport() {
   const text = byId("initialStockText").value;
   const rows = parseInitialStockText(text);
   initialStockPreviewRows = buildInitialStockPreview(rows);
+  initialStockOperationId = `INV-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const message = byId("initialStockMessage");
   if (!rows.length) {
     message.textContent = "No se detectaron filas para importar.";
@@ -12655,6 +12659,7 @@ async function applyInitialStockImport(event) {
   button.textContent = "Aplicando...";
   try {
     const payload = await postOperationalAction("api/stock/initial-inventory", {
+      operationId: initialStockOperationId,
       confirmed: true,
       confirmText,
       fileName: String(byId("initialStockFileName").value || "").trim(),
@@ -12664,6 +12669,8 @@ async function applyInitialStockImport(event) {
         barcode: row.barcode,
         description: row.productName || row.description,
         quantityPhysical: row.quantityPhysical,
+        expectedPhysical: row.currentPhysical,
+        expectedReserved: row.reserved,
         warehouse: row.warehouse,
         observation: row.observation
       }))
@@ -14421,7 +14428,7 @@ function lastPhysicalStockCount(product) {
 function physicalStockRow(product, traceIndex) {
   const inventory = OrderEngine.inventory(product);
   const breakdown = physicalStockBreakdown(product, traceIndex);
-  const expected = inventory.available + breakdown.totalPreDispatch;
+  const expected = inventory.physical;
   const count = lastPhysicalStockCount(product);
   const counted = count ? numeric(count.countedQty, 0) : null;
   const difference = count ? counted - expected : null;
@@ -14698,8 +14705,8 @@ function recordPhysicalStockCount(productCode) {
     window.alert("Ingresar cantidad fisica encontrada.");
     return;
   }
-  const countedQty = Math.max(0, Math.floor(numeric(rawCount, NaN)));
-  if (!Number.isFinite(countedQty)) {
+  const countedQty = numeric(rawCount, NaN);
+  if (!Number.isSafeInteger(countedQty) || countedQty < 0) {
     window.alert("Ingresar cantidad fisica encontrada.");
     return;
   }
@@ -14757,7 +14764,7 @@ function openPhysicalStockAdjustDialog(productCode) {
     return;
   }
   physicalStockAdjustTargetCode = productCode;
-  const safeNextStock = Math.max(row.totalPreDispatch, row.counted);
+  const safeNextStock = row.counted;
   byId("physicalStockAdjustTitle").textContent = `Autorizar ajuste - ${row.name}`;
   byId("physicalStockAdjustCode").value = productCode;
   byId("physicalStockAdjustPrevious").value = row.expected;
@@ -14765,7 +14772,7 @@ function openPhysicalStockAdjustDialog(productCode) {
   byId("physicalStockAdjustReason").value = row.count.observation || "";
   byId("physicalStockAdjustPassword").value = "";
   byId("physicalStockAdjustMessage").textContent = row.counted < row.totalPreDispatch
-    ? `El conteo (${row.counted}) es menor a lo reservado no despachado (${row.totalPreDispatch}). El ajuste no puede bajar de ${safeNextStock} sin resolver pedidos.`
+    ? `El conteo (${row.counted}) es menor a lo reservado no despachado (${row.totalPreDispatch}). Resolver las reservas antes de ajustar.`
     : "";
   byId("physicalStockAdjustDialog").showModal();
 }
@@ -14784,66 +14791,24 @@ async function submitPhysicalStockAdjust(event) {
     message.textContent = "Indicar motivo del ajuste.";
     return;
   }
+  const submitButton = form.querySelector('[type="submit"]');
+  if (submitButton?.disabled) return;
+  if (submitButton) submitButton.disabled = true;
   try {
-    await reauthAdminPassword(password);
-    const productIndex = state.products.findIndex((product) => productInventoryKey(product) === productCode);
-    if (productIndex < 0) throw new Error("Producto no encontrado.");
-    const previousProduct = structuredClone(state.products[productIndex]);
-    const currentInventory = OrderEngine.inventory(state.products[productIndex]);
-    const nextPhysical = Math.max(row.totalPreDispatch, row.counted);
-    state.products[productIndex].stock_fisico = nextPhysical;
-    state.products[productIndex].stock_actual = nextPhysical;
-    state.products[productIndex].stock = nextPhysical;
-    state.products[productIndex].stock_reservado = row.totalPreDispatch;
-    state.products[productIndex] = normalizeProductRecord(state.products[productIndex]);
-    const after = OrderEngine.inventory(state.products[productIndex]);
-    const at = new Date().toISOString();
-    const adjustment = {
-      id: `ADJ-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      at,
+    await postOperationalAction("api/stock/entry", {
+      action: "reconcileCount",
       productCode,
-      productName: row.name,
-      previousStock: currentInventory.physical,
-      newStock: after.physical,
+      countId: row.count.id,
       reason,
-      user: currentUser ? currentUser.name : "Administracion",
-      username: currentUser ? currentUser.username : "",
-      countId: row.count.id || ""
-    };
-    state.physicalStockAdjustments = Array.isArray(state.physicalStockAdjustments) ? state.physicalStockAdjustments : [];
-    state.physicalStockAdjustments.unshift(adjustment);
-    state.stockMovements.unshift({
-      type: "Ajuste fisico",
-      title: row.name,
-      text: `Stock fisico ${adjustment.previousStock} -> ${adjustment.newStock}. Motivo: ${reason}.`
+      admin_password: password
     });
-    state.globalAudit = Array.isArray(state.globalAudit) ? state.globalAudit : [];
-    state.globalAudit.unshift({
-      id: `AUDG-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      at,
-      date: localTraceParts(at).date,
-      time: localTraceParts(at).time,
-      user: adjustment.user,
-      username: adjustment.username,
-      role: currentUser ? currentUser.role : "admin",
-      ip: "",
-      device: sessionDevicePayload ? sessionDevicePayload() : null,
-      gps: null,
-      action: "STOCK_FISICO_AJUSTE_AUTORIZADO",
-      entityType: "producto",
-      entityId: productCode,
-      entityLabel: row.name,
-      previousValue: previousProduct,
-      newValue: state.products[productIndex],
-      note: reason
-    });
-    state.activity.unshift({ type: "Inventario", title: `Ajuste fisico ${row.name}`, text: `${adjustment.user} autorizo stock ${adjustment.previousStock} -> ${adjustment.newStock}.` });
-    saveState();
     renderForCurrentUser();
     byId("physicalStockAdjustDialog").close("default");
     showCompactNotice("Ajuste fisico autorizado y auditado.", "ok");
   } catch (error) {
     message.textContent = error.message || "No se pudo autorizar el ajuste.";
+  } finally {
+    if (submitButton) submitButton.disabled = false;
   }
 }
 

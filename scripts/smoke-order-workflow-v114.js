@@ -28,6 +28,7 @@ const state = {
   deliveryAudit: [],
   deliveryClosures: [],
   accounts: [],
+  physicalStockCounts: [{ id: "P2-COUNT", productCode: "P-V114", expectedQty: 100, countedQty: 95 }],
   performanceFixture: "x".repeat(2_000_000)
 };
 state.products[0].costo = 300;
@@ -61,6 +62,9 @@ const child = spawn(process.execPath, [path.join(root, "server.js")], {
 });
 
 const base = `http://127.0.0.1:${port}`;
+let serverOutput = "";
+child.stdout.on("data", chunk => { serverOutput = (serverOutput + chunk).slice(-6000); });
+child.stderr.on("data", chunk => { serverOutput = (serverOutput + chunk).slice(-6000); });
 
 async function waitHealth() {
   for (let index = 0; index < 100; index += 1) {
@@ -70,7 +74,7 @@ async function waitHealth() {
     } catch {}
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error("Servidor temporal v114 no inicio.");
+  throw new Error(`Servidor temporal v114 no inicio: ${serverOutput}`);
 }
 
 async function login() {
@@ -144,6 +148,29 @@ async function post(cookie, endpoint, body, expectedStatus = 200) {
   assert.equal(persisted.state.products[0].stock_fisico, 100);
   assert.ok((savedOrder.trace || []).some((entry) => entry.action === "PEDIDO_ETIQUETA_GENERADA"));
   assert.ok((savedOrder.trace || []).some((entry) => entry.action === "PEDIDO_ETIQUETA_ESCANEADA"));
+
+  const adjustment = { action: "reconcileCount", countId: "P2-COUNT", productCode: "P-V114", reason: "Prueba aislada", admin_password: "Lopez2026!" };
+  await post(cookie, "api/stock/entry", { ...adjustment, admin_password: "incorrecta" }, 400);
+  const simultaneous = await Promise.all([post(cookie, "api/stock/entry", adjustment), post(cookie, "api/stock/entry", adjustment)]);
+  assert.equal(simultaneous.filter(result => result.payload.replayed).length, 1);
+  const replay = await post(cookie, "api/stock/entry", adjustment);
+  assert.equal(replay.payload.replayed, true);
+  const afterAdjustment = JSON.parse(fs.readFileSync(stateFile, "utf8")).state;
+  assert.equal(afterAdjustment.products[0].stock_fisico, 95);
+  assert.equal(afterAdjustment.products[0].stock_reservado, 2);
+  assert.equal(afterAdjustment.physicalStockAdjustments.length, 1);
+  assert.equal(afterAdjustment.stockMovements.filter(m => m.countId === "P2-COUNT").length, 1);
+  assert.deepEqual(afterAdjustment.orders, persisted.state.orders);
+  const initial = { operationId: "P2-HTTP-INITIAL-001", confirmed: true, confirmText: "CONFIRMAR", observation: "Conteo aislado",
+    rows: [{ productCode: "P-V114", quantityPhysical: 94, expectedPhysical: 95, expectedReserved: 2 }] };
+  await post(cookie, "api/stock/initial-inventory", { ...initial, rows: [{ ...initial.rows[0], expectedPhysical: 100 }] }, 400);
+  await post(cookie, "api/stock/initial-inventory", initial);
+  await post(cookie, "api/stock/initial-inventory", initial, 400);
+  const afterInitial = JSON.parse(fs.readFileSync(stateFile, "utf8")).state;
+  assert.equal(afterInitial.products[0].stock_fisico, 94);
+  assert.equal(afterInitial.products[0].stock_reservado, 2);
+  assert.equal(afterInitial.initialInventoryLoads.length, 1);
+  assert.deepEqual(afterInitial.orders, persisted.state.orders);
 
   console.log(JSON.stringify({
     ok: true,
