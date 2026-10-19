@@ -398,6 +398,13 @@
   }
 }
 
+#driverCommissionPanel .table-wrap { overflow-x: auto; max-width: 100%; }
+#driverCommissionPanel .table-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+#driverCommissionPanel .table-actions label { display: grid; gap: 4px; min-width: 140px; }
+#driverCommissionPanel table { width: 100%; }
+#driverCommissionDetails table { min-width: 760px; }
+#driverCommissionPanel { min-width: 0; }
+
 .commission-workspace {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(320px, 0.9fr);

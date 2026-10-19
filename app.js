@@ -13891,9 +13891,60 @@ function renderCommissionAudit() {
   `).join("") : '<article class="activity"><span class="tag ok">Sin cambios</span><strong>No hay auditoria de comisiones</strong><p>Los cambios de porcentaje quedaran aqui.</p></article>';
 }
 
+let driverCommissionLimit = 50;
+
+function driverCommissionData() {
+  return DLSalesCommissionReport.buildDriver([...(state.orders || []), ...(state.archivedOrders || [])], {
+    driver: byId("driverCommissionUser").value,
+    from: byId("driverCommissionFrom").value,
+    to: byId("driverCommissionTo").value
+  });
+}
+
+function renderDriverCommissionReport() {
+  const select = byId("driverCommissionUser");
+  if (!select) return;
+  const selected = select.value;
+  const users = [...new Set([...(state.orders || []), ...(state.archivedOrders || [])].map(order => order.commissions?.driver?.user).filter(Boolean))].sort();
+  select.innerHTML = '<option value="">Todos</option>' + users.map(user => `<option value="${escapeHtml(user)}">${escapeHtml(user)}</option>`).join("");
+  select.value = users.includes(selected) ? selected : "";
+  const summary = byId("driverCommissionSummary"), detail = byId("driverCommissionRows"), message = byId("driverCommissionMessage");
+  summary.innerHTML = ""; detail.innerHTML = "";
+  byId("driverCommissionMore").hidden = true;
+  try {
+    const report = driverCommissionData();
+    byId("driverCommissionExcel").disabled = false;
+    message.textContent = `${report.details.length} pedidos. Total registrado: ${money.format(report.total)}.${report.issues.length ? ` ${report.issues.length} registros incompletos excluidos; revisar detalle en Excel.` : ""}`;
+    summary.innerHTML = report.drivers.map(row => `<tr><td>${escapeHtml(row.driver)}</td><td>${row.orders}</td><td>${money.format(row.base)}</td><td><strong>${money.format(row.total)}</strong></td></tr>`).join("") || '<tr><td colspan="4">Sin comisiones registradas para los filtros seleccionados.</td></tr>';
+    if (byId("driverCommissionDetails").open) {
+      detail.innerHTML = report.details.slice(0, driverCommissionLimit).map(row => `<tr><td>${escapeHtml(row.date)}</td><td>${escapeHtml(row.driver)}</td><td>${escapeHtml(row.orderCode)}</td><td>${escapeHtml(row.client)}</td><td>${escapeHtml(row.status)}</td><td>${money.format(row.base)}</td><td>${money.format(row.total)}</td></tr>`).join("");
+      byId("driverCommissionMore").hidden = report.details.length <= driverCommissionLimit;
+    }
+  } catch (error) {
+    message.textContent = error.message;
+    byId("driverCommissionExcel").disabled = true;
+  }
+}
+
+async function exportDriverCommissionReport() {
+  try {
+    const report = driverCommissionData();
+    await downloadXlsxReport({ fileName: `comisiones-reparto-${report.from || "inicio"}-${report.to || "actual"}.xlsx`, sheetName: "Comisiones reparto",
+      headers: ["Fecha de calculo", "Repartidor", "Pedido", "Cliente", "Estado", "Base registrada", "Comision cigarrillos", "Comision mercaderia", "Comision registrada"],
+      rows: [
+        ["Desde", report.from || "Inicio", "Hasta", report.to || "Actual", report.driver || "Todos", "", "", "", ""],
+        ...report.details.map(row => [row.date, row.driver, row.orderCode, row.client, row.status, row.base, row.cigarettes ?? "", row.merchandise ?? "", row.total]),
+        ...report.drivers.map(row => ["", row.driver, "SUBTOTAL", `${row.orders} pedidos`, "", row.base, "", "", row.total]),
+        ["", "TOTAL GENERAL", "", "", "", "", "", "", report.total],
+        ...report.issues.map(row => ["", "REVISAR", row.orderCode, row.reason, "", "", "", "", ""])
+      ] });
+  } catch (error) { showCompactNotice(error.message || "No se pudo exportar reparto.", "danger"); }
+}
+
 function renderCommissionsModule() {
   if (!byId("commissionCards")) return;
   promoteCommissionReport();
+  renderDriverCommissionReport();
   renderCommissionOptions();
   renderCommissionScopeFields();
   renderCommissionCards();
@@ -20366,6 +20417,10 @@ byId("commissionRuleForm").elements.role.addEventListener("change", () => {
   renderCommissionScopeFields();
 });
 byId("exportCommissionsCsvBtn").addEventListener("click", exportCommissionsCsv);
+["driverCommissionUser", "driverCommissionFrom", "driverCommissionTo"].forEach(id => byId(id).addEventListener("change", () => { driverCommissionLimit = 50; renderDriverCommissionReport(); }));
+byId("driverCommissionDetails").addEventListener("toggle", renderDriverCommissionReport);
+byId("driverCommissionMore").addEventListener("click", () => { driverCommissionLimit += 50; renderDriverCommissionReport(); });
+byId("driverCommissionExcel").addEventListener("click", exportDriverCommissionReport);
 ["commissionReportSeller", "commissionReportFrom", "commissionReportTo"].forEach((id) => byId(id).addEventListener("change", () => { salesCommissionDetailLimit = 50; renderCommissionSummary(); }));
 [["commissionThisWeekBtn", 0], ["commissionLastWeekBtn", -1]].forEach(([id, offset]) => byId(id).addEventListener("click", () => { setCommissionWeek(offset); renderCommissionSummary(); }));
 ["commissionSimulatorSeller", "commissionSimulatorProduct", "commissionSimulatorBase"].forEach((id) => {

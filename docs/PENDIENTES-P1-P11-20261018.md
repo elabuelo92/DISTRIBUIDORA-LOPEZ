@@ -1,5 +1,11 @@
 # Prioridades recibidas el 18 de octubre de 2026
 
+## Actualizacion posterior al despliegue
+
+P1 fue publicado en 8790-170 y P2 (conciliacion/carga inicial protegida) en 8790-171, commit cb1cf2e, el domingo 18/10 por la noche en Argentina. Se conserva abajo el listado previo como antecedente, no como estado actual de P1/P2. Detalle y pruebas: P2-STOCK-PRUEBAS-20261018.md.
+
+El usuario confirmo ajustes por diferencias. No se aplicaron conteos reales. Sobrestock aplazado por pedido expreso. La revision visual administrativa de P1 sigue aplazada; la prueba visual operativa de P2 tambien queda pendiente.
+
 No se autoriza modificar historicos ni recalcular liquidaciones. Cambios en el clon revisado, sin desplegar. No mezclar con el ajuste de comisiones 1%/3% aplazado por el usuario.
 
 ## Estado

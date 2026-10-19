@@ -39,7 +39,9 @@ La prueba HTTP requirio habilitar conexiones locales fuera del sandbox; el prime
 - Sobrestock aplazado por el usuario; no se inventan maximos.
 - No se aplico inventario real: requiere conteos aprobados.
 - Revision visual administrativa y prueba operativa con usuario quedan pendientes; las pruebas anteriores son automatizadas y ficticias.
-- Publicacion: pendiente al redactar este registro. Registrar respaldo, version y comparacion posterior antes de dar por publicado.
+- Publicado en 8790-171, commit cb1cf2e, el 18/10/2026 23:38 Argentina. Respaldo `/opt/distribuidora-lopez/backups/emergency-20261019-023742`. Despliegue con comparacion de archivos completos y pedidos aprobada. Servicio activo, licencia e integridad correctas y mantenimiento desactivado.
+
+El usuario confirmo expresamente el procedimiento de ajustes por diferencias; sobrestock queda aplazado. Reinicio limitado al ERP.
 
 ## P1 ya publicado
 

@@ -136,5 +136,36 @@
       sellers: [...sellers.values()].map(row => ({ ...row, gross: round(row.gross) })).sort((a,b) => a.seller.localeCompare(b.seller, "es")) };
   }
 
-  return { build, buildStatistics, currentWeek };
+  function buildDriver(orders, filters = {}) {
+    const from = filters.from || "", to = filters.to || "", driver = filters.driver || "";
+    if ((from && !dateKey(from)) || (to && !dateKey(to)) || (from && to && from > to)) {
+      throw new Error("Indicar un periodo valido: desde no puede superar hasta.");
+    }
+    const seen = new Set(), drivers = new Map(), details = [], issues = [];
+    const number = value => value !== null && value !== undefined && typeof value !== "boolean"
+      && String(value).trim() !== "" && Number.isFinite(Number(value)) ? Number(value) : null;
+    for (const order of orders || []) {
+      const key = String(order.code || order.id || "");
+      if (key && seen.has(key)) continue;
+      if (key) seen.add(key);
+      const block = order.commissions?.driver;
+      if (!block?.user || (driver && block.user !== driver)) continue;
+      const date = dateKey(order.commissions.calculatedAt);
+      if (!date) { issues.push({ orderCode: key, reason: "Sin fecha de calculo registrada" }); continue; }
+      if ((from && date < from) || (to && date > to)) continue;
+      const total = number(block.total), base = number(block.baseAmount);
+      if (total === null || base === null) { issues.push({ orderCode: key, reason: "Importe registrado invalido" }); continue; }
+      const row = { driver: block.user, date, orderCode: key, client: String(order.client || ""),
+        status: String(order.status || ""), base, cigarettes: number(block.cigarettes), merchandise: number(block.merchandise), total };
+      details.push(row);
+      const group = drivers.get(row.driver) || { driver: row.driver, orders: 0, base: 0, total: 0 };
+      group.orders++; group.base += base; group.total += total; drivers.set(row.driver, group);
+    }
+    const round = value => Math.round((value + Number.EPSILON) * 100) / 100;
+    return { from, to, driver, issues, details: details.sort((a,b) => a.date.localeCompare(b.date) || a.orderCode.localeCompare(b.orderCode)),
+      drivers: [...drivers.values()].map(row => ({ ...row, base: round(row.base), total: round(row.total) })).sort((a,b) => a.driver.localeCompare(b.driver, "es")),
+      total: round(details.reduce((sum, row) => sum + row.total, 0)) };
+  }
+
+  return { build, buildStatistics, buildDriver, currentWeek };
 });
