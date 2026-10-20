@@ -8724,7 +8724,7 @@ function renderOrders() {
           ${!order.__archivedReadOnly && nextOrderStatus(order.status) && ![ORDER_STATUS.ASSEMBLY, ORDER_STATUS.LABELED, ORDER_STATUS.READY_DISPATCH].includes(order.status) ? `<button class="mini-btn" type="button" data-order-next="${escapeHtml(order.code)}">Avanzar</button>` : ""}
           ${!order.__archivedReadOnly && ![ORDER_STATUS.DELIVERED, ORDER_STATUS.COLLECTED, ORDER_STATUS.CLOSED, ORDER_STATUS.CANCELLED].includes(order.status) ? `<button class="mini-btn" type="button" data-order-urgent="${escapeHtml(order.code)}">${order.priority === "Urgente" ? "Normal" : "Urgente"}</button>` : ""}
           ${!order.__archivedReadOnly && order.inventoryMode === "reservation" && ![ORDER_STATUS.DISPATCHED, ORDER_STATUS.IN_ROUTE, ORDER_STATUS.CHECKED, ORDER_STATUS.PARTIAL_DELIVERED, ORDER_STATUS.DELIVERED, ORDER_STATUS.COLLECTED, ORDER_STATUS.CLOSED, ORDER_STATUS.CANCELLED, ORDER_STATUS.REJECTED, ORDER_STATUS.NOT_DELIVERED, ORDER_STATUS.POSTPONED].includes(order.status) ? `<button class="mini-btn danger-btn" type="button" data-order-cancel="${escapeHtml(order.code)}">Cancelar</button>` : ""}
-          ${isAdminUser() && !order.__archivedReadOnly && order.status === ORDER_STATUS.REJECTED && order.inventoryMode === "reservation" ? order.stockReturnReceipt ? '<span class="tag ok">Devolucion recibida</span>' : `<button class="mini-btn" type="button" data-order-receive-return="${escapeHtml(order.code)}">Recibir devolucion completa</button>` : ""}
+          ${isAdminUser() && !order.__archivedReadOnly && order.inventoryMode === "reservation" ? order.stockReturnReceipt ? '<span class="tag ok">Devolucion recibida</span>' : [ORDER_STATUS.REJECTED, ORDER_STATUS.NOT_DELIVERED].includes(order.status) ? `<button class="mini-btn" type="button" data-order-receive-return="${escapeHtml(order.code)}">${order.status === ORDER_STATUS.NOT_DELIVERED ? "Cancelar y recibir devolucion" : "Recibir devolucion completa"}</button>` : "" : ""}
         </div>
       </td>
     </tr>
@@ -22284,14 +22284,15 @@ document.addEventListener("click", async (event) => {
   if (!button || button.disabled || !isAdminUser()) return;
   const order = state.orders.find(item => item.code === button.dataset.orderReceiveReturn);
   if (!order || order.stockReturnReceipt) return;
-  const reason = window.prompt(`Motivo de recepcion de ${order.code}:`, "Devolucion por rechazo") || "";
+  const cancelNotDelivered = order.status === ORDER_STATUS.NOT_DELIVERED;
+  const reason = window.prompt(`Motivo de ${cancelNotDelivered ? "cancelacion definitiva" : "recepcion"} de ${order.code}:`, "Devolucion por rechazo") || "";
   if (!reason.trim()) return;
   const lines = (order.items || []).map(item => `${item.name}: ${item.requestedQty} unidades`).join("\n");
-  if (!window.confirm(`${order.code}\n${lines}\n\nConfirma que TODA esta mercaderia regreso fisicamente en condiciones de venta y que NO se reintegro mediante otro ajuste? No usar para corregir pedidos de prueba.`)) return;
+  if (!window.confirm(`${order.code}\n${lines}\n\n${cancelNotDelivered ? "Cancelacion definitiva: el pedido no volvera a Segunda Visita.\n" : ""}Confirma que TODA esta mercaderia regreso fisicamente en condiciones de venta y que NO se reintegro mediante otro ajuste? No usar para corregir pedidos de prueba.`)) return;
   button.disabled = true;
   try {
     const payload = await postOperationalAction(`api/orders/${encodeURIComponent(order.code)}/receive-return`, {
-      reason: reason.trim(), physicalReceived: true, noPreviousAdjustment: true, expectedUpdatedAt: String(order.updatedAt || "")
+      reason: reason.trim(), cancelNotDelivered, physicalReceived: true, noPreviousAdjustment: true, expectedUpdatedAt: String(order.updatedAt || "")
     });
     applyOrderPatches(payload.order ? [payload.order] : [], payload.version);
     showCompactNotice(payload.repeated ? "La devolucion ya estaba registrada. No se duplico stock." : "Devolucion recibida y stock reintegrado.", "ok");

@@ -22,7 +22,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-174";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-175";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -8290,8 +8290,9 @@ const server = http.createServer(async (req, res) => {
         } else {
           order = orderEngine.cancelOrder(currentState, code, sessionUser.name);
         }
+        const returnAction = order && order.administrativeCancellation ? "PEDIDO_CANCELADO_CON_DEVOLUCION" : "PEDIDO_DEVOLUCION_RECIBIDA";
         writeCompactStateResponse(res, currentState, { order }, auditEntry(req, sessionUser, input, {
-          action: orderActionMatch[2] === "receive-return" ? "PEDIDO_DEVOLUCION_RECIBIDA" : orderActionMatch[2] === "advance" ? "PEDIDO_AVANZADO" : orderActionMatch[2] === "priority" ? "PEDIDO_PRIORIDAD" : "PEDIDO_CANCELADO",
+          action: orderActionMatch[2] === "receive-return" ? returnAction : orderActionMatch[2] === "advance" ? "PEDIDO_AVANZADO" : orderActionMatch[2] === "priority" ? "PEDIDO_PRIORIDAD" : "PEDIDO_CANCELADO",
           entityType: "pedido",
           entityId: code,
           entityLabel: order && order.client || code,
@@ -8301,7 +8302,7 @@ const server = http.createServer(async (req, res) => {
         }), orderActionMatch[2] === "advance"
           ? orderStatusNotification(req, sessionUser, input, order, previousOrder, order && order.status === orderEngine.STATUS.DISPATCHED ? "PEDIDO_DESPACHADO" : "PEDIDO_ESTADO")
           : notificationEntry(req, sessionUser, input, {
-            action: orderActionMatch[2] === "receive-return" ? "PEDIDO_DEVOLUCION_RECIBIDA" : orderActionMatch[2] === "priority" ? "PEDIDO_MODIFICADO" : "PEDIDO_CANCELADO",
+            action: orderActionMatch[2] === "receive-return" ? returnAction : orderActionMatch[2] === "priority" ? "PEDIDO_MODIFICADO" : "PEDIDO_CANCELADO",
             category: "Pedidos",
             title: orderActionMatch[2] === "receive-return" ? `Devolucion recibida ${code}` : orderActionMatch[2] === "priority" ? `Urgencia actualizada ${code}` : `Pedido cancelado ${code}`,
             text: `${order && order.client || "Cliente"} - ${order && order.status || ""}.`,

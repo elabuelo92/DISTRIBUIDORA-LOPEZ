@@ -2263,11 +2263,18 @@
     const order = getOrder(state, code);
     if (!order) throw new Error("Pedido no encontrado.");
     if (order.stockReturnReceipt) return { order, repeated: true };
-    if (order.inventoryMode !== "reservation" || !order.stockSettled || order.status !== STATUS.REJECTED) {
+    const cancelNotDelivered = input.cancelNotDelivered === true && order.status === STATUS.NOT_DELIVERED;
+    if (input.cancelNotDelivered === true && !cancelNotDelivered) throw new Error("Solo se cancelan por este circuito pedidos No entregados.");
+    if (cancelNotDelivered && (order.commissionLiquidated || positive(order.commissionPaidAmount))) throw new Error("El pedido tiene comisiones liquidadas; requiere conciliacion administrativa.");
+    if (order.inventoryMode !== "reservation" || !order.stockSettled || (order.status !== STATUS.REJECTED && !cancelNotDelivered)) {
       throw new Error("Solo se reciben devoluciones completas de pedidos despachados y rechazados.");
     }
-    if (order.collection || order.accountPosted || (order.items || []).some(item => positive(item.deliveredQty) || positive(item.returnedQty))) {
+    if (order.collection || (order.collections || []).length || order.accountPosted || (order.items || []).some(item => positive(item.deliveredQty) || positive(item.returnedQty))) {
       throw new Error("El pedido tiene cobros o entregas parciales; requiere conciliacion administrativa.");
+    }
+    const stops = (state.deliveryRoutes || []).flatMap(route => (route.stops || []).filter(stop => stop.orderCode === order.code));
+    if (stops.some(stop => stop.collection || (stop.collections || []).length || ![STATUS.NOT_DELIVERED, STATUS.REJECTED, STATUS.POSTPONED, STATUS.CANCELLED].includes(stop.status))) {
+      throw new Error("El pedido tiene una parada activa o cobros en ruta; revisar antes de reintegrar stock.");
     }
     if (input.physicalReceived !== true || input.noPreviousAdjustment !== true) throw new Error("Confirmar recepcion completa y ausencia de ajuste previo.");
     const reason = String(input.reason || "").trim();
@@ -2302,7 +2309,7 @@
       entry.product.stock_fisico = before.physical + entry.qty;
       refreshProductInventory(entry.product);
       const after = inventory(entry.product);
-      movements.unshift({ id: `${receipt.id}-${key}`, at, type: "Devolucion de rechazo", productCode: key,
+      movements.unshift({ id: `${receipt.id}-${key}`, at, type: cancelNotDelivered ? "Devolucion por cancelacion" : "Devolucion de rechazo", productCode: key,
         productName: productName(entry.product), qty: entry.qty, stockBefore: before.physical, stockAfter: after.physical,
         previousStock: before.physical, newStock: after.physical, orderCode: order.code, client: order.client,
         user: receipt.user, reason, receiptId: receipt.id });
@@ -2311,7 +2318,11 @@
     order.stockReturnReceipt = receipt;
     order.updatedAt = at;
     order.reprogrammingPending = false;
-    addTrace(order, order.status, receipt.user, `Devolucion completa recibida: ${reason}`, at, null, "PEDIDO_DEVOLUCION_RECIBIDA");
+    if (cancelNotDelivered) {
+      order.status = STATUS.CANCELLED;
+      order.administrativeCancellation = { at, user: receipt.user, reason, previousStatus: STATUS.NOT_DELIVERED, receiptId: receipt.id };
+    }
+    addTrace(order, order.status, receipt.user, `${cancelNotDelivered ? "Cancelacion definitiva y devolucion completa" : "Devolucion completa recibida"}: ${reason}`, at, null, cancelNotDelivered ? "PEDIDO_CANCELADO_CON_DEVOLUCION" : "PEDIDO_DEVOLUCION_RECIBIDA");
     return { order, repeated: false };
   }
 
