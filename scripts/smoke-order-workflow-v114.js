@@ -77,8 +77,8 @@ async function waitHealth() {
   throw new Error(`Servidor temporal v114 no inicio: ${serverOutput}`);
 }
 
-async function login() {
-  const input = { username: "admin1", password: "Lopez2026!", device: { id: "SMOKE-V114", label: "Smoke v114", model: "Node", os: process.platform, appVersion: "8790-114" } };
+async function login(username = "admin1") {
+  const input = { username, password: "Lopez2026!", device: { id: `SMOKE-V114-${username}`, label: "Smoke v114", model: "Node", os: process.platform, appVersion: "8790-114" } };
   let response = await fetch(`${base}/api/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
   if (response.status === 428) {
     const required = await response.json();
@@ -149,7 +149,27 @@ async function post(cookie, endpoint, body, expectedStatus = 200) {
   assert.ok((savedOrder.trace || []).some((entry) => entry.action === "PEDIDO_ETIQUETA_GENERADA"));
   assert.ok((savedOrder.trace || []).some((entry) => entry.action === "PEDIDO_ETIQUETA_ESCANEADA"));
 
-  const adjustment = { action: "reconcileCount", countId: "P2-COUNT", productCode: "P-V114", reason: "Prueba aislada", admin_password: "Lopez2026!" };
+  const countRequest = { action: "recordCount", countId: "CNT-HTTP-COUNT-001", productCode: "P-V114", expectedQty: 100, countedQty: 95, observation: "Prueba" };
+  const counts = await Promise.all([post(cookie, "api/stock/entry", countRequest), post(cookie, "api/stock/entry", countRequest)]);
+  assert.equal(counts.filter(result => result.payload.replayed).length, 1);
+  assert.equal(counts[0].payload.count.serverRecorded, true);
+  const afterCount = JSON.parse(fs.readFileSync(stateFile, "utf8")).state;
+  assert.equal(afterCount.products[0].stock_fisico, 100);
+  assert.deepEqual(afterCount.orders, persisted.state.orders);
+  assert.equal(afterCount.physicalStockCounts.filter(c => c.id === countRequest.countId).length, 1);
+  const driverCookie = await login("reparto1");
+  await post(driverCookie, "api/stock/entry", countRequest, 403);
+  const latest = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+  const tampered = JSON.parse(JSON.stringify(latest.state));
+  tampered.physicalStockCounts = [];
+  tampered.physicalStockAdjustments = [{ id: "FAKE" }];
+  await post(cookie, "api/state", { state: tampered, baseVersion: latest.version });
+  const preserved = JSON.parse(fs.readFileSync(stateFile, "utf8")).state;
+  assert.deepEqual(preserved.physicalStockCounts, afterCount.physicalStockCounts);
+  assert.equal((preserved.physicalStockAdjustments || []).length, 0);
+  await post(cookie, "api/stock/entry", { ...countRequest, countedQty: 94 }, 400);
+  await post(cookie, "api/stock/entry", { ...countRequest, countId: "CNT-HTTP-OTHER-002", expectedQty: 99 }, 400);
+  const adjustment = { action: "reconcileCount", countId: countRequest.countId, productCode: "P-V114", reason: "Prueba aislada", admin_password: "Lopez2026!" };
   await post(cookie, "api/stock/entry", { ...adjustment, admin_password: "incorrecta" }, 400);
   const simultaneous = await Promise.all([post(cookie, "api/stock/entry", adjustment), post(cookie, "api/stock/entry", adjustment)]);
   assert.equal(simultaneous.filter(result => result.payload.replayed).length, 1);
@@ -159,7 +179,7 @@ async function post(cookie, endpoint, body, expectedStatus = 200) {
   assert.equal(afterAdjustment.products[0].stock_fisico, 95);
   assert.equal(afterAdjustment.products[0].stock_reservado, 2);
   assert.equal(afterAdjustment.physicalStockAdjustments.length, 1);
-  assert.equal(afterAdjustment.stockMovements.filter(m => m.countId === "P2-COUNT").length, 1);
+  assert.equal(afterAdjustment.stockMovements.filter(m => m.countId === countRequest.countId).length, 1);
   assert.deepEqual(afterAdjustment.orders, persisted.state.orders);
   const initial = { operationId: "P2-HTTP-INITIAL-001", confirmed: true, confirmText: "CONFIRMAR", observation: "Conteo aislado",
     rows: [{ productCode: "P-V114", quantityPhysical: 94, expectedPhysical: 95, expectedReserved: 2 }] };

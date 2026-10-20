@@ -22,7 +22,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-175";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-176";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -8386,8 +8386,22 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const input = JSON.parse(body || "{}");
       const currentPayload = readStateFileCached();
-      const currentState = currentPayload.state || {};
+      const currentState = ["recordCount", "reconcileCount"].includes(input.action)
+        ? JSON.parse(JSON.stringify(currentPayload.state || {})) : currentPayload.state || {};
       try {
+        if (input.action === "recordCount") {
+          const result = orderEngine.recordPhysicalCount(currentState, input, sessionUser.name);
+          if (result.replayed) {
+            sendJson(res, 200, { ok: true, replayed: true, version: currentPayload.version, state: stateForUser(currentState, sessionUser), count: result.count });
+            return;
+          }
+          writeStateResponse(res, currentState, { count: result.count }, auditEntry(req, sessionUser, input, {
+            action: "STOCK_FISICO_CONTEO", entityType: "producto", entityId: result.count.productCode,
+            entityLabel: result.count.productName, previousValue: null, newValue: result.count,
+            note: "Conteo confirmado en servidor sin modificar stock"
+          }), [], sessionUser);
+          return;
+        }
         const previousProduct = entitySnapshot(currentState, "producto", input.productCode || input.product);
         const previousOrdersByCode = new Map((currentState.orders || []).map((order) => [order.code, cloneAuditValue(order)]));
         if (input.action === "reconcileCount" && !verifyCurrentUserPassword(sessionUser, input.admin_password || "")) throw new Error("Clave de administrador incorrecta.");
@@ -10496,6 +10510,9 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         if (payload.state) {
+          // Counts and reconciliations are owned by the stock operation, not generic browser snapshots.
+          payload.state.physicalStockCounts = currentPayload.state.physicalStockCounts || [];
+          payload.state.physicalStockAdjustments = currentPayload.state.physicalStockAdjustments || [];
           const previousAudit = ensureGlobalAudit(currentPayload.state || {});
           const incomingAudit = ensureGlobalAudit(payload.state);
           const auditById = new Map([...previousAudit, ...incomingAudit].map((entry) => [entry.id, entry]));

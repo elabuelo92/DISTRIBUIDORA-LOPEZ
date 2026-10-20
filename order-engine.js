@@ -1868,6 +1868,35 @@
     return completed;
   }
 
+  function recordPhysicalCount(state, input, actor) {
+    const code = String(input.productCode || "").trim();
+    const id = String(input.countId || "");
+    if (!/^CNT-[a-zA-Z0-9-]{8,100}$/.test(id)) throw new Error("Identificador de conteo invalido.");
+    const matches = (state.products || []).filter(p => productCode(p) === code);
+    if (!code || matches.length !== 1) throw new Error("Codigo de producto inexistente o ambiguo.");
+    const product = matches[0];
+    const quantity = input.countedQty;
+    if (typeof quantity !== "number" || !Number.isSafeInteger(quantity) || quantity < 0) throw new Error("Conteo fisico invalido.");
+    const observation = String(input.observation || "").trim();
+    if (observation.length > 500) throw new Error("Observacion demasiado extensa.");
+    const existing = (state.physicalStockCounts || []).find(c => c.id === id);
+    if (existing) {
+      if (existing.productCode !== code || existing.countedQty !== quantity || existing.observation !== observation
+        || existing.expectedQty !== input.expectedQty || !existing.serverRecorded) throw new Error("El identificador ya pertenece a otro conteo.");
+      return { product, count: existing, replayed: true };
+    }
+    const before = inventory({ ...product });
+    if (typeof input.expectedQty !== "number" || input.expectedQty !== before.physical) throw new Error("El stock cambio. Revisar el stock actual antes de guardar el conteo.");
+    const count = { id, at: nowIso(), productCode: code, productName: productName(product),
+      expectedQty: before.physical, countedQty: quantity, difference: quantity - before.physical,
+      differencePercent: before.physical ? (quantity - before.physical) / before.physical * 100 : 0,
+      availableQty: before.available, reservedQty: before.reserved, observation,
+      user: actor || "Administracion", serverRecorded: true };
+    state.physicalStockCounts = state.physicalStockCounts || [];
+    state.physicalStockCounts.unshift(count);
+    return { product, count, replayed: false };
+  }
+
   function reconcilePhysicalCount(state, input, actor) {
     const code = String(input.productCode || "");
     const product = (state.products || []).find(p => productCode(p) === code);
@@ -2769,6 +2798,7 @@
     createOrder,
     allocatePendingOrders,
     applyStockEntry,
+    recordPhysicalCount,
     reconcilePhysicalCount,
     nextStatus,
     assertDispatchChecklist,

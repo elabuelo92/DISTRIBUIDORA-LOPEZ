@@ -486,6 +486,9 @@ let physicalStockMode = "all";
 let physicalStockReportType = "current";
 let physicalStockCountMode = false;
 let physicalStockAdjustTargetCode = "";
+let physicalStockAdjustTargetCountId = "";
+const physicalCountDrafts = new Map();
+const physicalCountSaving = new Set();
 let supplierSearchTerm = "";
 let supplierStatusFilter = "all";
 let supplierSectorFilter = "all";
@@ -14515,7 +14518,7 @@ function physicalStockCountDate(value) {
 function lastPhysicalStockCount(product) {
   const key = productInventoryKey(product);
   return (state.physicalStockCounts || [])
-    .filter((entry) => String(entry.productCode || entry.product || "") === key || normalizeSearchText(entry.productName) === normalizeSearchText(product.name))
+    .filter((entry) => String(entry.productCode || entry.product || "") === key)
     .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0))[0] || null;
 }
 
@@ -14655,15 +14658,15 @@ function renderPhysicalStockControl() {
       <td>
         ${physicalStockCountMode ? `
           <div class="count-inline">
-            <input type="number" min="0" step="1" value="${row.counted ?? ""}" placeholder="Conteo" data-physical-count="${escapeHtml(row.code)}">
-            <input type="text" value="${escapeHtml(row.count?.observation || "")}" placeholder="Observacion" data-physical-note="${escapeHtml(row.code)}">
-            <button class="mini-btn" type="button" data-save-physical-count="${escapeHtml(row.code)}">Guardar</button>
+            <input type="number" min="0" step="1" value="${escapeHtml(physicalCountDrafts.get(row.code)?.rawCount ?? row.counted ?? "")}" placeholder="Conteo" data-physical-count="${escapeHtml(row.code)}" ${physicalCountSaving.has(row.code) ? "disabled" : ""}>
+            <input type="text" value="${escapeHtml(physicalCountDrafts.get(row.code)?.observation ?? row.count?.observation ?? "")}" placeholder="Observacion" data-physical-note="${escapeHtml(row.code)}" ${physicalCountSaving.has(row.code) ? "disabled" : ""}>
+            <button class="mini-btn" type="button" data-save-physical-count="${escapeHtml(row.code)}" ${physicalCountSaving.has(row.code) ? "disabled" : ""}>${physicalCountSaving.has(row.code) ? "Guardando..." : "Guardar"}</button>
           </div>
         ` : formatPhysicalDifference(row)}
       </td>
       <td>
         <button class="mini-btn" type="button" data-view-physical-trace="${escapeHtml(row.code)}">Trazar</button>
-        ${row.count && row.difference !== 0 ? `<button class="mini-btn danger-btn" type="button" data-adjust-physical-stock="${escapeHtml(row.code)}">Ajustar</button>` : ""}
+        ${row.count?.serverRecorded && row.difference !== 0 && !physicalCountDrafts.has(row.code) && !physicalCountSaving.has(row.code) ? `<button class="mini-btn danger-btn" type="button" data-adjust-physical-stock="${escapeHtml(row.code)}">Ajustar</button>` : ""}
       </td>
     </tr>
   `).join("") : '<tr><td class="stock-empty" colspan="11">No hay productos para los filtros seleccionados.</td></tr>';
@@ -14789,7 +14792,8 @@ function findPhysicalStockInput(attributeName, productCode) {
     .find((input) => String(input.getAttribute(attributeName) || "") === String(productCode || "")) || null;
 }
 
-function recordPhysicalStockCount(productCode) {
+async function recordPhysicalStockCount(productCode) {
+  if (!isAdminUser() || physicalCountSaving.has(productCode)) return;
   const row = physicalStockRows().find((item) => item.code === productCode);
   if (!row) return;
   const qtyInput = findPhysicalStockInput("data-physical-count", productCode);
@@ -14804,47 +14808,30 @@ function recordPhysicalStockCount(productCode) {
     window.alert("Ingresar cantidad fisica encontrada.");
     return;
   }
-  const at = new Date().toISOString();
-  const entry = {
-    id: `CNT-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    at,
-    productCode: row.code,
-    productName: row.name,
-    expectedQty: row.expected,
-    countedQty,
-    difference: countedQty - row.expected,
-    differencePercent: row.expected ? ((countedQty - row.expected) / row.expected) * 100 : 0,
-    availableQty: row.available,
-    reservedQty: row.totalPreDispatch,
-    observation: String(noteInput && noteInput.value || "").trim(),
-    user: currentUser ? currentUser.name : "Administracion",
-    username: currentUser ? currentUser.username : ""
-  };
-  state.physicalStockCounts = Array.isArray(state.physicalStockCounts) ? state.physicalStockCounts : [];
-  state.physicalStockCounts.unshift(entry);
-  state.globalAudit = Array.isArray(state.globalAudit) ? state.globalAudit : [];
-  state.globalAudit.unshift({
-    id: `AUDG-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    at,
-    date: localTraceParts(at).date,
-    time: localTraceParts(at).time,
-    user: entry.user,
-    username: entry.username,
-    role: currentUser ? currentUser.role : "admin",
-    ip: "",
-    device: sessionDevicePayload ? sessionDevicePayload() : null,
-    gps: null,
-    action: "STOCK_FISICO_CONTEO",
-    entityType: "producto",
-    entityId: row.code,
-    entityLabel: row.name,
-    previousValue: { expectedQty: row.expected },
-    newValue: entry,
-    note: "Conteo fisico registrado sin modificar stock"
-  });
-  state.activity.unshift({ type: "Inventario", title: `${row.name} contado`, text: `Sistema ${row.expected}, conteo ${countedQty}, diferencia ${entry.difference}.` });
-  saveState();
+  const observation = String(noteInput && noteInput.value || "").trim();
+  const previous = physicalCountDrafts.get(productCode);
+  const request = previous?.request && previous.rawCount === rawCount && previous.observation === observation
+    ? previous.request : { action: "recordCount", countId: `CNT-${crypto.randomUUID()}`,
+      productCode: row.code, expectedQty: row.expected, countedQty, observation };
+  physicalCountDrafts.set(productCode, { rawCount, observation, request });
+  physicalCountSaving.add(productCode);
   renderForCurrentUser();
+  try {
+    const payload = await postOperationalAction("api/stock/entry", request);
+    if (!payload.count?.serverRecorded || payload.count.id !== request.countId) throw new Error("El servidor no confirmo el conteo. Conservar el borrador y reintentar.");
+    physicalCountDrafts.delete(productCode);
+    showCompactNotice("Conteo guardado y confirmado en servidor. Stock sin modificar.", "ok");
+  } catch (error) {
+    // Network failures retain the same id so a lost response can be retried safely.
+    if (error.status === 400) {
+      physicalCountDrafts.get(productCode).request = null;
+      await pullStateFromServer();
+    }
+    window.alert(`${error.message || "No se pudo guardar el conteo."} El borrador se conserva en esta pantalla; no cerrar ni recargar.`);
+  } finally {
+    physicalCountSaving.delete(productCode);
+    renderForCurrentUser();
+  }
 }
 
 function openPhysicalStockAdjustDialog(productCode) {
@@ -14853,11 +14840,12 @@ function openPhysicalStockAdjustDialog(productCode) {
     return;
   }
   const row = physicalStockRows().find((item) => item.code === productCode);
-  if (!row || !row.count) {
-    window.alert("Primero se debe guardar un conteo fisico con diferencia.");
+  if (!row || !row.count?.serverRecorded || physicalCountDrafts.has(productCode) || physicalCountSaving.has(productCode)) {
+    window.alert("Primero guardar el conteo y esperar la confirmacion del servidor.");
     return;
   }
   physicalStockAdjustTargetCode = productCode;
+  physicalStockAdjustTargetCountId = row.count.id;
   const safeNextStock = row.counted;
   byId("physicalStockAdjustTitle").textContent = `Autorizar ajuste - ${row.name}`;
   byId("physicalStockAdjustCode").value = productCode;
@@ -14877,10 +14865,14 @@ async function submitPhysicalStockAdjust(event) {
   const formData = new FormData(form);
   const productCode = String(formData.get("product_code") || physicalStockAdjustTargetCode);
   const row = physicalStockRows().find((item) => item.code === productCode);
-  if (!row || !row.count) return;
+  if (!row || !row.count?.serverRecorded || physicalCountDrafts.has(productCode) || physicalCountSaving.has(productCode)) return;
   const reason = String(formData.get("reason") || "").trim();
   const password = String(formData.get("admin_password") || "").trim();
   const message = byId("physicalStockAdjustMessage");
+  if (row.count.id !== physicalStockAdjustTargetCountId) {
+    message.textContent = "El conteo cambio mientras estaba abierto. Cerrar y revisar antes de autorizar.";
+    return;
+  }
   if (!reason) {
     message.textContent = "Indicar motivo del ajuste.";
     return;
@@ -20576,6 +20568,17 @@ byId("physicalStockTable").addEventListener("click", (event) => {
   }
   const adjust = event.target.closest("[data-adjust-physical-stock]");
   if (adjust) openPhysicalStockAdjustDialog(adjust.dataset.adjustPhysicalStock);
+});
+byId("physicalStockTable").addEventListener("input", (event) => {
+  const input = event.target;
+  const code = input.getAttribute("data-physical-count") || input.getAttribute("data-physical-note");
+  if (!code || physicalCountSaving.has(code)) return;
+  physicalCountDrafts.set(code, {
+    rawCount: findPhysicalStockInput("data-physical-count", code)?.value || "",
+    observation: findPhysicalStockInput("data-physical-note", code)?.value || ""
+  });
+  const button = input.closest("tr")?.querySelector("[data-adjust-physical-stock]");
+  if (button) button.disabled = true;
 });
 byId("physicalStockAdjustForm").addEventListener("submit", submitPhysicalStockAdjust);
 
