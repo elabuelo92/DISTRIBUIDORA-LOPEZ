@@ -11,6 +11,7 @@ const orderEngine = require("./order-engine");
 const deliveryEngine = require("./delivery-engine");
 const accountEngine = require("./account-engine");
 const collectionVisitEngine = require("./collection-visit-engine");
+const collectionCorrectionEngine = require("./collection-correction-engine");
 const eventEngine = require("./event-engine");
 const erpnextEngine = require("./erpnext-engine");
 const licenseEngine = require("./license-engine");
@@ -23,7 +24,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-177";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-178";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -2924,6 +2925,7 @@ function sanitizeState(state) {
 }
 
 function stateForUser(state, user) {
+  state = { ...state, collectionCorrections: user?.role === "admin" ? (state.collectionCorrections || []) : [] };
   state = { ...state, collectionVisits: (state.collectionVisits || []).filter(visit => user?.role === "admin"
     || (user?.role === "driver" && (state.deliveryRoutes || []).some(route => route.id === visit.routeId && route.driverUser === user.username)))
     .map(visit => ({ ...visit, summary: collectionVisitEngine.summary(state, visit.id) })) };
@@ -6766,6 +6768,44 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/collection-corrections" && ["GET", "POST"].includes(req.method)) {
+      const user = requireUser(req, res);
+      if (!user) return;
+      if (user.role !== "admin") return sendJson(res, 403, { ok: false, error: "Requiere Administracion." });
+      try {
+        if (req.method === "GET") {
+          const current = readStateFileCached().state;
+          const routeId = requestUrl.searchParams.get("routeId");
+          const sources = routeId ? collectionCorrectionEngine.sources(current, routeId).sources.map(s => ({
+            id: s.id, client: s.client, cash: s.original.cashAmount ?? s.original.cash ?? 0,
+            transfer: s.original.transferAmount ?? s.original.transfer ?? 0
+          })) : [];
+          return sendJson(res, 200, { ok: true, routes: (current.deliveryRoutes || []).filter(r => r.closure).map(r => ({ id: r.id, label: deliveryEngine.routeDisplayName(r) })),
+            sources, corrections: (current.collectionCorrections || []).filter(c => c.routeId === routeId) });
+        }
+        const input = JSON.parse(await readBody(req) || "{}");
+        const current = readStateFileCached().state;
+        const context = { role: user.role, username: user.username, user: user.name };
+        const safe = { ...input, attachment: null, proofHash: input.dataUrl ? crypto.createHash("sha256").update(String(input.dataUrl)).digest("hex") : "" };
+        if (input.action === "preview") {
+          const preview = collectionCorrectionEngine.inspect(current, safe, context);
+          return sendJson(res, 200, { ok: true, token: preview.token, impact: preview.impact });
+        }
+        if (input.action !== "apply") throw new Error("Accion invalida.");
+        let result = collectionCorrectionEngine.apply(current, { ...safe, attachment: safe.proofHash ? { url: "preflight" } : null }, context);
+        if (!result.repeated && Number(input.transferAmount) > 0) {
+          const attachment = saveDeliveryUpload({ orderCode: `COR-${input.requestId}`, kind: "transfer-proof", dataUrl: input.dataUrl }, user);
+          result = collectionCorrectionEngine.apply(current, { ...safe, attachment }, context);
+        }
+        if (result.repeated) return sendJson(res, 200, { ok: true, correction: result.correction, repeated: true });
+        writeCompactStateResponse(res, result.state, { correction: result.correction, refreshRequired: true }, auditEntry(req, user, {}, {
+          action: "CORRECCION_COBRANZA_CERRADA", entityType: "cobranza", entityId: result.correction.id,
+          entityLabel: result.correction.client, note: result.correction.reason, newValue: result.correction
+        }), null, { atomic: true });
+      } catch (error) { sendJson(res, 400, { ok: false, error: error.message }); }
+      return;
+    }
+
     if (requestUrl.pathname === "/api/account-statements/payments" && req.method === "POST") {
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
@@ -10580,6 +10620,7 @@ const server = http.createServer(async (req, res) => {
           // Counts and reconciliations are owned by the stock operation, not generic browser snapshots.
           payload.state.physicalStockCounts = currentPayload.state.physicalStockCounts || [];
           payload.state.collectionVisits = currentPayload.state.collectionVisits || [];
+          payload.state.collectionCorrections = currentPayload.state.collectionCorrections || [];
           payload.state.physicalStockAdjustments = currentPayload.state.physicalStockAdjustments || [];
           const previousAudit = ensureGlobalAudit(currentPayload.state || {});
           const incomingAudit = ensureGlobalAudit(payload.state);

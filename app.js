@@ -4253,7 +4253,7 @@ function renderDashboardInsights() {
   const totalOrders = Math.max(1, state.orders.filter((order) => order.status !== ORDER_STATUS.CANCELLED).length);
   const inTransit = state.orders.filter((order) => [ORDER_STATUS.DISPATCHED, ORDER_STATUS.IN_ROUTE].includes(order.status)).length;
   const delivered = state.orders.filter((order) => [ORDER_STATUS.DELIVERED, ORDER_STATUS.COLLECTED, ORDER_STATUS.CLOSED].includes(order.status)).length;
-  const income = state.accounts.reduce((total, entry) => total + numeric(entry.credit, 0), 0);
+  const income = state.accounts.reduce((total, entry) => total + accountCollectionNet(entry), 0);
   const expenses = state.suppliers.reduce((total, supplier) => total + numeric(supplier.balance, 0), 0);
   const physicalStock = state.products.reduce((total, product) => total + OrderEngine.inventory(product).physical, 0);
   const reservedStock = state.products.reduce((total, product) => total + OrderEngine.inventory(product).reserved, 0);
@@ -4448,8 +4448,8 @@ function buildOperationalDashboard() {
     .filter((item) => item.delay.delayed)
     .sort((a, b) => b.delay.minutes - a.delay.minutes);
   const collectedToday = (state.accounts || [])
-    .filter((entry) => numeric(entry.credit, 0) > 0 && accountEntryHappenedToday(entry))
-    .reduce((total, entry) => total + numeric(entry.credit, 0), 0);
+    .filter((entry) => accountEntryHappenedToday(entry))
+    .reduce((total, entry) => total + accountCollectionNet(entry), 0);
   const dailySales = todayOrders.reduce((total, order) => total + numeric(order.amount, 0), 0);
   const totalPending = accountSummaries.reduce((total, summary) => total + numeric(summary.totalDebt, 0), 0);
   const stageCounts = ORDER_DASHBOARD_STAGES.map((stage) => {
@@ -4483,7 +4483,7 @@ function renderMetrics() {
   const dashboard = buildOperationalDashboard();
   const metrics = [
     { tone: "ok", label: "Total vendido hoy", value: money.format(dashboard.dailySales), hint: `${dashboard.todayOrders.length} pedidos ingresados hoy` },
-    { tone: "ok", label: "Total cobrado hoy", value: money.format(dashboard.collectedToday), hint: "Cobros registrados en cuentas/reparto" },
+    { tone: "ok", label: "Cobrado neto hoy", value: money.format(dashboard.collectedToday), hint: "Cobros menos reversos administrativos" },
     { tone: "warn", label: "Total pendiente", value: money.format(dashboard.totalPending), hint: "Saldo de clientes mas pedidos expuestos" },
     { tone: dashboard.pendingTransfers.length ? "danger" : "ok", label: "Transferencias a validar", value: dashboard.pendingTransfers.length, hint: money.format(dashboard.pendingTransferAmount) }
   ];
@@ -4531,7 +4531,7 @@ function renderDashboardInsights(dashboard = buildOperationalDashboard()) {
       <strong>Caja del dia</strong>
       <div class="cashflow-bars">
         <span title="Vendido"><i style="width:${Math.round((dashboard.dailySales / cashflowBase) * 100)}%"></i></span>
-        <span title="Cobrado"><i class="ok" style="width:${Math.round((dashboard.collectedToday / cashflowBase) * 100)}%"></i></span>
+        <span title="Cobrado neto"><i class="ok" style="width:${Math.max(0, Math.round((dashboard.collectedToday / cashflowBase) * 100))}%"></i></span>
         <span title="Pendiente"><i class="expense" style="width:${Math.round((dashboard.totalPending / cashflowBase) * 100)}%"></i></span>
       </div>
       <p>Vendido ${money.format(dashboard.dailySales)} / Cobrado ${money.format(dashboard.collectedToday)} / Pendiente ${money.format(dashboard.totalPending)}</p>
@@ -10344,6 +10344,7 @@ function renderDelivery() {
   renderDeliveryGpsCorrections();
   renderCollectionVisits();
   renderOperationalWorkspace("reparto", byId("reparto"), "Herramientas de reparto", [
+    { id: "collection-corrections", title: "Corregir cobranzas cerradas", summary: "Ajustes administrativos auditados", allowed: isAdminUser(), selectors: [".collection-corrections-panel"] },
     { id: "collection-visits", title: "Ordenes de cobro", summary: "Visitas de cobranza", allowed: ["admin", "driver"].includes(currentUser?.role), selectors: [".collection-visits-panel"] },
     { id: "gps-corrections", title: "Corregir ubicaciones", summary: `${deliveryGpsCorrectionClients().length} solicitudes GPS`, allowed: currentUser?.role === "driver", selectors: [".delivery-gps-corrections-panel"] },
     { id: "planning", title: "Planificar rutas", summary: `${routes.filter((route) => route.status === "Planificada").length} rutas por publicar`, allowed: canPlanDeliveryRoutes(), selectors: [".delivery-planner-panel"] },
@@ -16685,8 +16686,8 @@ function buildAnalytics() {
   const printedOrders = orders.filter((order) => order.print).length;
   const receivables = clients.reduce((total, client) => total + numeric(client.balance, 0), 0);
   const payables = (state.suppliers || []).reduce((total, supplier) => total + numeric(supplier.balance, 0), 0);
-  const income = accounts.reduce((total, item) => total + numeric(item.credit, 0), 0);
-  const expense = accounts.reduce((total, item) => total + numeric(item.debit, 0), 0);
+  const income = accounts.reduce((total, item) => total + accountCollectionNet(item), 0);
+  const expense = accounts.reduce((total, item) => total + (isCollectionReversal(item) ? 0 : numeric(item.debit, 0)), 0);
   const lowStock = products.filter((product) => OrderEngine.inventory(product).available <= numeric(product.min, 0));
   const noPurchaseVisits = Array.isArray(state.noPurchaseVisits) ? state.noPurchaseVisits : [];
   const noPurchaseToday = noPurchaseVisits.filter((visit) => dashboardDateIsToday(visit.at || visit.date));

@@ -26,6 +26,7 @@ const suites = [
   ["P8-http", "smoke-p8-http.js"],
   ["P8-manifests", "smoke-p8-manifests.js"]
 ];
+if (process.argv.includes("--p9")) suites.push(["P9-core", "smoke-p9-corrections.js"], ["P9-http", "smoke-p9-http.js"], ["P9-ui", "smoke-p9-ui.js"]);
 const results = [];
 for (const [scope, file, ...args] of suites) {
   const start = Date.now();
@@ -40,7 +41,7 @@ for (const [scope, file, ...args] of suites) {
 }
 const report = { at: new Date().toISOString(), environment: "local-isolated", productionAccess: false,
   note: "Engine/HTTP/manifest regression; not a production load test.", results };
-const output = path.join(root, "docs", "REVISION-P1-P8-20261020-results.json");
+const output = path.join(root, "docs", process.argv.includes("--p9") ? "REVISION-P1-P9-20261020-results.json" : "REVISION-P1-P8-20261020-results.json");
 fs.writeFileSync(output, JSON.stringify(report, null, 2));
 console.log(output);
 process.exitCode = results.some(result => result.status === "FAIL") ? 1 : 0;
