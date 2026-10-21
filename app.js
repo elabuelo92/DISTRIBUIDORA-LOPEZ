@@ -15505,6 +15505,7 @@ function sameSupplierName(left, right) {
 
 function supplierMovementStatusLabel(movement) {
   if (!movement) return "Movimiento";
+  if (movement.cancellation) return "Anulado";
   if (movement.paymentStatus || movement.status && String(movement.type || "") === "Pago proveedor") {
     return movement.paymentStatus || movement.status;
   }
@@ -15653,6 +15654,7 @@ function renderSuppliers() {
       <td><span class="tag ${supplierStatusClass(supplier.status)}">${escapeHtml(supplier.status)}</span></td>
       <td>
         <button class="mini-btn" type="button" data-supplier-edit="${escapeHtml(supplier.name)}">Editar</button>
+        ${isAdminUser() ? `<button class="mini-btn" type="button" data-supplier-remits="${escapeHtml(supplier.name)}">Remitos / detalle</button>` : ""}
         <button class="mini-btn danger-mini" type="button" data-supplier-manage="${escapeHtml(supplier.name)}">Eliminar / inactivar</button>
         <button class="mini-btn" type="button" data-account-open="supplier" data-account-id="${escapeHtml(supplier.name)}">Cuenta</button>
         <button class="mini-btn primary-mini" type="button" data-supplier-payment="${escapeHtml(supplier.name)}">Pago</button>
@@ -16584,6 +16586,7 @@ async function submitSupplierRemitValidation(event) {
       observations: byId("supplierRemitValidationObservations").value
     }, { timeoutMs: 120000 });
     byId("supplierRemitValidationDialog").close("default");
+    if (typeof refreshSupplierRemits === "function") await refreshSupplierRemits();
     showCompactNotice(result.idempotentReplay
       ? "El remito ya estaba conciliado. Se recupero la confirmacion sin duplicar movimientos."
       : "Remito conciliado. Stock y cuenta proveedor actualizados.", "ok");
@@ -16687,7 +16690,7 @@ function buildAnalytics() {
   const receivables = clients.reduce((total, client) => total + numeric(client.balance, 0), 0);
   const payables = (state.suppliers || []).reduce((total, supplier) => total + numeric(supplier.balance, 0), 0);
   const income = accounts.reduce((total, item) => total + accountCollectionNet(item), 0);
-  const expense = accounts.reduce((total, item) => total + (isCollectionReversal(item) ? 0 : numeric(item.debit, 0)), 0);
+  const expense = accounts.reduce((total, item) => total + (isCollectionReversal(item) ? 0 : numeric(item.debit, 0)) - (item.type === "Anulacion remito proveedor" ? numeric(item.credit, 0) : 0), 0);
   const lowStock = products.filter((product) => OrderEngine.inventory(product).available <= numeric(product.min, 0));
   const noPurchaseVisits = Array.isArray(state.noPurchaseVisits) ? state.noPurchaseVisits : [];
   const noPurchaseToday = noPurchaseVisits.filter((visit) => dashboardDateIsToday(visit.at || visit.date));

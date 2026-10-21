@@ -278,7 +278,7 @@
 
   function lastPayment(state, clientName) {
     const payments = accountEntries(state, clientName)
-      .filter((entry) => positive(entry.credit) > 0 && entry.type !== "Saldo a favor del cliente")
+      .filter((entry) => positive(entry.credit) > 0 && !["Saldo a favor del cliente", "Anulacion remito proveedor"].includes(entry.type))
       .map((entry, index) => ({
         date: String(entry.date || entry.createdAt || ""),
         parsedDate: parseDate(entry.date || entry.createdAt),

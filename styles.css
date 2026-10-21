@@ -8455,3 +8455,12 @@ menu {
   #collectionCorrectionsContent td::before { content: attr(data-label); display: block; font-size: 12px; font-weight: 700; margin-bottom: 4px; }
   #collectionCorrectionsContent td:nth-child(3) { grid-column: 1 / -1; }
 }
+/* Supplier remits: keep the inspected document expanded after an operation. */
+#supplierRemitsDetail, #supplierRemitCancelConfirm { padding: 24px; max-height: 90vh; overflow: auto; }
+#supplierRemitsDetail details { border-top: 1px solid #d8e0e4; padding: 14px 0; }
+#supplierRemitsDetail summary { cursor: pointer; padding: 8px 0; }
+#supplierRemitsDetail .responsive-table { overflow-x: auto; }
+#supplierRemitsDetail form { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-top: 16px; }
+#supplierRemitsDetail form label { flex: 1 1 240px; }
+#supplierRemitsDetail input { width: 100%; }
+#supplierRemitCancelConfirm button { margin: 8px 8px 0 0; }

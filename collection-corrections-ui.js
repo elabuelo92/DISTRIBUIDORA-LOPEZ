@@ -1,6 +1,6 @@
 "use strict";
 function isCollectionReversal(entry) { return Boolean(entry.correctionId && entry.type === "Reverso administrativo de cobranza"); }
-function accountCollectionNet(entry) { return Number(entry.credit || 0) - (isCollectionReversal(entry) ? Number(entry.debit || 0) : 0); }
+function accountCollectionNet(entry) { return entry.type === "Anulacion remito proveedor" ? 0 : Number(entry.credit || 0) - (isCollectionReversal(entry) ? Number(entry.debit || 0) : 0); }
 let correctionBusy = false, correctionPreview = null, correctionRequestId = "";
 async function loadCollectionCorrections(routeId = "") {
   if (correctionBusy || !isAdminUser()) return;

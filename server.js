@@ -12,6 +12,7 @@ const deliveryEngine = require("./delivery-engine");
 const accountEngine = require("./account-engine");
 const collectionVisitEngine = require("./collection-visit-engine");
 const collectionCorrectionEngine = require("./collection-correction-engine");
+const supplierRemitCancellation = require("./supplier-remit-cancellation");
 const eventEngine = require("./event-engine");
 const erpnextEngine = require("./erpnext-engine");
 const licenseEngine = require("./license-engine");
@@ -24,7 +25,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-178";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-179";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -8757,6 +8758,37 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/suppliers/remits/detail" && req.method === "GET") {
+      const user = requireUser(req, res);
+      if (!user) return;
+      if (user.role !== "admin") return sendJson(res, 403, { ok: false, error: "Requiere Administracion." });
+      const current = readStateFileCached().state;
+      const supplier = requestUrl.searchParams.get("supplier");
+      return sendJson(res, 200, { ok: true, remits: (current.supplierMovements || []).filter(m => m.type === "Remito" && m.supplier === supplier) });
+    }
+    const remitCancellationMatch = requestUrl.pathname.match(/^\/api\/suppliers\/remits\/([^/]+)\/cancellation$/);
+    if (remitCancellationMatch && req.method === "POST") {
+      const user = requireUser(req, res);
+      if (!user) return;
+      if (user.role !== "admin") return sendJson(res, 403, { ok: false, error: "Requiere Administracion." });
+      try {
+        const input = JSON.parse(await readBody(req) || "{}");
+        const current = readStateFileCached().state, id = decodeURIComponent(remitCancellationMatch[1]);
+        const actor = { role: user.role, user: user.name, username: user.username };
+        if (input.action === "preview") {
+          const p = supplierRemitCancellation.preview(current, id, input, actor);
+          return sendJson(res, 200, { ok: true, impact: p.impact, token: p.token });
+        }
+        if (input.action !== "apply") throw new Error("Accion invalida.");
+        const result = supplierRemitCancellation.cancel(current, id, input, actor);
+        if (result.repeated) return sendJson(res, 200, { ok: true, remit: result.remit, repeated: true });
+        writeCompactStateResponse(res, result.state, { remit: result.remit, refreshRequired: true }, auditEntry(req, user, {}, {
+          action: "PROVEEDOR_REMITO_ANULADO", entityType: "remito", entityId: id, entityLabel: result.remit.supplier,
+          note: result.remit.cancellation.reason, newValue: result.remit.cancellation
+        }), null, { atomic: true });
+      } catch (error) { sendJson(res, 400, { ok: false, error: error.message }); }
+      return;
+    }
     if (requestUrl.pathname === "/api/suppliers/remits" && req.method === "POST") {
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
@@ -8996,6 +9028,7 @@ const server = http.createServer(async (req, res) => {
         currentState.products = Array.isArray(currentState.products) ? currentState.products : [];
         const remit = currentState.supplierMovements.find((item) => item.id === remitId);
         if (!remit) throw new Error("Remito no encontrado.");
+        if (remit.cancellation) throw new Error("El remito esta anulado y no puede validarse nuevamente.");
         const supplier = currentState.suppliers.find((item) => sameText(item.name, remit.supplier) || sameText(item.razon_social, remit.supplier));
         if (!supplier) throw new Error("Proveedor no encontrado para validar remito.");
         const amount = Math.max(0, numeric(input.amount, 0));
@@ -10621,6 +10654,20 @@ const server = http.createServer(async (req, res) => {
           payload.state.physicalStockCounts = currentPayload.state.physicalStockCounts || [];
           payload.state.collectionVisits = currentPayload.state.collectionVisits || [];
           payload.state.collectionCorrections = currentPayload.state.collectionCorrections || [];
+          // A browser snapshot cannot remove an audited cancellation or its ledger entries.
+          for (const remit of (currentPayload.state.supplierMovements || []).filter(r => r.cancellation)) {
+            const incoming = (payload.state.supplierMovements || []).find(r => r.id === remit.id);
+            if (!incoming || JSON.stringify(incoming) !== JSON.stringify(remit)) {
+              return sendJson(res, 409, { ok: false, error: "Sincronizar: no se puede modificar un remito anulado desde un estado anterior." });
+            }
+            for (const key of ["stockMovements", "accounts"]) {
+              for (const entry of (currentPayload.state[key] || []).filter(e => e.cancellationId === remit.cancellation.requestId)) {
+                if (JSON.stringify((payload.state[key] || []).find(e => e.id === entry.id)) !== JSON.stringify(entry)) {
+                  return sendJson(res, 409, { ok: false, error: "No se pueden modificar movimientos de anulacion auditados." });
+                }
+              }
+            }
+          }
           payload.state.physicalStockAdjustments = currentPayload.state.physicalStockAdjustments || [];
           const previousAudit = ensureGlobalAudit(currentPayload.state || {});
           const incomingAudit = ensureGlobalAudit(payload.state);

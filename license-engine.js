@@ -36,6 +36,8 @@ const CRITICAL_FILES = [
   "collection-visits-ui.js",
   "collection-correction-engine.js",
   "collection-corrections-ui.js",
+  "supplier-remit-cancellation.js",
+  "supplier-remit-ui.js",
   "account-engine.js",
   "event-engine.js",
   "erpnext-engine.js",
