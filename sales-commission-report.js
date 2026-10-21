@@ -138,6 +138,7 @@
 
   function buildDriver(orders, filters = {}) {
     const from = filters.from || "", to = filters.to || "", driver = filters.driver || "";
+    const selectedDrivers = Array.isArray(filters.drivers) ? filters.drivers.filter(Boolean) : (driver ? [driver] : []);
     if ((from && !dateKey(from)) || (to && !dateKey(to)) || (from && to && from > to)) {
       throw new Error("Indicar un periodo valido: desde no puede superar hasta.");
     }
@@ -149,7 +150,7 @@
       if (key && seen.has(key)) continue;
       if (key) seen.add(key);
       const block = order.commissions?.driver;
-      if (!block?.user || (driver && block.user !== driver)) continue;
+      if (!block?.user || (selectedDrivers.length && !selectedDrivers.includes(block.user))) continue;
       const date = dateKey(order.commissions.calculatedAt);
       if (!date) { issues.push({ orderCode: key, reason: "Sin fecha de calculo registrada" }); continue; }
       if ((from && date < from) || (to && date > to)) continue;
@@ -162,7 +163,7 @@
       group.orders++; group.base += base; group.total += total; drivers.set(row.driver, group);
     }
     const round = value => Math.round((value + Number.EPSILON) * 100) / 100;
-    return { from, to, driver, issues, details: details.sort((a,b) => a.date.localeCompare(b.date) || a.orderCode.localeCompare(b.orderCode)),
+    return { from, to, driver: selectedDrivers.join(", "), issues, details: details.sort((a,b) => a.date.localeCompare(b.date) || a.orderCode.localeCompare(b.orderCode)),
       drivers: [...drivers.values()].map(row => ({ ...row, base: round(row.base), total: round(row.total) })).sort((a,b) => a.driver.localeCompare(b.driver, "es")),
       total: round(details.reduce((sum, row) => sum + row.total, 0)) };
   }

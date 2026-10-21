@@ -1,5 +1,17 @@
 "use strict";
 let collectionVisitPage = 0, collectionVisitData = null, collectionVisitLoading = false, collectionVisitUser = "";
+function renderCollectionVisitPlacement(anchor, routeId) {
+  if (!anchor) return;
+  const id = `${anchor.id}-collection-visits`;
+  let panel = byId(id);
+  if (!panel) { panel = document.createElement("section"); panel.id = id; anchor.before(panel); }
+  const visits = routeId === null ? [] : (state.collectionVisits || []).filter(v =>
+    routeId ? v.routeId === routeId : !v.routeId && !v.completedAt);
+  panel.hidden = !visits.length;
+  if (!visits.length) { panel.innerHTML = ""; return; }
+  const routes = (state.deliveryRoutes || []).filter(r => !r.closure && !isDeliveryRouteClosed(r));
+  panel.innerHTML = `<h3>${routeId ? "Ordenes de cobro de esta ruta" : "Ordenes de cobro sin asignar"}</h3><div class="responsive-table"><table><thead><tr><th>Cliente</th><th>Orden</th><th>Importe</th><th>Estado</th><th>Ruta destino</th></tr></thead><tbody>${visits.map(v => `<tr><td>${escapeHtml(v.client)}</td><td>${escapeHtml(v.id)}</td><td>${money.format(v.amount)}</td><td>${escapeHtml(v.summary?.status || v.status)}</td><td>${isAdminUser() && !v.completedAt && !(v.payments || []).length ? `<select data-visit-route="${escapeHtml(v.id)}" aria-label="Ruta destino"><option value="">Bolsa / sin ruta</option>${routes.map(r => `<option value="${escapeHtml(r.id)}" ${r.id === v.routeId ? "selected" : ""}>${escapeHtml(DeliveryEngine.routeDisplayName(r))}</option>`).join("")}</select><button type="button" class="mini-btn" data-visit-assign="${escapeHtml(v.id)}">Asignar</button>` : escapeHtml(v.completedAt ? "Finalizada" : "Asignada")}</td></tr>`).join("")}</tbody></table></div>`;
+}
 function renderCollectionVisits() {
   if (!["admin", "driver"].includes(currentUser?.role)) return;
   if (collectionVisitUser !== currentUser.username && !collectionVisitLoading) {
@@ -90,7 +102,7 @@ document.addEventListener("click", async event => {
   if (button.dataset.visitPage) { collectionVisitPage += Number(button.dataset.visitPage); await loadCollectionVisits(); return; }
   const id = button.dataset.visitAssign || button.dataset.visitFinish; if (!id) return;
   let body;
-  if (button.dataset.visitAssign) body = { routeId: [...document.querySelectorAll("[data-visit-route]")].find(s => s.dataset.visitRoute === id).value };
+  if (button.dataset.visitAssign) body = { routeId: button.closest("tr").querySelector("[data-visit-route]").value };
   else { const reason = window.prompt("Motivo de finalizacion; el saldo sin cobrar sigue en cuenta corriente:"); if (!reason?.trim()) return; body = { reason }; }
   button.disabled = true;
   try { await postCollectionVisit(`/${encodeURIComponent(id)}/${button.dataset.visitAssign ? "assign" : "finish"}`, body); await loadCollectionVisits(); }

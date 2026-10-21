@@ -26,7 +26,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-182";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-183";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -195,7 +195,8 @@ function sendJsonBuffer(res, status, payload, headers, prepared = null) {
     }
     if (prepared) prepared.gzipWaiters = [finish];
     // Larger output chunks avoid many main-loop callbacks during large snapshots.
-    zlib.gzip(payload, { chunkSize: payload.length >= 262144 ? 262144 : 16384 }, (error, compressed) => {
+    // Interactive sync favors latency over maximum compression of large snapshots.
+    zlib.gzip(payload, { level: zlib.constants.Z_BEST_SPEED, chunkSize: payload.length >= 262144 ? 262144 : 16384 }, (error, compressed) => {
       if (prepared) {
         const waiters = prepared.gzipWaiters || [];
         prepared.gzipWaiters = null;

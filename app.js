@@ -442,6 +442,7 @@ let activeAccountStatement = null;
 let bankStatusFilter = "all";
 let bankClientFilter = "";
 let bankDateFilter = "";
+let bankDateToFilter = "";
 let bankBankFilter = "";
 let bankAmountFilter = "";
 let bankPendingClientsFilter = "all";
@@ -9674,6 +9675,7 @@ function renderDeliveryPlanner() {
   const list = byId("deliveryPlannerList");
   const summary = byId("deliveryPlannerSummary");
   if (!form || !list || !summary) return;
+  renderCollectionVisitPlacement(list, "");
   const day = byId("deliveryPlannerDay");
   if (day && !day.value) day.value = routeDayToday();
   if (currentUser?.username === "dario") {
@@ -10453,6 +10455,7 @@ function renderDeliveryStops(route) {
   const meta = byId("deliveryActiveRouteMeta");
   const list = byId("deliveryStopList");
   const toolbar = byId("deliveryStopToolbar");
+  renderCollectionVisitPlacement(list, route?.id || null);
   const previousTable = list.querySelector(".delivery-stop-table-wrap");
   const previousScroll = previousTable ? { top: previousTable.scrollTop, left: previousTable.scrollLeft } : null;
   if (!route) {
@@ -10970,7 +10973,9 @@ function transferMatchesFilters(record, globalTerms, localTerms) {
   const bankClientTerms = searchTerms(bankClientFilter);
   const matchesClient = !bankClientTerms.length || matchesSearch(text, bankClientTerms);
   const matchesBank = !bankBankFilter || normalizeText(record.bank).includes(normalizeText(bankBankFilter));
-  const matchesDate = !bankDateFilter || dashboardDateKey(record.at || record.date) === bankDateFilter;
+  const recordDate = dashboardDateKey(record.at || record.date);
+  const matchesDate = (!bankDateFilter || (recordDate && recordDate >= bankDateFilter))
+    && (!bankDateToFilter || (recordDate && recordDate <= bankDateToFilter));
   const amount = numeric(record.amount, 0);
   const targetAmount = numeric(bankAmountFilter, -1);
   const matchesAmount = !bankAmountFilter || Math.abs(amount - targetAmount) < 0.01;
@@ -13970,7 +13975,7 @@ let driverCommissionLimit = 50;
 
 function driverCommissionData() {
   return DLSalesCommissionReport.buildDriver([...(state.orders || []), ...(state.archivedOrders || [])], {
-    driver: byId("driverCommissionUser").value,
+    drivers: [...byId("driverCommissionUser").querySelectorAll("input:checked")].map(input => input.value).filter(Boolean),
     from: byId("driverCommissionFrom").value,
     to: byId("driverCommissionTo").value
   });
@@ -13979,10 +13984,9 @@ function driverCommissionData() {
 function renderDriverCommissionReport() {
   const select = byId("driverCommissionUser");
   if (!select) return;
-  const selected = select.value;
+  const selected = new Set([...select.querySelectorAll("input:checked")].map(input => input.value).filter(Boolean));
   const users = [...new Set([...(state.orders || []), ...(state.archivedOrders || [])].map(order => order.commissions?.driver?.user).filter(Boolean))].sort();
-  select.innerHTML = '<option value="">Todos</option>' + users.map(user => `<option value="${escapeHtml(user)}">${escapeHtml(user)}</option>`).join("");
-  select.value = users.includes(selected) ? selected : "";
+  select.innerHTML = `<label><input type="checkbox" value="" data-all-drivers ${selected.size ? "" : "checked"}> Todos</label>` + users.map(user => `<label><input type="checkbox" value="${escapeHtml(user)}" ${selected.has(user) ? "checked" : ""}> ${escapeHtml(user)}</label>`).join("");
   const summary = byId("driverCommissionSummary"), detail = byId("driverCommissionRows"), message = byId("driverCommissionMessage");
   summary.innerHTML = ""; detail.innerHTML = "";
   byId("driverCommissionMore").hidden = true;
@@ -17089,7 +17093,7 @@ function renderStatisticsPeriod() {
     byId("statisticsStatus").textContent += report.costRecordingFrom
       ? ` Registro de costos iniciado: ${new Date(report.costRecordingFrom).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })}. Historicos anteriores sin reconstruccion.`
       : " Registro de costos pendiente de la primera carga posterior al corte. Historicos anteriores sin reconstruccion.";
-    byId("analyticsKpis").innerHTML = [["Ventas brutas", report.gross], ["Devoluciones", report.returns], ["Ventas menos devoluciones", report.netSales], ["CMV", report.cmv], ["Ganancia bruta", report.profit]].map(([label,value]) => `<article class="analytics-kpi"><span>${label}</span><strong>${value === null ? "No disponible" : money.format(value)}</strong></article>`).join("");
+    byId("analyticsKpis").innerHTML = [["Ventas brutas", report.gross], ["Devoluciones", report.returns], ["Ventas menos devoluciones", report.netSales], ["Costo de mercaderia vendida (CMV)", report.cmv], ["Ganancia bruta", report.profit]].map(([label,value]) => `<article class="analytics-kpi"><span>${label}</span><strong>${value === null ? "Sin costo historico completo" : money.format(value)}</strong></article>`).join("");
     byId("sellerSalesChart").innerHTML = `<div class="responsive-table"><table><thead><tr><th>Vendedor</th><th>Pedidos</th><th>Importe</th></tr></thead><tbody>${report.sellers.map(row => `<tr><td>${escapeHtml(row.seller)}</td><td>${row.orders}</td><td>${money.format(row.gross)}</td></tr>`).join("")}<tr><th>Total</th><td>${report.orders}</td><td>${money.format(report.gross)}</td></tr></tbody></table></div>`;
     byId("productConsumptionChart").innerHTML = `<div class="responsive-table"><table><thead><tr><th>Codigo</th><th>Producto</th><th>Unidades</th><th>Importe</th></tr></thead><tbody>${report.products.slice(0, 250).map(row => `<tr><td>${escapeHtml(row.code)}</td><td>${escapeHtml(row.product)}</td><td>${row.units}</td><td>${money.format(row.gross)}</td></tr>`).join("")}</tbody></table></div>${report.products.length > 250 ? '<p>Primeros 250 productos. El Excel incluye todos.</p>' : ""}`;
   } catch (error) {
@@ -18996,7 +19000,7 @@ function openClientEditDialog(id) {
   setFormValue(form, "vendedor_asignado", client.seller || client.vendedor_asignado);
   setFormValue(form, "forma_pago", client.forma_pago);
   setFormValue(form, "dias_credito", client.dias_credito);
-  setFormValue(form, "limite_credito", client.limit);
+  setFormValue(form, "limite_credito", client.limite_credito ?? client.limit ?? 0);
   setFormValue(form, "saldo_inicial", client.balance);
   setClientVisitDaysForm(form, client);
   setFormValue(form, "frecuencia_visita", client.frecuencia_visita);
@@ -20518,7 +20522,10 @@ byId("commissionRuleForm").elements.role.addEventListener("change", () => {
   renderCommissionScopeFields();
 });
 byId("exportCommissionsCsvBtn").addEventListener("click", exportCommissionsCsv);
-["driverCommissionUser", "driverCommissionFrom", "driverCommissionTo"].forEach(id => byId(id).addEventListener("change", () => { driverCommissionLimit = 50; renderDriverCommissionReport(); }));
+["driverCommissionUser", "driverCommissionFrom", "driverCommissionTo"].forEach(id => byId(id).addEventListener("change", (event) => {
+  if (event.target.hasAttribute("data-all-drivers")) byId("driverCommissionUser").querySelectorAll("input").forEach(input => { input.checked = false; });
+  driverCommissionLimit = 50; renderDriverCommissionReport();
+}));
 byId("driverCommissionDetails").addEventListener("toggle", renderDriverCommissionReport);
 byId("driverCommissionMore").addEventListener("click", () => { driverCommissionLimit += 50; renderDriverCommissionReport(); });
 byId("driverCommissionExcel").addEventListener("click", exportDriverCommissionReport);
@@ -21135,6 +21142,8 @@ byId("accountsStatusFilter").addEventListener("change", (event) => {
   renderAccounts();
 });
 byId("clearAccountsFilters").addEventListener("click", () => {
+  bankDateToFilter = "";
+  byId("bankDateToFilter").value = "";
   accountSearchTerm = "";
   accountTypeFilter = "all";
   accountMethodFilter = "all";
@@ -21169,6 +21178,10 @@ byId("bankDateFilter").addEventListener("change", (event) => {
   bankDateFilter = event.target.value;
   renderAccounts();
 });
+byId("bankDateToFilter").addEventListener("change", (event) => {
+  bankDateToFilter = event.target.value;
+  renderAccounts();
+});
 byId("bankBankFilter").addEventListener("input", (event) => {
   bankBankFilter = event.target.value;
   debouncedRenderAccounts();
@@ -21182,6 +21195,8 @@ byId("bankPendingClientsFilter").addEventListener("change", (event) => {
   renderAccounts();
 });
 byId("clearBankFilters").addEventListener("click", () => {
+  bankDateToFilter = "";
+  byId("bankDateToFilter").value = "";
   bankStatusFilter = "all";
   bankClientFilter = "";
   bankDateFilter = "";
