@@ -1,0 +1,57 @@
+{
+  "at": "2026-10-21T21:58:54.271Z",
+  "node": "v24.16.0",
+  "scope": "local-isolated",
+  "productionAccess": false,
+  "results": [
+    {
+      "file": "smoke-stock-count-memory.js",
+      "status": 0,
+      "elapsedMs": 900,
+      "output": "PASS isolated drafts, reserves/accounts/orders, retry, byte-identical JSON, partial writes, disk failures and UI patch replay\n",
+      "error": ""
+    },
+    {
+      "file": "smoke-stock-count-http.js",
+      "status": 0,
+      "elapsedMs": 15259,
+      "output": "PASS HTTP: simultaneous retries + state reads, one movement, no stock on count, reserves/accounts unchanged, stale/invalid/password/role checks, sessions retained\n{\"responseBytes\":863,\"heapLimitMiB\":512,\"sessions\":2}\n",
+      "error": ""
+    },
+    {
+      "file": "smoke-physical-count-persistence.js",
+      "status": 0,
+      "elapsedMs": 176,
+      "output": "PASS count persistence: stock unchanged until approval; retry idempotent; stale counts blocked; drafts retained; double click blocked.\n",
+      "error": ""
+    },
+    {
+      "file": "smoke-stock-reconciliation.js",
+      "status": 0,
+      "elapsedMs": 261,
+      "output": "Lote de 100 productos: 14.0 ms (motor aislado).\nPASS: conciliacion, reservas, motivos, reintentos, cantidades y carga inicial protegida (datos ficticios).\n",
+      "error": ""
+    },
+    {
+      "file": "smoke-order-workflow-v114.js",
+      "status": 0,
+      "elapsedMs": 2969,
+      "output": "{\n  \"ok\": true,\n  \"version\": \"8790-114\",\n  \"fullStateBytes\": 2030154,\n  \"responseBytes\": {\n    \"assembly\": 3243,\n    \"labeled\": 3866,\n    \"scanned\": 5058\n  },\n  \"elapsedMs\": {\n    \"assembly\": 31.1,\n    \"labeled\": 17.7,\n    \"scanned\": 18\n  },\n  \"physicalScannerRequired\": false,\n  \"physicalScannerAvailable\": true,\n  \"directDispatchBlocked\": true,\n  \"finalStatus\": \"Listo para Despacho\"\n}\n",
+      "error": ""
+    },
+    {
+      "file": "smoke-rejected-stock-return.js",
+      "status": 0,
+      "elapsedMs": 1881,
+      "output": "PASS engine: +5000 once, reservations unchanged, persistence retry, financial and original lines preserved, invalid cases atomic.\nPASS HTTP: admin only, two simultaneous requests, one receipt and stock entry, same original order.\n",
+      "error": ""
+    },
+    {
+      "file": "smoke-state-sync-backpressure.js",
+      "status": 0,
+      "elapsedMs": 3768,
+      "output": "{\"ok\":true,\"requests\":12,\"accepted\":12,\"busy\":0,\"liveResponsive\":true,\"unchangedFastPath\":true}\n",
+      "error": ""
+    }
+  ]
+}

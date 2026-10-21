@@ -30,6 +30,7 @@ const CRITICAL_FILES = [
   "config.js",
   "sw.js",
   "order-engine.js",
+  "stock-count-storage.js",
   "share-engine.js",
   "delivery-engine.js",
   "collection-visit-engine.js",

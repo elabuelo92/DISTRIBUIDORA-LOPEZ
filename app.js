@@ -2428,6 +2428,14 @@ function applyOrderPatches(orders, version) {
 
 function applyOperationalPatches(payload) {
   if (!payload || payload.state) return;
+  if (payload.stockCountPatch) {
+    for (const [key, record] of [["physicalStockCounts", payload.count], ["physicalStockAdjustments", payload.adjustment], ["stockMovements", payload.stockMovement]]) {
+      if (!record?.id) continue;
+      const existing = (state[key] || []).findIndex(item => item.id === record.id);
+      if (existing >= 0) state[key][existing] = record;
+      else state[key] = [record, ...(state[key] || [])];
+    }
+  }
   if (payload.version && !payload.refreshRequired) {
     syncVersion = Math.max(Number(syncVersion || 0), Number(payload.version || 0));
   }

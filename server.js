@@ -20,12 +20,13 @@ const legalEngine = require("./legal-engine");
 const clientPortfolioEngine = require("./client-portfolio-engine");
 const clientHoursEngine = require("./client-hours");
 const maintenanceEngine = require("./maintenance-engine");
+const stockCountStorage = require("./stock-count-storage");
 
 const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-181";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-182";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -2118,10 +2119,14 @@ function writeState(state, options = {}) {
     state: sanitizeState(state)
   };
   const wasNormalized = options.migrate === true || normalizedStateObjects.has(state);
-  const serialized = JSON.stringify(payload);
-  const serializationMs = performance.now() - serializationStartedAt;
+  const serialized = options.stockCount === true ? null : JSON.stringify(payload);
+  let serializationMs = performance.now() - serializationStartedAt;
   const diskStartedAt = performance.now();
-  if (options.atomic !== false) {
+  let countWrite;
+  if (options.stockCount === true) {
+    countWrite = stockCountStorage.writeCountState(STATE_FILE, payload);
+    serializationMs += countWrite.serializationMs;
+  } else if (options.atomic !== false) {
     const temporary = `${STATE_FILE}.${process.pid}.${Date.now()}.tmp`;
     fs.writeFileSync(temporary, serialized, "utf8");
     try {
@@ -2133,7 +2138,7 @@ function writeState(state, options = {}) {
   } else {
     fs.writeFileSync(STATE_FILE, serialized, "utf8");
   }
-  const diskMs = performance.now() - diskStartedAt;
+  const diskMs = countWrite ? countWrite.diskMs : performance.now() - diskStartedAt;
   try {
     stateCache = {
       mtimeMs: fs.statSync(STATE_FILE).mtimeMs,
@@ -2159,7 +2164,7 @@ function writeState(state, options = {}) {
   stateWritePerformance.lastMigrationMs = migrationMs;
   stateWritePerformance.lastSerializationMs = serializationMs;
   stateWritePerformance.lastDiskMs = diskMs;
-  stateWritePerformance.lastBytes = Buffer.byteLength(serialized);
+  stateWritePerformance.lastBytes = countWrite ? countWrite.bytes : Buffer.byteLength(serialized);
   stateWritePerformance.lastAt = new Date().toISOString();
   stateWriteSamples.push({ totalMs, serializationMs, diskMs });
   if (stateWriteSamples.length > 64) stateWriteSamples.shift();
@@ -8496,32 +8501,40 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const input = JSON.parse(body || "{}");
       const currentPayload = readStateFileCached();
-      const currentState = ["recordCount", "reconcileCount"].includes(input.action)
-        ? JSON.parse(JSON.stringify(currentPayload.state || {})) : currentPayload.state || {};
-      try {
-        if (input.action === "recordCount") {
-          const result = orderEngine.recordPhysicalCount(currentState, input, sessionUser.name);
+      if (["recordCount", "reconcileCount"].includes(input.action)) {
+        try {
+          if (input.action === "reconcileCount" && !verifyCurrentUserPassword(sessionUser, input.admin_password || "")) throw new Error("Clave de administrador incorrecta.");
+          const draft = stockCountStorage.draftCountState(currentPayload.state || {});
+          const previousProduct = entitySnapshot(currentPayload.state, "producto", input.productCode);
+          const result = input.action === "recordCount"
+            ? orderEngine.recordPhysicalCount(draft, input, sessionUser.name)
+            : orderEngine.reconcilePhysicalCount(draft, input, sessionUser.name);
+          const extra = { stockCountPatch: true, refreshRequired: true, replayed: result.replayed,
+            count: result.count, adjustment: result.adjustment, products: [result.product],
+            stockMovement: result.adjustment && draft.stockMovements.find(item => item.id === `STK-${result.adjustment.countId}`) };
           if (result.replayed) {
-            sendJson(res, 200, { ok: true, replayed: true, version: currentPayload.version, state: stateForUser(currentState, sessionUser), count: result.count });
-            return;
+            sendJson(res, 200, { ok: true, version: currentPayload.version, ...extra });
+          } else {
+            if (normalizedStateObjects.has(currentPayload.state)) normalizedStateObjects.add(draft);
+            writeCompactStateResponse(res, draft, extra, auditEntry(req, sessionUser, input, {
+              action: result.count ? "STOCK_FISICO_CONTEO" : "STOCK_MOVIMIENTO",
+              entityType: "producto", entityId: input.productCode,
+              entityLabel: result.product.name || result.product.descripcion,
+              previousValue: result.count ? null : previousProduct,
+              newValue: result.count || result.product,
+              note: result.count ? "Conteo confirmado en servidor sin modificar stock" : input.reason
+            }), null, { atomic: true, stockCount: true });
           }
-          writeStateResponse(res, currentState, { count: result.count }, auditEntry(req, sessionUser, input, {
-            action: "STOCK_FISICO_CONTEO", entityType: "producto", entityId: result.count.productCode,
-            entityLabel: result.count.productName, previousValue: null, newValue: result.count,
-            note: "Conteo confirmado en servidor sin modificar stock"
-          }), [], sessionUser);
-          return;
+        } catch (error) {
+          sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar el conteo." });
         }
+        return;
+      }
+      const currentState = currentPayload.state || {};
+      try {
         const previousProduct = entitySnapshot(currentState, "producto", input.productCode || input.product);
         const previousOrdersByCode = new Map((currentState.orders || []).map((order) => [order.code, cloneAuditValue(order)]));
-        if (input.action === "reconcileCount" && !verifyCurrentUserPassword(sessionUser, input.admin_password || "")) throw new Error("Clave de administrador incorrecta.");
-        const result = input.action === "reconcileCount"
-          ? orderEngine.reconcilePhysicalCount(currentState, input, sessionUser.name)
-          : orderEngine.applyStockEntry(currentState, input, sessionUser.name);
-        if (result.replayed) {
-          sendJson(res, 200, { ok: true, replayed: true, state: stateForUser(currentState, sessionUser), product: result.product });
-          return;
-        }
+        const result = orderEngine.applyStockEntry(currentState, input, sessionUser.name);
         writeStateResponse(res, currentState, {
           completedOrders: result.completedOrders,
           product: result.product
@@ -8532,7 +8545,7 @@ const server = http.createServer(async (req, res) => {
           entityLabel: result.product && (result.product.name || result.product.descripcion) || input.product,
           previousValue: previousProduct,
           newValue: result.product,
-          note: input.action === "reconcileCount" ? input.reason : `${input.movementType || input.movement_type || "Ingreso"} ${input.qty || ""}`.trim()
+          note: `${input.movementType || input.movement_type || "Ingreso"} ${input.qty || ""}`.trim()
         }), (result.completedOrders || []).map((code) => {
           const order = (currentState.orders || []).find((item) => item.code === code);
           return order ? orderStatusNotification(req, sessionUser, input, order, previousOrdersByCode.get(code), "PEDIDO_ESTADO") : null;
