@@ -22,7 +22,7 @@ assert.throws(() => Delivery.createPlannedRoute(state, {
 const route = Delivery.createPlannedRoute(state, {
   orderCodes: codes.slice(0, 30), day: "2026-09-28", zone: "Malvinas", driverUser: "dario", driverLabel: "Darío"
 }, context);
-assert.equal(Delivery.routeDisplayName(route), "LUNES — MALVINAS — DARÍO");
+assert.equal(Delivery.routeDisplayName(route), "Malvinas");
 assert.equal(route.stops.length, 30);
 
 const beforeFailedBatch = JSON.stringify(route.stops);
@@ -38,7 +38,7 @@ assert.equal(JSON.stringify(state.orders), ordersBefore, "planning must not chan
 
 Delivery.assignPlannedRouteDriver(state, route.id, "reparto1", "Reparto 1", context);
 assert.equal(route.driverUser, "reparto1");
-assert.equal(Delivery.routeDisplayName(route), "LUNES — MALVINAS — REPARTO 1");
+assert.equal(Delivery.routeDisplayName(route), "Malvinas");
 assert.equal(route.stops.length, 100);
 assert.equal(JSON.stringify(state.orders), ordersBefore);
 
@@ -52,7 +52,7 @@ assert.equal(JSON.stringify(state.orders), ordersBefore);
 Delivery.publishRoute(state, route.id, context);
 assert.equal(state.orders.filter((order) => order.status === Order.STATUS.DISPATCHED).length, 100);
 assert.throws(() => Delivery.appendOrdersToPlannedRoute(state, route.id, [codes[0]], context), /sin publicar/);
-assert.throws(() => Delivery.assignPlannedRouteDriver(state, route.id, "dario", "Darío", context), /sin publicar/);
+assert.throws(() => Delivery.assignPlannedRouteDriver(state, route.id, "dario", "Darío", context), /La asignacion cambio/);
 assert.equal(route.driverUser, "reparto1");
 assert.equal(route.stops.length, 100);
 

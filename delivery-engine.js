@@ -327,12 +327,9 @@
   }
 
   function routeDisplayName(route) {
-    const day = String(route && route.day || "").slice(0, 10);
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(day) ? new Date(`${day}T12:00:00Z`) : null;
-    const weekday = date && !Number.isNaN(date.getTime())
-      ? new Intl.DateTimeFormat("es-AR", { weekday: "long", timeZone: "UTC" }).format(date).toLocaleUpperCase("es-AR")
-      : "SIN DIA";
-    return `${weekday} — ${String(route && route.zone || "Sin zona").trim().toLocaleUpperCase("es-AR")} — ${String(route && (route.deviceLabel || route.driverUser) || "Sin repartidor").trim().toLocaleUpperCase("es-AR")}`;
+    // The planner has always stored the user-entered route name in zone.
+    return [route && route.zone, route && route.name, route && route.id]
+      .map(value => String(value || "").trim()).find(Boolean) || "Sin nombre";
   }
 
   function hasDestination(state, order) {

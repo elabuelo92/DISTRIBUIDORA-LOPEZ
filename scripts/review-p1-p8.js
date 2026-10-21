@@ -26,8 +26,9 @@ const suites = [
   ["P8-http", "smoke-p8-http.js"],
   ["P8-manifests", "smoke-p8-manifests.js"]
 ];
-if (process.argv.includes("--p9") || process.argv.includes("--p10")) suites.push(["P9-core", "smoke-p9-corrections.js"], ["P9-http", "smoke-p9-http.js"], ["P9-ui", "smoke-p9-ui.js"]);
-if (process.argv.includes("--p10")) suites.push(["P10-core", "smoke-p10-cancellation.js"], ["P10-http", "smoke-p10-http.js"]);
+if (process.argv.some(arg => ["--p9", "--p10", "--p11"].includes(arg))) suites.push(["P9-core", "smoke-p9-corrections.js"], ["P9-http", "smoke-p9-http.js"], ["P9-ui", "smoke-p9-ui.js"]);
+if (process.argv.some(arg => ["--p10", "--p11"].includes(arg))) suites.push(["P10-core", "smoke-p10-cancellation.js"], ["P10-http", "smoke-p10-http.js"]);
+if (process.argv.includes("--p11")) suites.push(["P11-display", "smoke-p11-display.js"], ["P11-invoice", "smoke-invoice-net-price.js"], ["P11-100-orders", "smoke-delivery-planning-100-v133.js"]);
 const results = [];
 for (const [scope, file, ...args] of suites) {
   const start = Date.now();
@@ -42,7 +43,7 @@ for (const [scope, file, ...args] of suites) {
 }
 const report = { at: new Date().toISOString(), environment: "local-isolated", productionAccess: false,
   note: "Engine/HTTP/manifest regression; not a production load test.", results };
-const output = path.join(root, "docs", process.argv.includes("--p10") ? "REVISION-P1-P10-20261020-results.json" : process.argv.includes("--p9") ? "REVISION-P1-P9-20261020-results.json" : "REVISION-P1-P8-20261020-results.json");
+const output = path.join(root, "docs", process.argv.includes("--p11") ? "REVISION-P1-P11-20261020-results.json" : process.argv.includes("--p10") ? "REVISION-P1-P10-20261020-results.json" : process.argv.includes("--p9") ? "REVISION-P1-P9-20261020-results.json" : "REVISION-P1-P8-20261020-results.json");
 fs.writeFileSync(output, JSON.stringify(report, null, 2));
 console.log(output);
 process.exitCode = results.some(result => result.status === "FAIL") ? 1 : 0;

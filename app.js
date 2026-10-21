@@ -7311,6 +7311,8 @@ function orderInvoiceRows(order, settings) {
     const lineTotal = numeric(item.lineTotal, qty * listUnitPrice);
     // The persisted line total already includes approved discounts and price changes.
     const unitPrice = qty > 0 ? lineTotal / qty : listUnitPrice;
+    const appliedDiscount = qty > 0 && listUnitPrice > 0
+      ? Math.min(100, Math.max(0, (1 - lineTotal / (qty * listUnitPrice)) * 100)) : 0;
     const shortage = orderItemShortageInfo(item);
     return `
       <tr>
@@ -7320,6 +7322,7 @@ function orderInvoiceRows(order, settings) {
           <strong>${escapeHtml(item.name || item.descripcion || "Producto")}${shortage.missing > 0 ? '<sup class="print-shortage-mark">*</sup>' : ""}</strong>
         </td>
         ${settings.showPrices ? `<td class="money-col">${invoiceMoney.format(unitPrice)}</td>` : ""}
+        ${settings.showPrices ? `<td class="discount-col">${appliedDiscount.toLocaleString("es-AR", { maximumFractionDigits: 2 })}%</td>` : ""}
         ${settings.showAmounts ? `<td class="money-col">${invoiceMoney.format(lineTotal)}</td>` : ""}
         <td class="control-col"></td>
       </tr>
@@ -7383,7 +7386,8 @@ function orderInvoiceHtml(order) {
             <th>Cant.</th>
             <th>Descripcion</th>
             ${settings.showPrices ? "<th>Precio Unit.</th>" : ""}
-            ${settings.showAmounts ? "<th>Importe</th>" : ""}
+            ${settings.showPrices ? "<th>Descuento %</th>" : ""}
+            ${settings.showAmounts ? "<th>Subtotal</th>" : ""}
             <th>Control</th>
           </tr>
         </thead>
@@ -7395,6 +7399,7 @@ function orderInvoiceHtml(order) {
         <span>Bultos <strong>${bultos || 0}</strong></span>
         ${settings.showAmounts ? `<span>Total <strong>${money.format(order.amount || 0)}</strong></span>` : ""}
       </section>
+      ${settings.showPrices ? '<p class="invoice-discount-legend">Descuento informado ya incluido en el precio unitario y subtotal.</p>' : ""}
       ${hasShortages ? '<p class="invoice-shortage-legend"><b>*</b> Producto con faltante.</p>' : ""}
       <footer>
         <div>
@@ -7538,6 +7543,8 @@ function printOrderInvoice(orderOrOrders) {
           .code-col { width: 92px; }
           .qty-col { width: 72px; text-align: center; font-weight: 400; }
           .money-col { width: 108px; text-align: right; white-space: nowrap; }
+          .discount-col { width: 64px; text-align: right; white-space: nowrap; }
+          .invoice-discount-legend { color: #374151; font-size: 9px; text-align: right; }
           .control-col { width: 58px; height: 22px; background: #fff; }
           .print-shortage-mark { color: #b91c1c; font-size: 14px; margin-left: 2px; }
           .invoice-shortage-legend { color: #991b1b; font-size: 9px; text-align: right; }
@@ -10447,7 +10454,7 @@ function renderDeliveryStops(route) {
     list.innerHTML = '<div class="empty-note">Sin hoja de ruta activa.</div>';
     return;
   }
-  title.textContent = `${route.zone} - ${route.id}`;
+  title.textContent = DeliveryEngine.routeDisplayName(route);
   meta.textContent = `${route.deviceLabel || "Sin dispositivo"} - Efectivo ${money.format(route.cashTotal || 0)} - Transferencias registradas en visita ${money.format(DeliveryEngine.routeTransferSummary(route).expectedTransfer)} - Devoluciones ${money.format(route.returnTotal || 0)}`;
   const current = DeliveryEngine.nextStop(route);
   const ownsRoute = isAdminUser() || route.deviceId === deliveryDevice.id || route.driverUser === currentUser?.username;
@@ -22624,7 +22631,7 @@ function openDeliveryRelocation(sourceId, code) {
   byId("deliveryRelocateMessage").textContent = "";
   byId("deliveryRelocateTarget").innerHTML = '<option value="">Seleccionar destino</option><option value="__pool__">Sin asignar / Bolsa</option>' + (state.deliveryRoutes || [])
     .filter((route) => !secondVisit && route.id !== sourceId && !route.closure && !isDeliveryRouteClosed(route))
-    .map((route) => `<option value="${escapeHtml(route.id)}">${escapeHtml(route.day || "Sin fecha")} | ${escapeHtml(route.name || route.id)} | ${escapeHtml(route.driverUser || "Sin repartidor")} | ${escapeHtml(route.status || "")}</option>`).join("");
+    .map((route) => `<option value="${escapeHtml(route.id)}">${escapeHtml(DeliveryEngine.routeDisplayName(route))} | ${escapeHtml(route.day || "Sin fecha")} | ${escapeHtml(route.driverUser || "Sin repartidor")} | ${escapeHtml(route.status || "")}</option>`).join("");
   byId("deliveryRelocateDialog").showModal();
 }
 
@@ -22682,7 +22689,7 @@ function updateDeliveryClosurePreview() {
   const expected = byId("deliveryClosureExpectedSummary");
   if (expected) {
     expected.innerHTML = `
-      <strong>${escapeHtml(route.id)} - ${escapeHtml(route.zone || "")}</strong>
+      <strong>${escapeHtml(DeliveryEngine.routeDisplayName(route))}</strong>
       ${deliveryClosureMetricsHtml(summary)}
     `;
   }
