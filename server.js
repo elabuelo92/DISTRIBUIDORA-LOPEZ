@@ -25,7 +25,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-180";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-181";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -234,12 +234,14 @@ function stateSectionsResponse(currentPayload, user, previousSections, baseVersi
     const hash = crypto.createHash("sha256").update(value).digest("hex");
     Object.defineProperty(sections, key, { value: hash, enumerable: true });
     if (!previous || !Object.hasOwn(previous, key) || previous[key] !== hash) {
-      pairs.push(`${JSON.stringify(key)}:${value}`);
+      if (pairs.length) pairs.push(Buffer.from(","));
+      pairs.push(Buffer.from(`${JSON.stringify(key)}:`, "utf8"), Buffer.from(value, "utf8"));
     }
   }
   const removed = previous ? Object.keys(previous).filter(key => !Object.hasOwn(sections, key)) : [];
   const metadata = JSON.stringify({ version: currentPayload.version, sections, partial: !!previous, baseVersion, removed });
-  return Buffer.from(`${metadata.slice(0, -1)},"state":{${pairs.join(",")}}}`, "utf8");
+  // Avoid flattening a full-state string while section strings and buffers coexist.
+  return Buffer.concat([Buffer.from(`${metadata.slice(0, -1)},"state":{`, "utf8"), ...pairs, Buffer.from("}}")]);
 }
 
 function sendProjectedStateResponse(res, currentPayload, user) {

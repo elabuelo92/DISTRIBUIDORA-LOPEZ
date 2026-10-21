@@ -32,6 +32,26 @@ assert.deepEqual(Object.keys(seller.sections), ["orders"]);
 const fallback = send(nextState, 2, null);
 assert.deepEqual(fallback.state, nextState);
 console.log("PASS: full baseline, changed sections, deletions, role projection, fallback, no mutation");
+const legacy = (payload, previous, baseVersion) => {
+  const sections = {}, pairs = [];
+  for (const key of Object.keys(payload.state)) {
+    const value = JSON.stringify(payload.state[key]);
+    if (value === undefined) continue;
+    const hash = crypto.createHash('sha256').update(value).digest('hex');
+    Object.defineProperty(sections, key, {value:hash, enumerable:true});
+    if (!previous || !Object.hasOwn(previous,key) || previous[key] !== hash) pairs.push(`${JSON.stringify(key)}:${value}`);
+  }
+  const removed = previous ? Object.keys(previous).filter(k=>!Object.hasOwn(sections,k)) : [];
+  const meta = JSON.stringify({version:payload.version,sections,partial:!!previous,baseVersion,removed});
+  return Buffer.from(`${meta.slice(0,-1)},"state":{${pairs.join(',')}}}`,'utf8');
+};
+for (const sample of [state, nextState, {}, {unicode:'\u00f1\ud83d\ude00', ignored:undefined, 'quote"key':[0,null,false]}]) {
+  for (const previous of [null, first.sections]) {
+    const payload={version:3,state:sample};
+    assert.ok(ctx.stateSectionsResponse(payload,admin,previous,2).equals(legacy(payload,previous,2)), 'Byte-identical response');
+  }
+}
+console.log('PASS: byte-equivalence with previous serializer, empty/undefined/unicode sections');
 
 async function clientChecks() {
   const app = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
