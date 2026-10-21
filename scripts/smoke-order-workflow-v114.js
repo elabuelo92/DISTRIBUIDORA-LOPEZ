@@ -19,7 +19,7 @@ fs.writeFileSync(usersFile, JSON.stringify({ users: [{ username: "admin1", name:
 
 const state = {
   products: [{ codigo_producto: "P-V114", name: "Producto v114", descripcion: "Producto v114", stock_fisico: 100, stock_actual: 100, stock: 100, stock_reservado: 0, stock_en_transito: 0, price: 1000 }],
-  clients: [{ name: "Cliente v114", domicilio: "Prueba 114", localidad: "Cordoba", zona: "Centro", ruta: "Centro" }],
+  clients: [{ id: "client-p7", codigo_cliente: "CLI-P7", name: "Cliente v114", domicilio: "Prueba 114", localidad: "Cordoba", zona: "Centro", ruta: "Centro" }],
   sellers: [],
   orders: [],
   activity: [],
@@ -102,6 +102,20 @@ async function post(cookie, endpoint, body, expectedStatus = 200) {
   const health = await waitHealth();
   assert.equal(health.version, "8790-114");
   const cookie = await login();
+  const clientBefore = JSON.parse(fs.readFileSync(stateFile, "utf8")).state.clients[0];
+  const clientInput = { ...clientBefore, nombre_comercial: clientBefore.name,
+    motivo: "Prueba P7 de horarios", admin_password: "Lopez2026!",
+    dias_visita: ["Martes"], horarios_atencion: [{ day: "Martes", ranges: [{ from: "09:00", to: "13:00" }] }] };
+  const clientEdit = await post(cookie, "api/clients/client-p7/edit", clientInput);
+  assert.equal(clientEdit.payload.client.codigo_cliente, "CLI-P7");
+  assert.deepEqual(clientEdit.payload.client.dias_visita, ["Martes"]);
+  assert.equal(clientEdit.payload.client.horarios_atencion[0].ranges[0].from, "09:00");
+  const savedClient = JSON.parse(fs.readFileSync(stateFile, "utf8")).state.clients[0];
+  assert.equal(savedClient.editHistory.length, 1);
+  await post(cookie, "api/clients/CLI-P7/edit", { ...clientInput, admin_password: "incorrecta" }, 401);
+  await post(cookie, "api/clients/CLI-P7/edit", { ...clientInput,
+    horarios_atencion: [{ day: "Martes", ranges: [{ from: "13:00", to: "09:00" }] }] }, 400);
+  assert.deepEqual(JSON.parse(fs.readFileSync(stateFile, "utf8")).state.clients[0], savedClient);
   const code = created.code;
   const fullStateResponse = await fetch(`${base}/api/state?version=0`, { headers: { Cookie: cookie } });
   const fullStateRaw = await fullStateResponse.text();

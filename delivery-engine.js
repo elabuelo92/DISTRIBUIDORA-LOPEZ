@@ -1454,6 +1454,9 @@
     if (!route) throw new Error("Hoja de ruta no encontrada.");
     if (route.status === ROUTE_STATUS.PLANNED) throw new Error("La ruta planificada debe publicarse antes de rendir cierre.");
     if (route.closure) throw new Error("La ruta ya tiene cierre diario registrado.");
+    if ((state.collectionVisits || []).some(visit => visit.routeId === route.id && !visit.completedAt)) {
+      throw new Error("Finalizar las ordenes de cobro de esta ruta antes de rendir caja.");
+    }
     assertDevice(route, context);
     const gps = assertGps(context.gps);
     const summary = routeClosureSummary(route, input || {});

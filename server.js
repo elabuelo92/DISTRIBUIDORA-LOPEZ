@@ -10,6 +10,7 @@ const { spawn } = require("child_process");
 const orderEngine = require("./order-engine");
 const deliveryEngine = require("./delivery-engine");
 const accountEngine = require("./account-engine");
+const collectionVisitEngine = require("./collection-visit-engine");
 const eventEngine = require("./event-engine");
 const erpnextEngine = require("./erpnext-engine");
 const licenseEngine = require("./license-engine");
@@ -22,7 +23,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-176";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-177";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -2923,6 +2924,9 @@ function sanitizeState(state) {
 }
 
 function stateForUser(state, user) {
+  state = { ...state, collectionVisits: (state.collectionVisits || []).filter(visit => user?.role === "admin"
+    || (user?.role === "driver" && (state.deliveryRoutes || []).some(route => route.id === visit.routeId && route.driverUser === user.username)))
+    .map(visit => ({ ...visit, summary: collectionVisitEngine.summary(state, visit.id) })) };
   legalEngine.migrateState(state || {});
   if (user && user.role === "seller") {
     const clean = { ...(state || {}) };
@@ -3156,6 +3160,7 @@ function stateForUser(state, user) {
     if (!isPlanner) {
       clean.orders = (Array.isArray(clean.orders) ? clean.orders : []).filter((order) => visibleOrderCodes.has(String(order.code || "")));
       const visibleClients = new Set(clean.orders.map((order) => normalizeSearchText(order.client)));
+      (clean.collectionVisits || []).forEach(visit => visibleClients.add(normalizeSearchText(visit.client)));
       clean.clients = (Array.isArray(clean.clients) ? clean.clients : []).filter((client) =>
         visibleClients.has(normalizeSearchText(client.name || client.nombre_comercial))
       );
@@ -3583,12 +3588,20 @@ function clientHistoryOrderDetail(state, client, orderCode) {
 }
 
 function findClientIndex(state, id) {
+  const key = String(id ?? "").trim();
+  if (!key) return -1;
+  const clients = state.clients || [];
+  for (const field of ["codigo_cliente", "id"]) {
+    const matches = clients.map((client, index) => ({ client, index }))
+      .filter(({ client }) => client[field] != null && String(client[field]).trim() === key);
+    if (matches.length) return matches.length === 1 ? matches[0].index : -1;
+  }
   const normalized = normalizeSearchText(id);
-  return (state.clients || []).findIndex((client) => (
-    normalizeSearchText(client.codigo_cliente) === normalized
-    || normalizeSearchText(client.name) === normalized
+  const matches = clients.map((client, index) => ({ client, index })).filter(({ client }) => (
+    normalizeSearchText(client.name) === normalized
     || normalizeSearchText(client.nombre_comercial) === normalized
   ));
+  return matches.length === 1 ? matches[0].index : -1;
 }
 
 function clientSensitiveSnapshot(client) {
@@ -6703,6 +6716,56 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    const visitAction = requestUrl.pathname.match(/^\/api\/collection-visits(?:\/([^/]+)\/(assign|collect|finish))?$/);
+    if (visitAction && ["GET", "POST"].includes(req.method)) {
+      const user = requireUser(req, res);
+      if (!user) return;
+      if (!["admin", "driver"].includes(user.role)) return sendJson(res, 403, { ok: false, error: "Acceso exclusivo de Administracion y Reparto." });
+      if (req.method === "GET") {
+        const current = readStateFileCached().state;
+        const routes = (current.deliveryRoutes || []).filter(route => user.role === "admin" || route.driverUser === user.username);
+        const query = normalizeSearchText(requestUrl.searchParams.get("q") || "");
+        const page = Math.max(0, Math.floor(Number(requestUrl.searchParams.get("page")) || 0));
+        const visits = (current.collectionVisits || []).filter(visit => (user.role === "admin" || routes.some(route => route.id === visit.routeId))
+          && (!query || normalizeSearchText(`${visit.client} ${visit.id}`).includes(query))).slice().reverse();
+        const clients = user.role === "admin" ? (current.clients || []).filter(client => Number(client.balance) > 0
+          && (client.codigo_cliente || client.id) && (!query || normalizeSearchText(`${client.name} ${client.codigo_cliente}`).includes(query))).slice(0, 50)
+          .map(client => ({ id: client.codigo_cliente || client.id, name: client.name, balance: client.balance })) : [];
+        return sendJson(res, 200, { ok: true, total: visits.length, page, clients,
+          routes: routes.map(route => ({ id: route.id, label: deliveryEngine.routeDisplayName(route), closed: Boolean(route.closure || route.closedAt) })),
+          visits: visits.slice(page * 50, (page + 1) * 50).map(visit => ({ ...visit, summary: collectionVisitEngine.summary(current, visit.id) })) });
+      }
+      const input = JSON.parse(await readBody(req) || "{}");
+      const action = visitAction[2] || "create";
+      if (["create", "assign"].includes(action) && user.role !== "admin") return sendJson(res, 403, { ok: false, error: "Requiere Administracion." });
+      try {
+        const current = readStateFileCached().state;
+        const id = decodeURIComponent(visitAction[1] || "");
+        const context = deliveryContext(user, input);
+        let result;
+        if (action === "collect") {
+          // Validate ownership and amounts before writing a proof file; never trust a browser URL.
+          const hash = crypto.createHash("sha256").update(String(input.dataUrl || "")).digest("hex");
+          const safeInput = { ...input, proofHash: hash, attachment: Number(input.transferAmount) > 0 ? { url: "pending-upload" } : null };
+          if (Number(input.transferAmount) > 0 && !input.dataUrl) throw new Error("Adjuntar comprobante de transferencia.");
+          result = collectionVisitEngine.collect(current, id, safeInput, context);
+          if (!result.repeated && Number(input.transferAmount) > 0) {
+            const attachment = saveDeliveryUpload({ orderCode: id, kind: "transfer-proof", dataUrl: input.dataUrl }, user);
+            result = collectionVisitEngine.collect(current, id, { ...safeInput, attachment }, context);
+          }
+        } else if (action === "create") result = collectionVisitEngine.create(current, input, context);
+        else if (action === "assign") result = collectionVisitEngine.assign(current, id, input, context);
+        else result = collectionVisitEngine.notCollected(current, id, input, context);
+        const extra = { visit: { ...result.visit, summary: collectionVisitEngine.summary(result.state, result.visit.id) }, repeated: result.repeated, refreshRequired: true };
+        if (result.repeated) return sendJson(res, 200, { ok: true, ...extra });
+        writeCompactStateResponse(res, result.state, extra, auditEntry(req, user, { action }, {
+          action: `ORDEN_COBRO_${action.toUpperCase()}`, entityType: "orden_cobro", entityId: result.visit.id,
+          entityLabel: result.visit.client, note: String(input.reason || ""), newValue: result.visit
+        }), null, { atomic: true });
+      } catch (error) { sendJson(res, 400, { ok: false, error: error.message }); }
+      return;
+    }
+
     if (requestUrl.pathname === "/api/account-statements/payments" && req.method === "POST") {
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
@@ -7129,6 +7192,10 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         currentState.clients[index] = nextClient;
+        (currentState.collectionVisits || []).filter(visit => visit.clientId === String(previousClient.codigo_cliente || previousClient.id)).forEach(visit => {
+          visit.clientId = String(nextClient.codigo_cliente || nextClient.id);
+          visit.client = nextClient.name;
+        });
         applyClientNameReferences(currentState, previousClient.name || previousClient.nombre_comercial, nextClient.name);
         nextClient.editHistory = Array.isArray(nextClient.editHistory) ? nextClient.editHistory : [];
         nextClient.editHistory.push({
@@ -10512,6 +10579,7 @@ const server = http.createServer(async (req, res) => {
         if (payload.state) {
           // Counts and reconciliations are owned by the stock operation, not generic browser snapshots.
           payload.state.physicalStockCounts = currentPayload.state.physicalStockCounts || [];
+          payload.state.collectionVisits = currentPayload.state.collectionVisits || [];
           payload.state.physicalStockAdjustments = currentPayload.state.physicalStockAdjustments || [];
           const previousAudit = ensureGlobalAudit(currentPayload.state || {});
           const incomingAudit = ensureGlobalAudit(payload.state);

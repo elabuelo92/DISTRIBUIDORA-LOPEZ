@@ -9909,7 +9909,7 @@ function deliveryRouteMapStops(route) {
 const DELIVERY_MANIFEST_HEADERS = ["Orden", "Pedido", "Cliente", "Direccion", "Referencia", "Horario", "Telefono", "Zona", "Bultos", "Importe", "Estado operativo", "Entrega", "Cobro registrado en ruta", "Pendiente en visita", "Transferencia"];
 
 function deliveryRouteManifestRows(route) {
-  return [...(route && route.stops || [])]
+  const rows = [...(route && route.stops || [])]
     .sort((left, right) => numeric(left.sequence, 0) - numeric(right.sequence, 0))
     .map((stop, index) => {
       const order = (state.orders || []).find((item) => item.code === stop.orderCode) || {};
@@ -9930,6 +9930,13 @@ function deliveryRouteManifestRows(route) {
         ...deliveryStopFinancialCells(stop)
       ];
     });
+  (state.collectionVisits || []).filter(visit => visit.routeId === route.id).forEach(visit => {
+    const client = (state.clients || []).find(client => String(client.codigo_cliente || client.id) === visit.clientId) || {};
+    const paid = visit.payments.reduce((sum, payment) => sum + payment.cash + payment.transfer, 0);
+    rows.push([rows.length + 1, visit.id, visit.client, client.domicilio || "", client.referencia || "", client.horario_atencion || "", client.telefono || "", route.zone || "", 0, visit.amount,
+      visit.summary?.status || visit.status, "Solo cobranza - sin entrega", paid, Math.max(0, visit.amount - paid), visit.summary?.pendingValidation ? "Pendiente de validacion" : ""]);
+  });
+  return rows;
 }
 
 function exportDeliveryRouteManifest(routeId, format) {
@@ -9978,7 +9985,8 @@ function renderDeliveryActivePanel(route, routes) {
 
   const stats = deliveryRouteStats(route);
   const current = DeliveryEngine.nextStop(route);
-  const allStopsManaged = stats.stops.length > 0 && stats.stops.every((stop) => isDeliveryStopClosed(stop.status));
+  const visits = (state.collectionVisits || []).filter(visit => visit.routeId === route.id);
+  const allStopsManaged = (stats.stops.length > 0 || visits.length > 0) && stats.stops.every((stop) => isDeliveryStopClosed(stop.status)) && visits.every(visit => visit.completedAt);
   const assignedHere = route.deviceId === deliveryDevice.id || route.driverUser === currentUser?.username || (!route.driverUser && !route.deviceId);
   const canClaim = currentUser?.role === "driver" && isDeliveryRoutePublished(route) && assignedHere && !route.deviceId;
   const canCloseRoute = !route.closure && isDeliveryRoutePublished(route) && (isAdminUser() || assignedHere) && allStopsManaged;
@@ -10298,7 +10306,8 @@ function renderDelivery() {
   byId("deliveryRouteList").innerHTML = routes.length ? routes.map((route) => {
     const completedStops = (route.stops || []).filter((stop) => isDeliveryStopClosed(stop.status)).length;
     const totalStops = (route.stops || []).length;
-    const allStopsManaged = totalStops > 0 && (route.stops || []).every((stop) => isDeliveryStopClosed(stop.status));
+    const visits = (state.collectionVisits || []).filter(visit => visit.routeId === route.id);
+    const allStopsManaged = (totalStops > 0 || visits.length > 0) && (route.stops || []).every((stop) => isDeliveryStopClosed(stop.status)) && visits.every(visit => visit.completedAt);
     const assignedHere = route.deviceId === deliveryDevice.id || route.driverUser === currentUser?.username || (!route.driverUser && !route.deviceId);
     const canClaim = currentUser?.role === "driver" && isDeliveryRoutePublished(route) && assignedHere && !route.deviceId;
     const canPublish = canPlanDeliveryRoutes() && route.status === "Planificada";
@@ -10333,7 +10342,9 @@ function renderDelivery() {
     renderDeliveryClosures();
   }
   renderDeliveryGpsCorrections();
+  renderCollectionVisits();
   renderOperationalWorkspace("reparto", byId("reparto"), "Herramientas de reparto", [
+    { id: "collection-visits", title: "Ordenes de cobro", summary: "Visitas de cobranza", allowed: ["admin", "driver"].includes(currentUser?.role), selectors: [".collection-visits-panel"] },
     { id: "gps-corrections", title: "Corregir ubicaciones", summary: `${deliveryGpsCorrectionClients().length} solicitudes GPS`, allowed: currentUser?.role === "driver", selectors: [".delivery-gps-corrections-panel"] },
     { id: "planning", title: "Planificar rutas", summary: `${routes.filter((route) => route.status === "Planificada").length} rutas por publicar`, allowed: canPlanDeliveryRoutes(), selectors: [".delivery-planner-panel"] },
     { id: "deliveries", title: "Entregar y cobrar", summary: `${allStops.length - delivered} paradas pendientes`, selectors: [".delivery-active-panel", "#deliveryKpis", ".delivery-stops-panel"] },
@@ -10749,6 +10760,17 @@ function deliveryCollectionsManifestRows(day, routeId = "") {
     totals.customerCredit += customerCredit;
     totals.difference += difference;
   }));
+  (state.collectionVisits || []).filter(visit => !routeId || visit.routeId === routeId).forEach(visit => {
+    const payments = (visit.payments || []).filter(payment => routeId || new Date(payment.at).toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" }) === day);
+    if (!payments.length) return;
+    const cash = payments.reduce((sum, payment) => sum + payment.cash, 0);
+    const transfer = payments.reduce((sum, payment) => sum + payment.transfer, 0);
+    const total = routeId ? visit.amount : cash + transfer;
+    const credit = Math.max(0, total - cash - transfer);
+    const banks = [...new Set(payments.map(payment => (state.bankReconciliation || []).find(record => record.id === payment.transferId)?.bank).filter(Boolean))].join(" / ");
+    rows.push([visit.client, visit.id, total, cash, transfer, banks, credit, 0, 0, "Solo cobranza - sin entrega", cash + transfer, credit, visit.summary?.pendingValidation ? "Pendiente de validacion" : ""]);
+    totals.total += total; totals.cash += cash; totals.transfer += transfer; totals.credit += credit;
+  });
   rows.sort((left, right) => String(left[1]).localeCompare(String(right[1]), "es", { numeric: true }));
   const visitPending = rows.reduce((sum, row) => sum + (typeof row[11] === "number" ? row[11] : 0), 0);
   rows.push(["TOTALES", `${rows.length} pedidos`, ...[totals.total, totals.cash, totals.transfer], "",
@@ -11423,7 +11445,7 @@ function renderClientPage(payload, fromCache = false) {
 
 async function loadClientsPage(options = {}) {
   const query = clientListQuery();
-  if (clientLoadRequest && clientLoadRequest.query === query) return clientLoadRequest.promise;
+  if (!options.force && clientLoadRequest && clientLoadRequest.query === query) return clientLoadRequest.promise;
   if (clientLoadRequest && clientLoadRequest.controller) clientLoadRequest.controller.abort();
   const controller = new AbortController();
   const sequence = ++clientLoadSequence;
@@ -11439,6 +11461,7 @@ async function loadClientsPage(options = {}) {
       return response.json();
     })
     .then((payload) => {
+      if (sequence !== clientLoadSequence) return null;
       const elapsedMs = Math.round((performance.now() - requestStartedAt) * 10) / 10;
       clientPageCache.set(query, { payload, fetchedAt: Date.now(), stateVersion: payload.stateVersion });
       if (clientPageCache.size > 20) clientPageCache.delete(clientPageCache.keys().next().value);
@@ -18793,16 +18816,24 @@ function populateStockEntryOptions() {
 }
 
 function clientIdentity(client) {
-  return String(client && (client.codigo_cliente || client.name || client.nombre_comercial) || "");
+  return String(client && (client.codigo_cliente || client.id || client.name || client.nombre_comercial) || "");
 }
 
 function findClientForEdit(id) {
+  const key = String(id ?? "").trim();
+  if (!key) return null;
+  const candidates = [...currentClientPageRecords, ...(state.clients || []),
+    ...(portfolioDiagnosticData?.records || []).map(record => record.client).filter(Boolean)];
+  for (const field of ["codigo_cliente", "id"]) {
+    const matches = candidates.filter(client => client[field] != null && String(client[field]).trim() === key);
+    if (matches.length) return new Set(matches.map(clientIdentity)).size === 1 ? matches[0] : null;
+  }
   const normalized = normalizeSearchText(id);
-  return state.clients.find((client) => (
-    normalizeSearchText(client.codigo_cliente) === normalized
-    || normalizeSearchText(client.name) === normalized
+  const matches = candidates.filter((client) => (
+    normalizeSearchText(client.name) === normalized
     || normalizeSearchText(client.nombre_comercial) === normalized
-  )) || null;
+  ));
+  return new Set(matches.map(clientIdentity)).size === 1 ? matches[0] : null;
 }
 
 function setClientDialogMode(mode, client) {
@@ -18995,7 +19026,14 @@ function clientFormPayload(form) {
 }
 
 async function submitClientEdit(formElement, formData) {
-  const payload = clientFormPayload(formData);
+  if (formElement.dataset.saving === "true") return false;
+  let payload;
+  try {
+    payload = clientFormPayload(formData);
+  } catch (error) {
+    window.alert(error.message || "Revisar los horarios del cliente.");
+    return false;
+  }
   if (!payload.nombre_comercial) {
     window.alert("Completar nombre comercial.");
     return false;
@@ -19012,17 +19050,26 @@ async function submitClientEdit(formElement, formData) {
     return false;
   }
   payload.admin_password = adminPassword;
+  const scrollPosition = { left: window.scrollX, top: window.scrollY };
+  formElement.dataset.saving = "true";
+  byId("clientSubmitBtn").disabled = true;
   try {
     await postOperationalAction(`api/clients/${encodeURIComponent(clientEditTargetId)}/edit`, payload);
     clientPageCache.clear();
     portfolioDiagnosticData = null;
     clientEditTargetId = "";
+    if (activeViewId() === "clientes") await loadClientsPage({ force: true });
     formElement.reset();
     byId("clientDialog").close("default");
+    window.requestAnimationFrame(() => window.scrollTo(scrollPosition));
+    showCompactNotice("Cliente actualizado correctamente.", "ok");
     return true;
   } catch (error) {
     window.alert(error.message || "No se pudo editar el cliente.");
     return false;
+  } finally {
+    delete formElement.dataset.saving;
+    byId("clientSubmitBtn").disabled = false;
   }
 }
 
@@ -21619,6 +21666,10 @@ byId("orderForm").addEventListener("submit", async (event) => {
 });
 
 byId("clientForm").addEventListener("submit", async (event) => {
+  if (event.currentTarget.dataset.saving === "true") {
+    event.preventDefault();
+    return;
+  }
   if (event.submitter?.value === "cancel") return;
   const form = new FormData(event.currentTarget);
   if (clientEditTargetId) {
@@ -21634,6 +21685,9 @@ byId("clientForm").addEventListener("submit", async (event) => {
 });
 byId("clientDialog").addEventListener("close", () => {
   if (byId("clientDialog").returnValue === "cancel") clientEditTargetId = "";
+});
+byId("clientDialog").addEventListener("cancel", event => {
+  if (byId("clientForm").dataset.saving === "true") event.preventDefault();
 });
 
 byId("productForm").addEventListener("submit", (event) => {
