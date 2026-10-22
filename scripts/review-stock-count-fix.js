@@ -14,7 +14,9 @@ for (const file of suites) {
   console.log(`${result.status === 0 ? "PASS" : "FAIL"} ${file}`);
   if (result.status !== 0) console.log(result.stdout, result.stderr);
 }
-fs.writeFileSync(path.join(root, "docs/STOCK-MEMORIA-20261021-results.json"), JSON.stringify({
+const outputIndex = process.argv.indexOf("--output");
+const output = outputIndex >= 0 ? path.resolve(root, process.argv[outputIndex + 1]) : path.join(root, "docs/STOCK-MEMORIA-20261021-results.json");
+fs.writeFileSync(output, JSON.stringify({
   at: new Date().toISOString(), node: process.version, scope: "local-isolated", productionAccess: false, results
 }, null, 2));
 process.exitCode = results.some(result => result.status !== 0) ? 1 : 0;

@@ -2444,7 +2444,7 @@ function applyOperationalPatches(payload) {
     ...(Array.isArray(payload.orders) ? payload.orders : []),
     ...(payload.order && payload.order.code ? [payload.order] : [])
   ];
-  if (orderPatches.length) applyOrderPatches(orderPatches, payload.version);
+  if (orderPatches.length) applyOrderPatches(orderPatches, payload.refreshRequired ? null : payload.version);
   const routePatches = [...(Array.isArray(payload.routes) ? payload.routes : []), ...(payload.route?.id ? [payload.route] : [])];
   for (const route of routePatches) {
     if (!route?.id) continue;
@@ -19792,7 +19792,7 @@ async function addMobileOrder() {
       creditOverride: authorization.creditOverride
     });
     const order = payload.order;
-    applyOrderPatches([order], payload.version);
+    applyOrderPatches([order], payload.refreshRequired ? null : payload.version);
     mobileLastConfirmedOrderShare = {
       order,
       client: {

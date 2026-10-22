@@ -26,7 +26,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-183";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-184";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -2039,8 +2039,17 @@ let stateCache = {
 };
 let lastReadMigratedPayload = null;
 const normalizedStateObjects = new WeakSet();
+let normalizedStateFile = null;
+const mobileWriteBatch = require("./durable-write-batch").createDurableWriteBatch({
+  persist: (state) => writeState(state, { durableBatch: true }),
+  invalidate: () => {
+    stateCache = { mtimeMs: 0, payload: null };
+    lastReadMigratedPayload = null;
+  }
+});
 
-function readStateFileCached() {
+function readStateFileCached(options = {}) {
+  if (!options.allowPendingMobileWrite) mobileWriteBatch.flush();
   try {
     const stat = fs.statSync(STATE_FILE);
     if (stateCache.payload && stateCache.mtimeMs === stat.mtimeMs) {
@@ -2051,6 +2060,14 @@ function readStateFileCached() {
       mtimeMs: stat.mtimeMs,
       payload
     };
+    // A failed commit may discard mutable memory, not the normalization of
+    // the last successfully persisted version. External replacements still migrate.
+    if (normalizedStateFile && normalizedStateFile.mtimeMs === stat.mtimeMs
+      && normalizedStateFile.size === stat.size && normalizedStateFile.version === payload.version
+      && payload.state && typeof payload.state === "object") {
+      normalizedStateObjects.add(payload.state);
+      lastReadMigratedPayload = payload;
+    }
     return payload;
   } catch {
     return { version: 0, state: null };
@@ -2058,6 +2075,7 @@ function readStateFileCached() {
 }
 
 function readStateVersionFast() {
+  mobileWriteBatch.flush();
   try {
     const fd = fs.openSync(STATE_FILE, "r");
     try {
@@ -2092,6 +2110,7 @@ function ensureProductSupplierLinks(state) {
 }
 
 function writeState(state, options = {}) {
+  if (!options.durableBatch) mobileWriteBatch.flush();
   const startedAt = performance.now();
   const migrationStartedAt = performance.now();
   if (state && typeof state === "object") {
@@ -2129,8 +2148,18 @@ function writeState(state, options = {}) {
     serializationMs += countWrite.serializationMs;
   } else if (options.atomic !== false) {
     const temporary = `${STATE_FILE}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(temporary, serialized, "utf8");
     try {
+      if (options.durableBatch) {
+        const fd = fs.openSync(temporary, "wx");
+        try {
+          fs.writeFileSync(fd, serialized, "utf8");
+          fs.fsyncSync(fd);
+        } finally {
+          fs.closeSync(fd);
+        }
+      } else {
+        fs.writeFileSync(temporary, serialized, "utf8");
+      }
       fs.renameSync(temporary, STATE_FILE);
     } catch (error) {
       try { fs.unlinkSync(temporary); } catch {}
@@ -2154,8 +2183,13 @@ function writeState(state, options = {}) {
   if (wasNormalized && payload.state && typeof payload.state === "object") {
     normalizedStateObjects.add(payload.state);
     lastReadMigratedPayload = payload;
+    normalizedStateFile = {
+      version: payload.version, mtimeMs: stateCache.mtimeMs,
+      size: countWrite ? countWrite.bytes : Buffer.byteLength(serialized)
+    };
   } else {
     lastReadMigratedPayload = null;
+    normalizedStateFile = null;
   }
   const totalMs = performance.now() - startedAt;
   stateWritePerformance.count += 1;
@@ -2200,6 +2234,18 @@ function writeCompactStateResponse(res, state, extra, auditEntries, notification
     eventEngine.emitFromNotificationEntries(state, notificationList);
   }
   ensureRejectedGps(state);
+  if (options.coalesceMobile === true && stateCache.payload && stateCache.payload.state === state) {
+    const responseExtra = JSON.parse(JSON.stringify(extra || {}));
+    mobileWriteBatch.enqueue(state, (error, version) => {
+      if (res.destroyed || res.writableEnded) return;
+      if (error) {
+        sendJson(res, 503, { ok: false, code: "STATE_WRITE_FAILED", error: "No se pudo guardar la operacion. Reintenta con la misma operacion, sin cargarla nuevamente." });
+      } else {
+        sendJson(res, 200, { ok: true, version, compact: true, ...responseExtra, refreshRequired: true });
+      }
+    });
+    return;
+  }
   const version = writeState(state, options);
   const responseExtra = { ...(extra || {}) };
   if (Number.isFinite(Number(options.performanceStartedAt))) {
@@ -7475,19 +7521,21 @@ const server = http.createServer(async (req, res) => {
       if (!sessionUser) return;
       const body = await readBody(req);
       const input = JSON.parse(body || "{}");
-      const currentPayload = readStateFileCached();
-      const currentState = currentPayload.state || {};
       const mobileOperationId = sessionUser.role === "seller" || String(input.source || "").toLowerCase() === "mobile"
         ? mobileOrderOperationId(input)
         : "";
+      const currentPayload = readStateFileCached({ allowPendingMobileWrite: Boolean(mobileOperationId) });
+      const currentState = currentPayload.state || {};
       if (mobileOperationId) {
         const previousOrder = mobileOrderByOperation(currentState, mobileOperationId, sessionUser.username);
         if (previousOrder) {
+          const committedVersion = mobileWriteBatch.flush() || currentPayload.version;
           sendJson(res, 200, {
             ok: true,
-            version: currentPayload.version,
+            version: committedVersion,
             compact: true,
             idempotentReplay: true,
+            refreshRequired: true,
             order: previousOrder,
             message: "Pedido registrado correctamente"
           });
@@ -7630,7 +7678,7 @@ const server = http.createServer(async (req, res) => {
           }) : null
         ];
         if (mobileOperationId) {
-          writeCompactStateResponse(res, currentState, { order, credit, idempotentReplay: false, message: "Pedido registrado correctamente" }, orderAudit, orderNotifications);
+          writeCompactStateResponse(res, currentState, { order, credit, idempotentReplay: false, message: "Pedido registrado correctamente" }, orderAudit, orderNotifications, { coalesceMobile: true });
         } else {
           writeStateResponse(res, currentState, { order, credit }, orderAudit, orderNotifications, sessionUser);
         }
@@ -10050,7 +10098,7 @@ const server = http.createServer(async (req, res) => {
       const sessionUser = requireDeliveryUser(req, res);
       if (!sessionUser) return;
       const input = JSON.parse(await readBody(req) || "{}");
-      const currentPayload = readStateFileCached();
+      const currentPayload = readStateFileCached({ allowPendingMobileWrite: true });
       const currentState = currentPayload.state || {};
       try {
         const context = deliveryContext(sessionUser, input);
@@ -10064,6 +10112,7 @@ const server = http.createServer(async (req, res) => {
         );
         const collection = result.order && result.order.collection || {};
         if (result.repeated) {
+          mobileWriteBatch.flush();
           sendJson(res, 200, { ok: true, ...result, refreshRequired: true });
           return;
         }
@@ -10109,7 +10158,7 @@ const server = http.createServer(async (req, res) => {
             entityLabel: result.order && result.order.client || orderCode,
             audience: ["admin"]
           }) : null
-        ], { atomic: true });
+        ], { atomic: true, coalesceMobile: true });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo registrar la cobranza." });
       }
@@ -10434,6 +10483,7 @@ const server = http.createServer(async (req, res) => {
         stateWrites: {
           ...stateWritePerformanceSnapshot()
         },
+        mobileWriteBatch: { ...mobileWriteBatch.metrics, pending: mobileWriteBatch.pending },
         stateReadMigration: stateReadMigrationSnapshot(),
         stateSync: {
           inFlight: fullStateResponsesInFlight,

@@ -44,6 +44,8 @@ for (const [scope, file, ...args] of suites) {
 const report = { at: new Date().toISOString(), environment: "local-isolated", productionAccess: false,
   note: "Engine/HTTP/manifest regression; not a production load test.", results };
 const output = path.join(root, "docs", process.argv.includes("--p11") ? "REVISION-P1-P11-20261020-results.json" : process.argv.includes("--p10") ? "REVISION-P1-P10-20261020-results.json" : process.argv.includes("--p9") ? "REVISION-P1-P9-20261020-results.json" : "REVISION-P1-P8-20261020-results.json");
-fs.writeFileSync(output, JSON.stringify(report, null, 2));
-console.log(output);
+const outputIndex = process.argv.indexOf("--output");
+const reportPath = outputIndex >= 0 ? path.resolve(root, process.argv[outputIndex + 1]) : output;
+fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+console.log(reportPath);
 process.exitCode = results.some(result => result.status === "FAIL") ? 1 : 0;
