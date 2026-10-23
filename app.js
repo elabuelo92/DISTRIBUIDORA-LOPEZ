@@ -24284,7 +24284,11 @@ renderVersionStatus();
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     let reloadingForWorker = false;
+    let hadWorkerController = Boolean(navigator.serviceWorker.controller);
     navigator.serviceWorker.addEventListener("controllerchange", () => {
+      // The first installation claims an already fresh page. Reloading it would
+      // discard its in-flight bootstrap and download the same data twice.
+      if (!hadWorkerController) { hadWorkerController = true; return; }
       if (reloadingForWorker) return;
       reloadingForWorker = true;
       window.location.reload();
@@ -24318,7 +24322,7 @@ async function pullStateFromServer() {
     const deferState = activeViewId() === "clientes" ? "&deferState=clients" : "";
     const catalogVersion = currentUser?.role === "seller" ? sellerCatalogVersion : syncVersion;
     const cursorReady = syncRecordCursor && syncRecordVersion === Number(catalogVersion);
-    const response = await fetchWithTimeout(apiUrl(`api/state?version=${encodeURIComponent(cursorReady ? catalogVersion : 0)}${deferState}&syncFormat=records-v1${cursorReady ? `&cursor=${encodeURIComponent(syncRecordCursor)}` : ""}`), { cache: "no-store" }, STATE_SYNC_TIMEOUT_MS);
+    const response = await fetchWithTimeout(apiUrl(`api/state?version=${encodeURIComponent(cursorReady ? catalogVersion : 0)}${deferState}&syncFormat=records-v1&bootstrap=shared-v1${cursorReady ? `&cursor=${encodeURIComponent(syncRecordCursor)}` : ""}`), { cache: "no-store" }, STATE_SYNC_TIMEOUT_MS);
     if (response.status === 401) {
       stopRealtimeChannels();
       currentUser = null;
@@ -24340,6 +24344,8 @@ async function pullStateFromServer() {
     const payload = await response.json();
     const previousSyncVersion = currentUser?.role === "seller" ? sellerCatalogVersion : syncVersion || 0;
     if (payload.syncFormat === "records-v1") {
+      const bootstrapCursor = response.headers.get("X-State-Cursor");
+      if (!payload.partial && /^[a-f0-9]{48}$/.test(bootstrapCursor || "")) payload.cursor = bootstrapCursor;
       try {
         if (payload.partial && (!syncRecordCursor || Number(payload.baseVersion) !== syncRecordVersion
           || Number(payload.baseVersion) !== Number(previousSyncVersion) || syncPushInFlight)) throw new Error("Sync baseline changed");

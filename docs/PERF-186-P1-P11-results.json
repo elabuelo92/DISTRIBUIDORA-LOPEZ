@@ -1,0 +1,262 @@
+{
+  "at": "2026-10-23T20:56:17.883Z",
+  "environment": "local-isolated",
+  "productionAccess": false,
+  "note": "Engine/HTTP/manifest regression; not a production load test.",
+  "results": [
+    {
+      "scope": "P1",
+      "file": "smoke-historical-cost.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 250,
+      "output": "100 pedidos x 10 reportes: 8.6 ms (motor local, sin API/BD).\nPASS historical cost: trusted catalog, immutable snapshot, edits/reordering/new lines, unknown legacy costs, zero/invalid costs, returns, no report mutations.\n",
+      "error": ""
+    },
+    {
+      "scope": "P1",
+      "file": "smoke-statistics-period.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 1236,
+      "output": "PASS weekly statistics: Argentina date boundaries, exclusions, archive deduplication, seller/product totals, CMV coverage, no mutations, invalid/empty periods.\nPASS real XLSX generated/read: sales, CMV and gross profit remain numeric.\nPASS Excel export contract: selected period, numeric money and complete report sections.\n",
+      "error": ""
+    },
+    {
+      "scope": "P2",
+      "file": "smoke-stock-reconciliation.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 212,
+      "output": "Lote de 100 productos: 18.6 ms (motor aislado).\nPASS: conciliacion, reservas, motivos, reintentos, cantidades y carga inicial protegida (datos ficticios).\n",
+      "error": ""
+    },
+    {
+      "scope": "P2",
+      "file": "smoke-physical-count-persistence.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 241,
+      "output": "PASS count persistence: stock unchanged until approval; retry idempotent; stale counts blocked; drafts retained; double click blocked.\n",
+      "error": ""
+    },
+    {
+      "scope": "P3",
+      "file": "smoke-driver-commission-report.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 1101,
+      "output": "PASS P3: stored amounts only, settled orders untouched, deduplication, filters, Argentina dates, missing-data warnings and numeric XLSX.\n",
+      "error": ""
+    },
+    {
+      "scope": "P4",
+      "file": "smoke-p4-commissions.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 138,
+      "output": "PASS P4: regla Todos, Kevin, vendedores, fecha de pagos, filtros y liquidaciones intactas.\n",
+      "error": ""
+    },
+    {
+      "scope": "P4",
+      "file": "smoke-commission-numeric-export.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 1018,
+      "output": "PASS: real XLSX numeric amounts, decimals, percent, zero/negative values, filters, payments and unchanged source data.\n",
+      "error": ""
+    },
+    {
+      "scope": "P4",
+      "file": "smoke-commission-week.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 99,
+      "output": "OK: Monday-Sunday commission ranges, previous week, month/year boundaries.\n",
+      "error": ""
+    },
+    {
+      "scope": "P5",
+      "file": "smoke-p5-pending-transfer.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 173,
+      "output": "PASS P5 manifest: promised transfer remains debt, partial/mixed payments, real discrepancy retained, no data mutation.\n",
+      "error": ""
+    },
+    {
+      "scope": "P5",
+      "file": "smoke-p5-workflow.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 271,
+      "output": "PASS P5 workflow: promise/mixed/receipt, idempotent collection and bank validation, immutable closure/stock, PED-3785 snapshot, legacy fallback, true cash discrepancies.\n",
+      "error": ""
+    },
+    {
+      "scope": "P5",
+      "file": "smoke-p5-http.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 2851,
+      "output": "PASS P5 HTTP: one persisted closure for two concurrent requests, promise is not cash difference, orders/accounts/stock/clients unchanged. Temporary synthetic data only.\n",
+      "error": ""
+    },
+    {
+      "scope": "P6",
+      "file": "smoke-rejected-stock-return.js",
+      "args": [
+        "--p6"
+      ],
+      "status": "PASS",
+      "elapsedMs": 3132,
+      "output": "PASS engine: +5000 once, reservations unchanged, persistence retry, financial and original lines preserved, invalid cases atomic.\nPASS P6: definitive cancellation, route/closure history intact, paid commissions, active stops, payments, stale and missing confirmations blocked.\nPASS HTTP: admin only, two simultaneous requests, one receipt and stock entry, same original order.\n",
+      "error": ""
+    },
+    {
+      "scope": "P6-regression",
+      "file": "smoke-rejected-stock-return.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 2921,
+      "output": "PASS engine: +5000 once, reservations unchanged, persistence retry, financial and original lines preserved, invalid cases atomic.\nPASS HTTP: admin only, two simultaneous requests, one receipt and stock entry, same original order.\n",
+      "error": ""
+    },
+    {
+      "scope": "P7",
+      "file": "smoke-p7-client-edit.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 165,
+      "output": "PASS P7: paginated client, exact code/ID, ambiguous names rejected, single submit, success/close/scroll, errors preserve form.\n",
+      "error": ""
+    },
+    {
+      "scope": "P7",
+      "file": "smoke-client-edit-validation.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 148,
+      "output": "PASS client address edit preserves cents, negative credit, coordinates, original object and limit permissions; numeric HTML constraints checked. Browser acceptance pending.\n",
+      "error": ""
+    },
+    {
+      "scope": "P7",
+      "file": "smoke-client-hours-v123.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 152,
+      "output": "{\n  \"ok\": true,\n  \"version\": \"8790-127\",\n  \"days\": 2,\n  \"rangesMonday\": 2,\n  \"summary\": \"Lun 08:00-12:30 / 15:30-19:00; Mar 08:00-12:30\",\n  \"legacyCompatible\": true,\n  \"mobileCompactRanges\": true\n}\n",
+      "error": ""
+    },
+    {
+      "scope": "P2/P7-http",
+      "file": "smoke-order-workflow-v114.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 5210,
+      "output": "{\n  \"ok\": true,\n  \"version\": \"8790-114\",\n  \"fullStateBytes\": 2030076,\n  \"responseBytes\": {\n    \"assembly\": 3225,\n    \"labeled\": 3842,\n    \"scanned\": 5022\n  },\n  \"elapsedMs\": {\n    \"assembly\": 46.8,\n    \"labeled\": 48,\n    \"scanned\": 47.8\n  },\n  \"physicalScannerRequired\": false,\n  \"physicalScannerAvailable\": true,\n  \"directDispatchBlocked\": true,\n  \"finalStatus\": \"Listo para Despacho\"\n}\n",
+      "error": ""
+    },
+    {
+      "scope": "P8-core",
+      "file": "smoke-collection-visits.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 173,
+      "output": "PASS P8 core: partial cash, transfer validation/replay, route ownership/closure, no-collection, assignment, current GPS, numeric input, no stock/sales/commission changes. API/UI integration pending.\n",
+      "error": ""
+    },
+    {
+      "scope": "P8-http",
+      "file": "smoke-p8-http.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 3587,
+      "output": "PASS P8 HTTP: concurrent creation/collection/replay, role isolation, proof validation once, closure totals, unchanged stock/sales/commissions.\n",
+      "error": ""
+    },
+    {
+      "scope": "P8-manifests",
+      "file": "smoke-p8-manifests.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 151,
+      "output": "PASS P8 manifests: scoped route/day, separate collection label, numeric totals, no mutations.\n",
+      "error": ""
+    },
+    {
+      "scope": "P9-core",
+      "file": "smoke-p9-corrections.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 212,
+      "output": "PASS P9: immutable closures/orders/stock/settlements, reversal+replacement, partial, cash/transfer, bank validation once, replay, stale preview, roles and ambiguous cases blocked.\n",
+      "error": ""
+    },
+    {
+      "scope": "P9-http",
+      "file": "smoke-p9-http.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 3314,
+      "output": "PASS P9 HTTP: admin only, readonly preview, stale token, concurrent replay exactly once, persisted audit and unchanged closed routes/orders/commissions.\n",
+      "error": ""
+    },
+    {
+      "scope": "P9-ui",
+      "file": "smoke-p9-ui.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 179,
+      "output": "PASS P9 UI: net collections subtract reversals, ordinary debits unchanged, preview invalidation, duplicate-click guard.\n",
+      "error": ""
+    },
+    {
+      "scope": "P10-core",
+      "file": "smoke-p10-cancellation.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 221,
+      "output": "PASS P10: preview, reversal once, replay, stale/roles, stock reservations, original ledger/attachments/costs, pending remits, duplicate lines.\n",
+      "error": ""
+    },
+    {
+      "scope": "P10-http",
+      "file": "smoke-p10-http.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 3641,
+      "output": "PASS P10 HTTP: detail permissions, readonly preview, concurrent cancellation once, revalidation rejected, audit and protected historical data.\n",
+      "error": ""
+    },
+    {
+      "scope": "P11-display",
+      "file": "smoke-p11-display.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 195,
+      "output": "PASS P11: applied vs pending discounts, 100%, rounding, unchanged prices/data, hidden prices, manual route name and historical fallback.\n",
+      "error": ""
+    },
+    {
+      "scope": "P11-invoice",
+      "file": "smoke-invoice-net-price.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 173,
+      "output": "PASS invoice net unit: approved discount, changed price, pending unchanged, free items, fractional cents, zero quantity, legacy fallback, hidden prices, no data mutation.\n",
+      "error": ""
+    },
+    {
+      "scope": "P11-100-orders",
+      "file": "smoke-delivery-planning-100-v133.js",
+      "args": [],
+      "status": "PASS",
+      "elapsedMs": 400,
+      "output": "OK: 100 orders planned in two batch operations, driver reassigned, compact route reordered, published; no premature order mutations or partial invalid batches.\n",
+      "error": ""
+    }
+  ]
+}

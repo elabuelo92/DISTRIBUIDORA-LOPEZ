@@ -1,0 +1,979 @@
+{
+  "at": "2026-10-23T20:52:46.791Z",
+  "passed": true,
+  "environment": "local-isolated",
+  "node": "v18.19.1",
+  "serverNode": "C:\\DistribuidoraLopez\\.security\\node-v18.19.1\\node.exe",
+  "heapLimitMiB": 512,
+  "syncCap": 2,
+  "freshConnections": false,
+  "serverPerformance": {
+    "ok": true,
+    "generatedAt": "2026-10-23T20:52:46.783Z",
+    "eventLoopDelayP95Ms": 154,
+    "eventLoopDelayMaxMs": 294,
+    "stateWrites": {
+      "count": 33,
+      "totalMs": 261.7881999015808,
+      "maxMs": 11.90719997882843,
+      "lastMs": 7.838200092315674,
+      "lastMigrationMs": 0.005299925804138184,
+      "lastSerializationMs": 2.9338001012802124,
+      "lastDiskMs": 4.425999999046326,
+      "lastBytes": 179569,
+      "lastAt": "2026-10-23T20:52:46.664Z",
+      "averageMs": 8,
+      "sampleCount": 33,
+      "p95Ms": 12,
+      "p95SerializationMs": 4,
+      "p95DiskMs": 8
+    },
+    "mobileWriteBatch": {
+      "operations": 6,
+      "commits": 1,
+      "savedWrites": 1,
+      "failures": 2,
+      "maxBatch": 2,
+      "pending": false
+    },
+    "stateReadMigration": {
+      "count": 1,
+      "p95Ms": 20,
+      "maxMs": 20
+    },
+    "recordSyncCache": {
+      "entries": 0,
+      "estimatedBytes": 0,
+      "maxBytes": 50331648,
+      "reusedSnapshots": 0
+    },
+    "bootstrapCache": {
+      "entries": 0,
+      "bytes": 0,
+      "maxBytes": 16777216,
+      "hits": 0,
+      "misses": 0
+    },
+    "stateSync": {
+      "inFlight": 0,
+      "maxConcurrent": 2,
+      "rejectedSinceStart": 0,
+      "queued": 0
+    },
+    "slowThresholdMs": 1000,
+    "requests": [
+      {
+        "key": "POST /api/login",
+        "count": 7,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 809.8192000389099,
+        "maxMs": 131,
+        "lastMs": 122,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T20:52:43.878Z",
+        "averageMs": 116
+      },
+      {
+        "key": "POST /api/stock/entry",
+        "count": 60,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 2289.9871003627777,
+        "maxMs": 119,
+        "lastMs": 90,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T20:52:46.774Z",
+        "averageMs": 38
+      },
+      {
+        "key": "GET /api/state",
+        "count": 25,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 444.4926003217697,
+        "maxMs": 53,
+        "lastMs": 5,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T20:52:46.596Z",
+        "averageMs": 18
+      },
+      {
+        "key": "POST /api/orders",
+        "count": 4,
+        "errors": 2,
+        "slow": 0,
+        "totalMs": 128.89630007743835,
+        "maxMs": 42,
+        "lastMs": 5,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T20:52:46.102Z",
+        "averageMs": 32
+      },
+      {
+        "key": "POST /api/delivery/orders/:id/collect",
+        "count": 4,
+        "errors": 2,
+        "slow": 0,
+        "totalMs": 99.07800006866455,
+        "maxMs": 34,
+        "lastMs": 4,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T20:52:46.103Z",
+        "averageMs": 25
+      },
+      {
+        "key": "POST /api/state",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 33.61039996147156,
+        "maxMs": 34,
+        "lastMs": 34,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T20:52:46.640Z",
+        "averageMs": 34
+      },
+      {
+        "key": "GET /api/health",
+        "count": 5,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 14.995700001716614,
+        "maxMs": 9,
+        "lastMs": 1,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T20:52:46.781Z",
+        "averageMs": 3
+      },
+      {
+        "key": "GET /api/legal",
+        "count": 7,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 30.49210011959076,
+        "maxMs": 8,
+        "lastMs": 3,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T20:52:43.750Z",
+        "averageMs": 4
+      }
+    ]
+  },
+  "skipped": [],
+  "recordSync": false,
+  "recordSyncMetrics": {
+    "full": 0,
+    "delta": 0,
+    "unchanged": 0,
+    "bytes": 0
+  },
+  "users": [
+    {
+      "username": "admin1",
+      "role": "admin"
+    },
+    {
+      "username": "admin-test2",
+      "role": "admin"
+    },
+    {
+      "username": "admin-test3",
+      "role": "admin"
+    },
+    {
+      "username": "seller-test",
+      "role": "seller"
+    },
+    {
+      "username": "seller-test2",
+      "role": "seller"
+    },
+    {
+      "username": "driver-test1",
+      "role": "driver"
+    },
+    {
+      "username": "driver-test2",
+      "role": "driver"
+    }
+  ],
+  "snapshotUsed": false,
+  "mixed": true,
+  "soak": false,
+  "soakRounds": [],
+  "traffic": false,
+  "trafficRounds": [],
+  "syncBusyRetries": 0,
+  "timing": [
+    {
+      "operation": "/api/health",
+      "ms": 57,
+      "status": 200,
+      "bytes": 1537
+    },
+    {
+      "operation": "/api/legal",
+      "ms": 23,
+      "status": 200,
+      "bytes": 4035
+    },
+    {
+      "operation": "/api/login",
+      "ms": 142,
+      "status": 200,
+      "bytes": 2627
+    },
+    {
+      "operation": "/api/legal",
+      "ms": 10,
+      "status": 200,
+      "bytes": 4035
+    },
+    {
+      "operation": "/api/login",
+      "ms": 111,
+      "status": 200,
+      "bytes": 3518
+    },
+    {
+      "operation": "/api/legal",
+      "ms": 9,
+      "status": 200,
+      "bytes": 4035
+    },
+    {
+      "operation": "/api/login",
+      "ms": 111,
+      "status": 200,
+      "bytes": 4353
+    },
+    {
+      "operation": "/api/legal",
+      "ms": 11,
+      "status": 200,
+      "bytes": 4035
+    },
+    {
+      "operation": "/api/login",
+      "ms": 121,
+      "status": 200,
+      "bytes": 5196
+    },
+    {
+      "operation": "/api/legal",
+      "ms": 9,
+      "status": 200,
+      "bytes": 4035
+    },
+    {
+      "operation": "/api/login",
+      "ms": 131,
+      "status": 200,
+      "bytes": 6064
+    },
+    {
+      "operation": "/api/legal",
+      "ms": 10,
+      "status": 200,
+      "bytes": 4035
+    },
+    {
+      "operation": "/api/login",
+      "ms": 116,
+      "status": 200,
+      "bytes": 6919
+    },
+    {
+      "operation": "/api/legal",
+      "ms": 8,
+      "status": 200,
+      "bytes": 4035
+    },
+    {
+      "operation": "/api/login",
+      "ms": 127,
+      "status": 200,
+      "bytes": 7773
+    },
+    {
+      "operation": "/api/state",
+      "ms": 37,
+      "status": 200,
+      "bytes": 45301
+    },
+    {
+      "operation": "recordCount",
+      "ms": 5,
+      "status": 401,
+      "bytes": 39
+    },
+    {
+      "operation": "recordCount",
+      "ms": 4,
+      "status": 403,
+      "bytes": 69
+    },
+    {
+      "operation": "recordCount",
+      "ms": 23,
+      "status": 200,
+      "bytes": 554
+    },
+    {
+      "operation": "recordCount",
+      "ms": 24,
+      "status": 200,
+      "bytes": 538
+    },
+    {
+      "operation": "recordCount",
+      "ms": 25,
+      "status": 200,
+      "bytes": 538
+    },
+    {
+      "operation": "recordCount",
+      "ms": 27,
+      "status": 200,
+      "bytes": 538
+    },
+    {
+      "operation": "recordCount",
+      "ms": 30,
+      "status": 200,
+      "bytes": 538
+    },
+    {
+      "operation": "recordCount",
+      "ms": 32,
+      "status": 200,
+      "bytes": 538
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 87,
+      "status": 400,
+      "bytes": 57
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 113,
+      "status": 200,
+      "bytes": 863
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 197,
+      "status": 200,
+      "bytes": 847
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 292,
+      "status": 200,
+      "bytes": 847
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 370,
+      "status": 200,
+      "bytes": 847
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 442,
+      "status": 200,
+      "bytes": 847
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 562,
+      "status": 200,
+      "bytes": 847
+    },
+    {
+      "operation": "/api/state",
+      "ms": 584,
+      "status": 200,
+      "bytes": 49829
+    },
+    {
+      "operation": "/api/state",
+      "ms": 587,
+      "status": 200,
+      "bytes": 13426
+    },
+    {
+      "operation": "/api/state",
+      "ms": 588,
+      "status": 200,
+      "bytes": 13426
+    },
+    {
+      "operation": "/api/state",
+      "ms": 593,
+      "status": 200,
+      "bytes": 16220
+    },
+    {
+      "operation": "/api/state",
+      "ms": 593,
+      "status": 200,
+      "bytes": 11429
+    },
+    {
+      "operation": "recordCount",
+      "ms": 12,
+      "status": 200,
+      "bytes": 546
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 107,
+      "status": 200,
+      "bytes": 498
+    },
+    {
+      "operation": "recordCount",
+      "ms": 13,
+      "status": 200,
+      "bytes": 549
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 70,
+      "status": 400,
+      "bytes": 111
+    },
+    {
+      "operation": "recordCount",
+      "ms": 3,
+      "status": 400,
+      "bytes": 91
+    },
+    {
+      "operation": "/api/health",
+      "ms": 3,
+      "status": 200,
+      "bytes": 1569
+    },
+    {
+      "operation": "recordCount",
+      "ms": 14,
+      "status": 200,
+      "bytes": 561
+    },
+    {
+      "operation": "recordCount",
+      "ms": 25,
+      "status": 200,
+      "bytes": 566
+    },
+    {
+      "operation": "recordCount",
+      "ms": 36,
+      "status": 200,
+      "bytes": 566
+    },
+    {
+      "operation": "/api/state",
+      "ms": 10,
+      "status": 200,
+      "bytes": 13426
+    },
+    {
+      "operation": "/api/state",
+      "ms": 14,
+      "status": 200,
+      "bytes": 13426
+    },
+    {
+      "operation": "/api/state",
+      "ms": 15,
+      "status": 200,
+      "bytes": 16220
+    },
+    {
+      "operation": "/api/state",
+      "ms": 15,
+      "status": 200,
+      "bytes": 11429
+    },
+    {
+      "operation": "recordCount",
+      "ms": 16,
+      "status": 200,
+      "bytes": 560
+    },
+    {
+      "operation": "recordCount",
+      "ms": 28,
+      "status": 200,
+      "bytes": 565
+    },
+    {
+      "operation": "recordCount",
+      "ms": 40,
+      "status": 200,
+      "bytes": 565
+    },
+    {
+      "operation": "/api/state",
+      "ms": 11,
+      "status": 200,
+      "bytes": 13426
+    },
+    {
+      "operation": "/api/state",
+      "ms": 13,
+      "status": 200,
+      "bytes": 13426
+    },
+    {
+      "operation": "/api/state",
+      "ms": 16,
+      "status": 200,
+      "bytes": 16220
+    },
+    {
+      "operation": "/api/state",
+      "ms": 16,
+      "status": 200,
+      "bytes": 11429
+    },
+    {
+      "operation": "recordCount",
+      "ms": 15,
+      "status": 200,
+      "bytes": 561
+    },
+    {
+      "operation": "recordCount",
+      "ms": 25,
+      "status": 200,
+      "bytes": 566
+    },
+    {
+      "operation": "recordCount",
+      "ms": 37,
+      "status": 200,
+      "bytes": 565
+    },
+    {
+      "operation": "/api/state",
+      "ms": 13,
+      "status": 200,
+      "bytes": 13426
+    },
+    {
+      "operation": "/api/state",
+      "ms": 15,
+      "status": 200,
+      "bytes": 13426
+    },
+    {
+      "operation": "/api/state",
+      "ms": 19,
+      "status": 200,
+      "bytes": 16220
+    },
+    {
+      "operation": "/api/state",
+      "ms": 19,
+      "status": 200,
+      "bytes": 11429
+    },
+    {
+      "operation": "/api/health",
+      "ms": 4,
+      "status": 200,
+      "bytes": 1569
+    },
+    {
+      "operation": "/api/orders",
+      "ms": 45,
+      "status": 503,
+      "bytes": 142
+    },
+    {
+      "operation": "/api/delivery/orders/PED-MULTI/collect",
+      "ms": 45,
+      "status": 503,
+      "bytes": 142
+    },
+    {
+      "operation": "/api/orders",
+      "ms": 44,
+      "status": 503,
+      "bytes": 142
+    },
+    {
+      "operation": "/api/delivery/orders/PED-MULTI/collect",
+      "ms": 44,
+      "status": 503,
+      "bytes": 142
+    },
+    {
+      "operation": "recordCount",
+      "ms": 22,
+      "status": 200,
+      "bytes": 561
+    },
+    {
+      "operation": "/api/state",
+      "ms": 56,
+      "status": 200,
+      "bytes": 13426
+    },
+    {
+      "operation": "/api/state",
+      "ms": 67,
+      "status": 200,
+      "bytes": 13426
+    },
+    {
+      "operation": "/api/orders",
+      "ms": 69,
+      "status": 200,
+      "bytes": 3456
+    },
+    {
+      "operation": "/api/delivery/orders/PED-MULTI/collect",
+      "ms": 70,
+      "status": 200,
+      "bytes": 32372
+    },
+    {
+      "operation": "/api/state",
+      "ms": 68,
+      "status": 200,
+      "bytes": 13370
+    },
+    {
+      "operation": "/api/state",
+      "ms": 69,
+      "status": 200,
+      "bytes": 39339
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 96,
+      "status": 200,
+      "bytes": 839
+    },
+    {
+      "operation": "/api/orders",
+      "ms": 104,
+      "status": 200,
+      "bytes": 3070
+    },
+    {
+      "operation": "/api/delivery/orders/PED-MULTI/collect",
+      "ms": 105,
+      "status": 200,
+      "bytes": 24765
+    },
+    {
+      "operation": "/api/health",
+      "ms": 3,
+      "status": 200,
+      "bytes": 1568
+    },
+    {
+      "operation": "startCut",
+      "ms": 4,
+      "status": 401,
+      "bytes": 39
+    },
+    {
+      "operation": "startCut",
+      "ms": 4,
+      "status": 403,
+      "bytes": 69
+    },
+    {
+      "operation": "startCut",
+      "ms": 21,
+      "status": 200,
+      "bytes": 584
+    },
+    {
+      "operation": "startCut",
+      "ms": 23,
+      "status": 200,
+      "bytes": 568
+    },
+    {
+      "operation": "startCut",
+      "ms": 25,
+      "status": 200,
+      "bytes": 568
+    },
+    {
+      "operation": "startCut",
+      "ms": 4,
+      "status": 400,
+      "bytes": 81
+    },
+    {
+      "operation": "/api/state?syncFormat=sections-v1",
+      "ms": 15,
+      "status": 200,
+      "bytes": 140362
+    },
+    {
+      "operation": "/api/state",
+      "ms": 6,
+      "status": 200,
+      "bytes": 18388
+    },
+    {
+      "operation": "recordCount",
+      "ms": 37,
+      "status": 200,
+      "bytes": 612
+    },
+    {
+      "operation": "recordCount",
+      "ms": 39,
+      "status": 200,
+      "bytes": 596
+    },
+    {
+      "operation": "recordCount",
+      "ms": 40,
+      "status": 200,
+      "bytes": 596
+    },
+    {
+      "operation": "/api/stock/entry",
+      "ms": 46,
+      "status": 200,
+      "bytes": 139820
+    },
+    {
+      "operation": "closeCut",
+      "ms": 4,
+      "status": 400,
+      "bytes": 113
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 70,
+      "status": 400,
+      "bytes": 90
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 91,
+      "status": 200,
+      "bytes": 1060
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 174,
+      "status": 200,
+      "bytes": 1044
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 248,
+      "status": 200,
+      "bytes": 1044
+    },
+    {
+      "operation": "recordCount",
+      "ms": 3,
+      "status": 400,
+      "bytes": 102
+    },
+    {
+      "operation": "/api/state",
+      "ms": 9,
+      "status": 200,
+      "bytes": 144513
+    },
+    {
+      "operation": "/api/state",
+      "ms": 38,
+      "status": 200,
+      "bytes": 35
+    },
+    {
+      "operation": "closeCut",
+      "ms": 14,
+      "status": 200,
+      "bytes": 642
+    },
+    {
+      "operation": "closeCut",
+      "ms": 15,
+      "status": 200,
+      "bytes": 626
+    },
+    {
+      "operation": "closeCut",
+      "ms": 17,
+      "status": 200,
+      "bytes": 626
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 93,
+      "status": 200,
+      "bytes": 1044
+    },
+    {
+      "operation": "/api/health",
+      "ms": 3,
+      "status": 200,
+      "bytes": 1568
+    },
+    {
+      "operation": "/api/admin/performance",
+      "ms": 4,
+      "status": 200,
+      "bytes": 2332
+    }
+  ],
+  "clientHeapLimitMiB": 2096,
+  "memory": [
+    {
+      "at": 1792788760822,
+      "rss": 34783232,
+      "heapTotal": 4849664,
+      "heapUsed": 4122520,
+      "external": 331296,
+      "arrayBuffers": 11182,
+      "maxRSSKiB": 33972
+    },
+    {
+      "at": 1792788762794,
+      "rss": 66244608,
+      "heapTotal": 31600640,
+      "heapUsed": 20568424,
+      "external": 2149724,
+      "arrayBuffers": 862453,
+      "maxRSSKiB": 64692
+    },
+    {
+      "at": 1792788763056,
+      "rss": 68083712,
+      "heapTotal": 33611776,
+      "heapUsed": 15219392,
+      "external": 1396359,
+      "arrayBuffers": 115548,
+      "maxRSSKiB": 69324
+    },
+    {
+      "at": 1792788763309,
+      "rss": 68513792,
+      "heapTotal": 33611776,
+      "heapUsed": 16892808,
+      "external": 1522060,
+      "arrayBuffers": 241185,
+      "maxRSSKiB": 69324
+    },
+    {
+      "at": 1792788763588,
+      "rss": 68800512,
+      "heapTotal": 33873920,
+      "heapUsed": 18655264,
+      "external": 1662018,
+      "arrayBuffers": 381079,
+      "maxRSSKiB": 69324
+    },
+    {
+      "at": 1792788763854,
+      "rss": 70492160,
+      "heapTotal": 33873920,
+      "heapUsed": 20277968,
+      "external": 1826568,
+      "arrayBuffers": 545565,
+      "maxRSSKiB": 69324
+    },
+    {
+      "at": 1792788764358,
+      "rss": 73310208,
+      "heapTotal": 34136064,
+      "heapUsed": 23350184,
+      "external": 2062803,
+      "arrayBuffers": 781640,
+      "maxRSSKiB": 72620
+    },
+    {
+      "at": 1792788764645,
+      "rss": 74362880,
+      "heapTotal": 34136064,
+      "heapUsed": 16245312,
+      "external": 2167547,
+      "arrayBuffers": 235374,
+      "maxRSSKiB": 72620
+    },
+    {
+      "at": 1792788764895,
+      "rss": 74067968,
+      "heapTotal": 34136064,
+      "heapUsed": 18108968,
+      "external": 1797585,
+      "arrayBuffers": 516710,
+      "maxRSSKiB": 72632
+    },
+    {
+      "at": 1792788765182,
+      "rss": 74211328,
+      "heapTotal": 34136064,
+      "heapUsed": 19939472,
+      "external": 2058911,
+      "arrayBuffers": 777940,
+      "maxRSSKiB": 72632
+    },
+    {
+      "at": 1792788765499,
+      "rss": 75882496,
+      "heapTotal": 34693120,
+      "heapUsed": 22754504,
+      "external": 2483360,
+      "arrayBuffers": 1202293,
+      "maxRSSKiB": 74104
+    },
+    {
+      "at": 1792788765801,
+      "rss": 76374016,
+      "heapTotal": 34693120,
+      "heapUsed": 18294760,
+      "external": 1871462,
+      "arrayBuffers": 590555,
+      "maxRSSKiB": 75452
+    },
+    {
+      "at": 1792788766096,
+      "rss": 77025280,
+      "heapTotal": 35217408,
+      "heapUsed": 19112312,
+      "external": 2001698,
+      "arrayBuffers": 720855,
+      "maxRSSKiB": 78588
+    },
+    {
+      "at": 1792788766425,
+      "rss": 79794176,
+      "heapTotal": 36622336,
+      "heapUsed": 25040696,
+      "external": 3225097,
+      "arrayBuffers": 1944190,
+      "maxRSSKiB": 78588
+    },
+    {
+      "at": 1792788766682,
+      "rss": 78839808,
+      "heapTotal": 35659776,
+      "heapUsed": 20644408,
+      "external": 2183458,
+      "arrayBuffers": 902647,
+      "maxRSSKiB": 79848
+    }
+  ],
+  "logs": "Distribuidora Lopez SERVIDOR_UNICO_8790 8790-186 listening on 127.0.0.1:23418\n"
+}

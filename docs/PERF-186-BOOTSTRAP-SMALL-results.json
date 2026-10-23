@@ -1,0 +1,1496 @@
+{
+  "at": "2026-10-23T03:37:00.467Z",
+  "passed": true,
+  "environment": "local-isolated",
+  "node": "v24.16.0",
+  "serverNode": "C:\\DistribuidoraLopez\\.security\\node-v18.19.1\\node.exe",
+  "heapLimitMiB": 768,
+  "syncCap": 1,
+  "freshConnections": false,
+  "serverPerformance": {
+    "ok": true,
+    "generatedAt": "2026-10-23T03:37:00.437Z",
+    "eventLoopDelayP95Ms": 110,
+    "eventLoopDelayMaxMs": 469,
+    "stateWrites": {
+      "count": 27,
+      "totalMs": 186.60060036182404,
+      "maxMs": 9.831799983978271,
+      "lastMs": 8.303099989891052,
+      "lastMigrationMs": 0.003600001335144043,
+      "lastSerializationMs": 2.284999966621399,
+      "lastDiskMs": 5.341100096702576,
+      "lastBytes": 135303,
+      "lastAt": "2026-10-23T03:37:00.338Z",
+      "averageMs": 7,
+      "sampleCount": 27,
+      "p95Ms": 9,
+      "p95SerializationMs": 2,
+      "p95DiskMs": 7
+    },
+    "mobileWriteBatch": {
+      "operations": 2,
+      "commits": 1,
+      "savedWrites": 1,
+      "failures": 0,
+      "maxBatch": 2,
+      "pending": false
+    },
+    "stateReadMigration": {
+      "count": 1,
+      "p95Ms": 12,
+      "maxMs": 12
+    },
+    "recordSyncCache": {
+      "entries": 5,
+      "estimatedBytes": 66950,
+      "maxBytes": 50331648,
+      "reusedSnapshots": 1
+    },
+    "bootstrapCache": {
+      "entries": 1,
+      "bytes": 9240,
+      "maxBytes": 16777216,
+      "hits": 1,
+      "misses": 2
+    },
+    "stateSync": {
+      "inFlight": 0,
+      "maxConcurrent": 1,
+      "rejectedSinceStart": 0,
+      "queued": 0
+    },
+    "slowThresholdMs": 1000,
+    "requests": [
+      {
+        "key": "POST /api/stock/entry",
+        "count": 40,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 1867.0126000642776,
+        "maxMs": 143,
+        "lastMs": 85,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:37:00.338Z",
+        "averageMs": 47
+      },
+      {
+        "key": "POST /api/login",
+        "count": 7,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 676.7414001226425,
+        "maxMs": 141,
+        "lastMs": 84,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:53.987Z",
+        "averageMs": 97
+      },
+      {
+        "key": "GET /api/state",
+        "count": 36,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 618.037899851799,
+        "maxMs": 138,
+        "lastMs": 3,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:37:00.434Z",
+        "averageMs": 17
+      },
+      {
+        "key": "POST /api/presence/heartbeat",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 312.64020001888275,
+        "maxMs": 137,
+        "lastMs": 65,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.493Z",
+        "averageMs": 104
+      },
+      {
+        "key": "GET /share-engine.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 106.24409997463226,
+        "maxMs": 101,
+        "lastMs": 101,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.430Z",
+        "averageMs": 35
+      },
+      {
+        "key": "GET /route-optimizer.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 72.94610011577606,
+        "maxMs": 66,
+        "lastMs": 66,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.298Z",
+        "averageMs": 24
+      },
+      {
+        "key": "GET /api/collection-visits",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 60.610000014305115,
+        "maxMs": 61,
+        "lastMs": 61,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.424Z",
+        "averageMs": 61
+      },
+      {
+        "key": "POST /api/orders",
+        "count": 2,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 50.620100021362305,
+        "maxMs": 45,
+        "lastMs": 5,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:37:00.344Z",
+        "averageMs": 25
+      },
+      {
+        "key": "GET /api/session",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 64.91050004959106,
+        "maxMs": 41,
+        "lastMs": 21,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.242Z",
+        "averageMs": 22
+      },
+      {
+        "key": "POST /api/delivery/orders/:id/collect",
+        "count": 2,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 39.195199966430664,
+        "maxMs": 36,
+        "lastMs": 4,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:37:00.345Z",
+        "averageMs": 20
+      },
+      {
+        "key": "GET /state-record-sync.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 78.89249992370605,
+        "maxMs": 32,
+        "lastMs": 32,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.477Z",
+        "averageMs": 26
+      },
+      {
+        "key": "GET /icons/tools/chart-column.svg",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 30.973899960517883,
+        "maxMs": 31,
+        "lastMs": 31,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.200Z",
+        "averageMs": 31
+      },
+      {
+        "key": "GET /maintenance.html",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 35.20110011100769,
+        "maxMs": 26,
+        "lastMs": 26,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.544Z",
+        "averageMs": 12
+      },
+      {
+        "key": "GET /app.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 39.565799951553345,
+        "maxMs": 24,
+        "lastMs": 10,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.526Z",
+        "averageMs": 13
+      },
+      {
+        "key": "GET /api/health",
+        "count": 7,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 36.78100001811981,
+        "maxMs": 23,
+        "lastMs": 1,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:37:00.354Z",
+        "averageMs": 5
+      },
+      {
+        "key": "GET /icons/logo-distribuidora-lopez-192.png",
+        "count": 9,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 52.34909987449646,
+        "maxMs": 22,
+        "lastMs": 2,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.625Z",
+        "averageMs": 6
+      },
+      {
+        "key": "GET /styles.css",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 21.641600012779236,
+        "maxMs": 16,
+        "lastMs": 16,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.170Z",
+        "averageMs": 7
+      },
+      {
+        "key": "GET /icons/grupo-rocha-solutions.png",
+        "count": 6,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 34.457199931144714,
+        "maxMs": 16,
+        "lastMs": 3,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.630Z",
+        "averageMs": 6
+      },
+      {
+        "key": "GET /account-engine.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 20.54360008239746,
+        "maxMs": 16,
+        "lastMs": 16,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.231Z",
+        "averageMs": 7
+      },
+      {
+        "key": "GET /collection-visits-ui.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 27.56120002269745,
+        "maxMs": 15,
+        "lastMs": 11,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.510Z",
+        "averageMs": 9
+      },
+      {
+        "key": "GET /collection-corrections-ui.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 20.435500144958496,
+        "maxMs": 14,
+        "lastMs": 4,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.515Z",
+        "averageMs": 7
+      },
+      {
+        "key": "GET /manifest.json",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 21.10670006275177,
+        "maxMs": 12,
+        "lastMs": 12,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.516Z",
+        "averageMs": 7
+      },
+      {
+        "key": "GET /icons/logo-distribuidora-lopez.jpg",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 12.531799912452698,
+        "maxMs": 9,
+        "lastMs": 2,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.573Z",
+        "averageMs": 4
+      },
+      {
+        "key": "GET /api/legal",
+        "count": 7,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 28.191099882125854,
+        "maxMs": 8,
+        "lastMs": 3,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:53.900Z",
+        "averageMs": 4
+      },
+      {
+        "key": "GET /icons/logo-distribuidora-lopez-512.png",
+        "count": 6,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 27.22819972038269,
+        "maxMs": 8,
+        "lastMs": 2,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.627Z",
+        "averageMs": 5
+      },
+      {
+        "key": "GET /maps-config.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 15.841600060462952,
+        "maxMs": 8,
+        "lastMs": 6,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.310Z",
+        "averageMs": 5
+      },
+      {
+        "key": "GET /portfolio-export-engine.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 15.562800168991089,
+        "maxMs": 8,
+        "lastMs": 5,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.440Z",
+        "averageMs": 5
+      },
+      {
+        "key": "GET /sales-commission-report.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 13.622300028800964,
+        "maxMs": 6,
+        "lastMs": 6,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.304Z",
+        "averageMs": 5
+      },
+      {
+        "key": "GET /progressive-list.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 13.148000001907349,
+        "maxMs": 6,
+        "lastMs": 6,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.499Z",
+        "averageMs": 4
+      },
+      {
+        "key": "GET /config.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 8.50659990310669,
+        "maxMs": 5,
+        "lastMs": 5,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.214Z",
+        "averageMs": 3
+      },
+      {
+        "key": "GET /delivery-engine.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 9.212299942970276,
+        "maxMs": 5,
+        "lastMs": 2,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.487Z",
+        "averageMs": 3
+      },
+      {
+        "key": "GET /legal-engine.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 14.063699960708618,
+        "maxMs": 5,
+        "lastMs": 5,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.322Z",
+        "averageMs": 5
+      },
+      {
+        "key": "GET /client-hours.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 9.385999917984009,
+        "maxMs": 5,
+        "lastMs": 3,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.328Z",
+        "averageMs": 3
+      },
+      {
+        "key": "GET /icons/tools/coins.svg",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 4.517500042915344,
+        "maxMs": 5,
+        "lastMs": 5,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.161Z",
+        "averageMs": 5
+      },
+      {
+        "key": "GET /",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 10.65339994430542,
+        "maxMs": 4,
+        "lastMs": 3,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:55.871Z",
+        "averageMs": 4
+      },
+      {
+        "key": "GET /client-portfolio-engine.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 10.21720016002655,
+        "maxMs": 4,
+        "lastMs": 2,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.324Z",
+        "averageMs": 3
+      },
+      {
+        "key": "GET /supplier-remit-ui.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 10.152600169181824,
+        "maxMs": 4,
+        "lastMs": 4,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.445Z",
+        "averageMs": 3
+      },
+      {
+        "key": "GET /sw.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 7.172500133514404,
+        "maxMs": 4,
+        "lastMs": 4,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.230Z",
+        "averageMs": 2
+      },
+      {
+        "key": "GET /icons/tools/wallet.svg",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 4.49180006980896,
+        "maxMs": 4,
+        "lastMs": 4,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.081Z",
+        "averageMs": 4
+      },
+      {
+        "key": "GET /icons/tools/map-pinned.svg",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 3.649199962615967,
+        "maxMs": 4,
+        "lastMs": 4,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.087Z",
+        "averageMs": 4
+      },
+      {
+        "key": "GET /icons/tools/boxes.svg",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 3.918500065803528,
+        "maxMs": 4,
+        "lastMs": 4,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.169Z",
+        "averageMs": 4
+      },
+      {
+        "key": "GET /icons/icon.svg",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 8.816699862480164,
+        "maxMs": 4,
+        "lastMs": 2,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.556Z",
+        "averageMs": 3
+      },
+      {
+        "key": "GET /icons/tools/package.svg",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 3.020799994468689,
+        "maxMs": 3,
+        "lastMs": 3,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.164Z",
+        "averageMs": 3
+      },
+      {
+        "key": "GET /order-engine.js",
+        "count": 3,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 7.283399939537048,
+        "maxMs": 2,
+        "lastMs": 2,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:56.313Z",
+        "averageMs": 2
+      },
+      {
+        "key": "GET /icons/tools/clipboard-list.svg",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 1.6771999597549438,
+        "maxMs": 2,
+        "lastMs": 2,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.072Z",
+        "averageMs": 2
+      },
+      {
+        "key": "GET /icons/tools/triangle-alert.svg",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 2.1866999864578247,
+        "maxMs": 2,
+        "lastMs": 2,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.076Z",
+        "averageMs": 2
+      },
+      {
+        "key": "GET /icons/tools/users.svg",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 1.5673999786376953,
+        "maxMs": 2,
+        "lastMs": 2,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.083Z",
+        "averageMs": 2
+      },
+      {
+        "key": "GET /icons/tools/truck.svg",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 1.89739990234375,
+        "maxMs": 2,
+        "lastMs": 2,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.156Z",
+        "averageMs": 2
+      },
+      {
+        "key": "GET /icons/tools/history.svg",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 2.4704999923706055,
+        "maxMs": 2,
+        "lastMs": 2,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:36:57.221Z",
+        "averageMs": 2
+      }
+    ]
+  },
+  "skipped": [],
+  "recordSync": true,
+  "recordSyncMetrics": {
+    "full": 6,
+    "delta": 17,
+    "unchanged": 4,
+    "bytes": 333235
+  },
+  "users": [
+    {
+      "username": "admin1",
+      "role": "admin"
+    },
+    {
+      "username": "admin-test2",
+      "role": "admin"
+    },
+    {
+      "username": "admin-test3",
+      "role": "admin"
+    },
+    {
+      "username": "seller-test",
+      "role": "seller"
+    },
+    {
+      "username": "seller-test2",
+      "role": "seller"
+    },
+    {
+      "username": "driver-test1",
+      "role": "driver"
+    },
+    {
+      "username": "driver-test2",
+      "role": "driver"
+    }
+  ],
+  "snapshotUsed": false,
+  "mixed": true,
+  "soak": false,
+  "soakRounds": [],
+  "traffic": false,
+  "trafficRounds": [],
+  "syncBusyRetries": 0,
+  "timing": [
+    {
+      "operation": "/api/health",
+      "ms": 60,
+      "status": 200,
+      "bytes": 1537
+    },
+    {
+      "operation": "/api/legal",
+      "ms": 20,
+      "status": 200,
+      "bytes": 4035
+    },
+    {
+      "operation": "/api/login",
+      "ms": 150,
+      "status": 200,
+      "bytes": 2627
+    },
+    {
+      "operation": "/api/legal",
+      "ms": 7,
+      "status": 200,
+      "bytes": 4035
+    },
+    {
+      "operation": "/api/login",
+      "ms": 102,
+      "status": 200,
+      "bytes": 3518
+    },
+    {
+      "operation": "/api/legal",
+      "ms": 7,
+      "status": 200,
+      "bytes": 4035
+    },
+    {
+      "operation": "/api/login",
+      "ms": 98,
+      "status": 200,
+      "bytes": 4353
+    },
+    {
+      "operation": "/api/legal",
+      "ms": 7,
+      "status": 200,
+      "bytes": 4035
+    },
+    {
+      "operation": "/api/login",
+      "ms": 94,
+      "status": 200,
+      "bytes": 5196
+    },
+    {
+      "operation": "/api/legal",
+      "ms": 7,
+      "status": 200,
+      "bytes": 4035
+    },
+    {
+      "operation": "/api/login",
+      "ms": 91,
+      "status": 200,
+      "bytes": 6063
+    },
+    {
+      "operation": "/api/legal",
+      "ms": 6,
+      "status": 200,
+      "bytes": 4035
+    },
+    {
+      "operation": "/api/login",
+      "ms": 86,
+      "status": 200,
+      "bytes": 6918
+    },
+    {
+      "operation": "/api/legal",
+      "ms": 5,
+      "status": 200,
+      "bytes": 4035
+    },
+    {
+      "operation": "/api/login",
+      "ms": 88,
+      "status": 200,
+      "bytes": 7772
+    },
+    {
+      "operation": "/api/state",
+      "ms": 26,
+      "status": 200,
+      "bytes": 45399
+    },
+    {
+      "operation": "recordCount",
+      "ms": 6,
+      "status": 401,
+      "bytes": 39
+    },
+    {
+      "operation": "recordCount",
+      "ms": 5,
+      "status": 403,
+      "bytes": 69
+    },
+    {
+      "operation": "recordCount",
+      "ms": 17,
+      "status": 200,
+      "bytes": 554
+    },
+    {
+      "operation": "recordCount",
+      "ms": 20,
+      "status": 200,
+      "bytes": 538
+    },
+    {
+      "operation": "recordCount",
+      "ms": 22,
+      "status": 200,
+      "bytes": 538
+    },
+    {
+      "operation": "recordCount",
+      "ms": 24,
+      "status": 200,
+      "bytes": 538
+    },
+    {
+      "operation": "recordCount",
+      "ms": 27,
+      "status": 200,
+      "bytes": 538
+    },
+    {
+      "operation": "recordCount",
+      "ms": 31,
+      "status": 200,
+      "bytes": 538
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 116,
+      "status": 400,
+      "bytes": 57
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 150,
+      "status": 200,
+      "bytes": 863
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 262,
+      "status": 200,
+      "bytes": 847
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 363,
+      "status": 200,
+      "bytes": 847
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 453,
+      "status": 200,
+      "bytes": 847
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 535,
+      "status": 200,
+      "bytes": 847
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 606,
+      "status": 200,
+      "bytes": 847
+    },
+    {
+      "operation": "/api/state",
+      "ms": 620,
+      "status": 200,
+      "bytes": 50119
+    },
+    {
+      "operation": "/api/state",
+      "ms": 623,
+      "status": 200,
+      "bytes": 13570
+    },
+    {
+      "operation": "/api/state",
+      "ms": 626,
+      "status": 200,
+      "bytes": 13570
+    },
+    {
+      "operation": "/api/state",
+      "ms": 629,
+      "status": 200,
+      "bytes": 16364
+    },
+    {
+      "operation": "/api/state",
+      "ms": 632,
+      "status": 200,
+      "bytes": 11573
+    },
+    {
+      "operation": "recordCount",
+      "ms": 14,
+      "status": 200,
+      "bytes": 546
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 90,
+      "status": 200,
+      "bytes": 498
+    },
+    {
+      "operation": "recordCount",
+      "ms": 11,
+      "status": 200,
+      "bytes": 549
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 67,
+      "status": 400,
+      "bytes": 111
+    },
+    {
+      "operation": "recordCount",
+      "ms": 3,
+      "status": 400,
+      "bytes": 91
+    },
+    {
+      "operation": "/api/health",
+      "ms": 3,
+      "status": 200,
+      "bytes": 1569
+    },
+    {
+      "operation": "recordCount",
+      "ms": 13,
+      "status": 200,
+      "bytes": 561
+    },
+    {
+      "operation": "recordCount",
+      "ms": 27,
+      "status": 200,
+      "bytes": 566
+    },
+    {
+      "operation": "recordCount",
+      "ms": 35,
+      "status": 200,
+      "bytes": 566
+    },
+    {
+      "operation": "/api/state",
+      "ms": 6,
+      "status": 200,
+      "bytes": 452
+    },
+    {
+      "operation": "/api/state",
+      "ms": 10,
+      "status": 200,
+      "bytes": 452
+    },
+    {
+      "operation": "/api/state",
+      "ms": 12,
+      "status": 200,
+      "bytes": 191
+    },
+    {
+      "operation": "/api/state",
+      "ms": 15,
+      "status": 200,
+      "bytes": 191
+    },
+    {
+      "operation": "recordCount",
+      "ms": 13,
+      "status": 200,
+      "bytes": 560
+    },
+    {
+      "operation": "recordCount",
+      "ms": 25,
+      "status": 200,
+      "bytes": 565
+    },
+    {
+      "operation": "recordCount",
+      "ms": 39,
+      "status": 200,
+      "bytes": 565
+    },
+    {
+      "operation": "/api/state",
+      "ms": 6,
+      "status": 200,
+      "bytes": 452
+    },
+    {
+      "operation": "/api/state",
+      "ms": 9,
+      "status": 200,
+      "bytes": 452
+    },
+    {
+      "operation": "/api/state",
+      "ms": 12,
+      "status": 200,
+      "bytes": 191
+    },
+    {
+      "operation": "/api/state",
+      "ms": 14,
+      "status": 200,
+      "bytes": 191
+    },
+    {
+      "operation": "recordCount",
+      "ms": 15,
+      "status": 200,
+      "bytes": 561
+    },
+    {
+      "operation": "recordCount",
+      "ms": 26,
+      "status": 200,
+      "bytes": 566
+    },
+    {
+      "operation": "recordCount",
+      "ms": 39,
+      "status": 200,
+      "bytes": 565
+    },
+    {
+      "operation": "/api/state",
+      "ms": 6,
+      "status": 200,
+      "bytes": 452
+    },
+    {
+      "operation": "/api/state",
+      "ms": 10,
+      "status": 200,
+      "bytes": 452
+    },
+    {
+      "operation": "/api/state",
+      "ms": 13,
+      "status": 200,
+      "bytes": 191
+    },
+    {
+      "operation": "/api/state",
+      "ms": 15,
+      "status": 200,
+      "bytes": 191
+    },
+    {
+      "operation": "/api/health",
+      "ms": 3,
+      "status": 200,
+      "bytes": 1569
+    },
+    {
+      "operation": "recordCount",
+      "ms": 20,
+      "status": 200,
+      "bytes": 561
+    },
+    {
+      "operation": "/api/state",
+      "ms": 67,
+      "status": 200,
+      "bytes": 6468
+    },
+    {
+      "operation": "/api/state",
+      "ms": 69,
+      "status": 200,
+      "bytes": 6468
+    },
+    {
+      "operation": "/api/state",
+      "ms": 68,
+      "status": 200,
+      "bytes": 6468
+    },
+    {
+      "operation": "/api/state",
+      "ms": 68,
+      "status": 200,
+      "bytes": 6468
+    },
+    {
+      "operation": "/api/orders",
+      "ms": 70,
+      "status": 200,
+      "bytes": 3456
+    },
+    {
+      "operation": "/api/delivery/orders/PED-MULTI/collect",
+      "ms": 71,
+      "status": 200,
+      "bytes": 32372
+    },
+    {
+      "operation": "reconcileCount",
+      "ms": 88,
+      "status": 200,
+      "bytes": 839
+    },
+    {
+      "operation": "/api/orders",
+      "ms": 95,
+      "status": 200,
+      "bytes": 3070
+    },
+    {
+      "operation": "/api/delivery/orders/PED-MULTI/collect",
+      "ms": 95,
+      "status": 200,
+      "bytes": 24765
+    },
+    {
+      "operation": "/api/health",
+      "ms": 3,
+      "status": 200,
+      "bytes": 1568
+    },
+    {
+      "operation": "/api/state",
+      "ms": 14,
+      "status": 200,
+      "bytes": 112211
+    },
+    {
+      "operation": "/api/state?verifyFull=1",
+      "ms": 9,
+      "status": 200,
+      "bytes": 135352
+    },
+    {
+      "operation": "/api/state",
+      "ms": 7,
+      "status": 200,
+      "bytes": 6769
+    },
+    {
+      "operation": "/api/state?verifyFull=1",
+      "ms": 5,
+      "status": 200,
+      "bytes": 18388
+    },
+    {
+      "operation": "/api/state",
+      "ms": 6,
+      "status": 200,
+      "bytes": 3117
+    },
+    {
+      "operation": "/api/state?verifyFull=1",
+      "ms": 6,
+      "status": 200,
+      "bytes": 14856
+    },
+    {
+      "operation": "/api/state",
+      "ms": 6,
+      "status": 200,
+      "bytes": 28581
+    },
+    {
+      "operation": "/api/state?verifyFull=1",
+      "ms": 6,
+      "status": 200,
+      "bytes": 39339
+    },
+    {
+      "operation": "/api/state",
+      "ms": 4,
+      "status": 200,
+      "bytes": 2232
+    },
+    {
+      "operation": "/api/state?verifyFull=1",
+      "ms": 4,
+      "status": 200,
+      "bytes": 13370
+    },
+    {
+      "operation": "/api/state?syncFormat=records-v1&cursor=b78745b4ea3afa057af83aee8aa6633f718d2bef132e33ba&version=1",
+      "ms": 5,
+      "status": 200,
+      "bytes": 18532
+    },
+    {
+      "operation": "/api/admin/performance",
+      "ms": 5,
+      "status": 200,
+      "bytes": 9875
+    }
+  ],
+  "bootstrapVisual": [
+    {
+      "role": "admin",
+      "loadedMs": 2051,
+      "orders": 2,
+      "navigations": 1,
+      "noPageErrors": true,
+      "cursorInstalled": true
+    },
+    {
+      "role": "seller",
+      "loadedMs": 2173,
+      "orders": 0,
+      "navigations": 1,
+      "noPageErrors": true,
+      "cursorInstalled": true
+    },
+    {
+      "role": "driver",
+      "loadedMs": 2056,
+      "orders": 1,
+      "navigations": 1,
+      "noPageErrors": true,
+      "cursorInstalled": true
+    }
+  ],
+  "memory": [
+    {
+      "at": 1792726610743,
+      "rss": 30679040,
+      "heapTotal": 4849664,
+      "heapUsed": 4122520,
+      "external": 331296,
+      "arrayBuffers": 11182,
+      "maxRSSKiB": 29964
+    },
+    {
+      "at": 1792726613093,
+      "rss": 66457600,
+      "heapTotal": 31600640,
+      "heapUsed": 20615048,
+      "external": 2169371,
+      "arrayBuffers": 882100,
+      "maxRSSKiB": 64900
+    },
+    {
+      "at": 1792726613352,
+      "rss": 68427776,
+      "heapTotal": 33611776,
+      "heapUsed": 15209120,
+      "external": 1396359,
+      "arrayBuffers": 115548,
+      "maxRSSKiB": 69660
+    },
+    {
+      "at": 1792726613604,
+      "rss": 68882432,
+      "heapTotal": 33611776,
+      "heapUsed": 17418936,
+      "external": 1573370,
+      "arrayBuffers": 292463,
+      "maxRSSKiB": 69660
+    },
+    {
+      "at": 1792726613865,
+      "rss": 69648384,
+      "heapTotal": 33873920,
+      "heapUsed": 19527328,
+      "external": 1746367,
+      "arrayBuffers": 465396,
+      "maxRSSKiB": 69660
+    },
+    {
+      "at": 1792726614116,
+      "rss": 72642560,
+      "heapTotal": 33873920,
+      "heapUsed": 21863976,
+      "external": 2202072,
+      "arrayBuffers": 921037,
+      "maxRSSKiB": 70940
+    },
+    {
+      "at": 1792726614368,
+      "rss": 72642560,
+      "heapTotal": 33873920,
+      "heapUsed": 21868232,
+      "external": 2202072,
+      "arrayBuffers": 921037,
+      "maxRSSKiB": 70940
+    },
+    {
+      "at": 1792726614624,
+      "rss": 72642560,
+      "heapTotal": 33873920,
+      "heapUsed": 21872488,
+      "external": 2202072,
+      "arrayBuffers": 921037,
+      "maxRSSKiB": 70940
+    },
+    {
+      "at": 1792726614882,
+      "rss": 72642560,
+      "heapTotal": 33873920,
+      "heapUsed": 21876632,
+      "external": 2202072,
+      "arrayBuffers": 921037,
+      "maxRSSKiB": 70944
+    },
+    {
+      "at": 1792726615156,
+      "rss": 72646656,
+      "heapTotal": 33873920,
+      "heapUsed": 21887480,
+      "external": 2202072,
+      "arrayBuffers": 921037,
+      "maxRSSKiB": 70944
+    },
+    {
+      "at": 1792726615410,
+      "rss": 72646656,
+      "heapTotal": 33873920,
+      "heapUsed": 21891320,
+      "external": 2202072,
+      "arrayBuffers": 921037,
+      "maxRSSKiB": 70944
+    },
+    {
+      "at": 1792726615662,
+      "rss": 71753728,
+      "heapTotal": 33873920,
+      "heapUsed": 15520632,
+      "external": 1668595,
+      "arrayBuffers": 387784,
+      "maxRSSKiB": 71076
+    },
+    {
+      "at": 1792726616016,
+      "rss": 76832768,
+      "heapTotal": 34136064,
+      "heapUsed": 17245864,
+      "external": 6864234,
+      "arrayBuffers": 5583423,
+      "maxRSSKiB": 75032
+    },
+    {
+      "at": 1792726616478,
+      "rss": 73232384,
+      "heapTotal": 34398208,
+      "heapUsed": 16530376,
+      "external": 3292116,
+      "arrayBuffers": 2011305,
+      "maxRSSKiB": 77144
+    },
+    {
+      "at": 1792726616762,
+      "rss": 75005952,
+      "heapTotal": 34398208,
+      "heapUsed": 16998704,
+      "external": 4670859,
+      "arrayBuffers": 3390048,
+      "maxRSSKiB": 77144
+    },
+    {
+      "at": 1792726617014,
+      "rss": 75005952,
+      "heapTotal": 34398208,
+      "heapUsed": 17044152,
+      "external": 4725397,
+      "arrayBuffers": 3444586,
+      "maxRSSKiB": 77144
+    },
+    {
+      "at": 1792726617307,
+      "rss": 75509760,
+      "heapTotal": 34398208,
+      "heapUsed": 18877360,
+      "external": 4903962,
+      "arrayBuffers": 3623151,
+      "maxRSSKiB": 77144
+    },
+    {
+      "at": 1792726617561,
+      "rss": 77025280,
+      "heapTotal": 34398208,
+      "heapUsed": 20022552,
+      "external": 6749678,
+      "arrayBuffers": 5468867,
+      "maxRSSKiB": 77144
+    },
+    {
+      "at": 1792726617818,
+      "rss": 71655424,
+      "heapTotal": 34660352,
+      "heapUsed": 15552512,
+      "external": 9804521,
+      "arrayBuffers": 85920,
+      "maxRSSKiB": 78324
+    },
+    {
+      "at": 1792726618070,
+      "rss": 71655424,
+      "heapTotal": 34660352,
+      "heapUsed": 15558216,
+      "external": 9804521,
+      "arrayBuffers": 85920,
+      "maxRSSKiB": 78324
+    },
+    {
+      "at": 1792726618386,
+      "rss": 72130560,
+      "heapTotal": 34660352,
+      "heapUsed": 16580576,
+      "external": 1423356,
+      "arrayBuffers": 142513,
+      "maxRSSKiB": 78324
+    },
+    {
+      "at": 1792726619006,
+      "rss": 72511488,
+      "heapTotal": 34660352,
+      "heapUsed": 18325968,
+      "external": 1794845,
+      "arrayBuffers": 513810,
+      "maxRSSKiB": 78324
+    },
+    {
+      "at": 1792726619276,
+      "rss": 73211904,
+      "heapTotal": 34660352,
+      "heapUsed": 22105320,
+      "external": 2296525,
+      "arrayBuffers": 1015426,
+      "maxRSSKiB": 78324
+    },
+    {
+      "at": 1792726619565,
+      "rss": 73854976,
+      "heapTotal": 34660352,
+      "heapUsed": 22596080,
+      "external": 2369872,
+      "arrayBuffers": 1088677,
+      "maxRSSKiB": 78324
+    },
+    {
+      "at": 1792726619856,
+      "rss": 74547200,
+      "heapTotal": 35217408,
+      "heapUsed": 18188128,
+      "external": 1668758,
+      "arrayBuffers": 387851,
+      "maxRSSKiB": 78324
+    },
+    {
+      "at": 1792726620155,
+      "rss": 75632640,
+      "heapTotal": 36036608,
+      "heapUsed": 21480872,
+      "external": 1991362,
+      "arrayBuffers": 710359,
+      "maxRSSKiB": 78324
+    },
+    {
+      "at": 1792726620405,
+      "rss": 77688832,
+      "heapTotal": 35708928,
+      "heapUsed": 21231632,
+      "external": 2207575,
+      "arrayBuffers": 926732,
+      "maxRSSKiB": 78324
+    }
+  ],
+  "logs": "Distribuidora Lopez SERVIDOR_UNICO_8790 8790-186 listening on 127.0.0.1:23733\n"
+}

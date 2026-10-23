@@ -31,7 +31,8 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-185";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-186";
+const stateBootstrapCache = require("./state-bootstrap-cache").createCache();
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -10479,6 +10480,7 @@ const server = http.createServer(async (req, res) => {
         mobileWriteBatch: { ...mobileWriteBatch.metrics, pending: mobileWriteBatch.pending },
         stateReadMigration: stateReadMigrationSnapshot(),
         recordSyncCache: stateRecordSnapshots.metrics(),
+        bootstrapCache: stateBootstrapCache.metrics(),
         stateSync: {
           inFlight: fullStateResponsesInFlight,
           maxConcurrent: MAX_FULL_STATE_RESPONSES,
@@ -10660,8 +10662,20 @@ const server = http.createServer(async (req, res) => {
           const scope = JSON.stringify([user.role, user.username, user.name, user.sellerName]);
           const cursor = requestUrl.searchParams.get("cursor") || "";
           const projected = stateForUser(currentPayload.state, user);
-          sendJson(res, 200, stateRecordSnapshots.response(projected, currentVersion, scope,
-            /^[a-f0-9]{48}$/.test(cursor) ? cursor : "", clientVersion));
+          const projectionKey = projectedStateCacheKey(user);
+          const message = stateRecordSnapshots.response(projected, currentVersion, scope,
+            /^[a-f0-9]{48}$/.test(cursor) ? cursor : "", clientVersion, projectionKey);
+          if (!message.partial && projectionKey && requestUrl.searchParams.get("bootstrap") === "shared-v1"
+            && String(res._acceptEncoding || "").toLowerCase().includes("gzip")) {
+            // Only compressed bytes are retained. A private cursor travels outside
+            // the shared body; older clients keep the original response contract.
+            const compressed = await stateBootstrapCache.get(currentVersion, projectionKey, () => ({ ...message, cursor: null, baseVersion: 0 }));
+            if (res.destroyed || res.writableEnded) return;
+            send(res, 200, "application/json; charset=utf-8", compressed, {
+              "Content-Encoding": "gzip", "Vary": "Accept-Encoding",
+              "X-State-Cursor": message.cursor || "", "Access-Control-Expose-Headers": "X-State-Cursor"
+            });
+          } else sendJson(res, 200, message);
         } else if (requestUrl.searchParams.get("syncFormat") === "sections-v1") {
           let previousSections = null;
           const rawSections = requestUrl.searchParams.get("sections") || "";

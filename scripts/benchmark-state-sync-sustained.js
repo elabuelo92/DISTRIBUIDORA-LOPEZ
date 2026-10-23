@@ -29,6 +29,13 @@ const base = `http://127.0.0.1:${port}`;
 const password = "Sync-load-test";
 const salt = crypto.randomBytes(16).toString("hex");
 const passwordHash = crypto.pbkdf2Sync(password, salt, 120000, 32, "sha256").toString("hex");
+const sourceHash = crypto.createHash("sha256").update(fs.readFileSync(source)).digest("hex");
+const memoryFile = path.join(tempDir, "memory.jsonl");
+const nativeFetch = globalThis.fetch;
+const fetch = (url, options = {}) => nativeFetch(url, {
+  ...options, signal: options.signal || AbortSignal.timeout(60000),
+  headers: { ...(process.env.DL_TEST_FRESH_CONNECTIONS === "1" ? { Connection: "close" } : {}), ...options.headers }
+});
 const sourceState = JSON.parse(fs.readFileSync(source, "utf8"));
 const sellerNames = new Map();
 for (const order of sourceState.state.orders || []) {
@@ -44,10 +51,11 @@ assert.equal(users.length, 12);
 fs.copyFileSync(source, stateFile);
 fs.writeFileSync(path.join(tempDir, "users.json"), JSON.stringify({ users }));
 
-const child = spawn(process.env.DL_TEST_SERVER_NODE || process.execPath, ["--max-old-space-size=768", path.join(root, "server.js")], {
+const child = spawn(process.env.DL_TEST_SERVER_NODE || process.execPath, ["--max-old-space-size=768", "--require", "./scripts/local-memory-probe.js", path.join(root, "server.js")], {
   cwd: root,
   env: {
     ...process.env,
+    LOCAL_TEST_MEMORY_FILE: memoryFile,
     DL_HOST: "127.0.0.1",
     DL_PORT: String(port),
     PORT: String(port),
@@ -106,6 +114,7 @@ function stateUrl(client) {
   }
   if (recordSync) {
     query.set("syncFormat", "records-v1");
+    query.set("bootstrap", "shared-v1");
     if (client.cursor) query.set("cursor", client.cursor);
   }
   return `${base}/api/state?${query}`;
@@ -143,6 +152,7 @@ function acceptState(client, body) {
     await waitForServer();
     const clients = [];
     for (const user of users) clients.push({ user, cookie: await login(user.username), version: 0 });
+    console.log("12 isolated sessions authenticated; starting concurrent load");
     const metrics = { full: [], initial: [], steady: [], writes: [], unchanged: [], busy: [], health: [], errors: 0, errorDetails: [], mutations: 0 };
     const failure = (phase, error) => {
       metrics.errors += 1;
@@ -184,6 +194,7 @@ function acceptState(client, body) {
         try {
           const response = await fetch(stateUrl(client), { headers: { Cookie: client.cookie } });
           const body = await response.json();
+          if (response.headers.get("X-State-Cursor")) body.cursor = response.headers.get("X-State-Cursor");
           const elapsed = performance.now() - startedAt;
           if (response.status === 503 && body.code === "STATE_SYNC_BUSY") metrics.busy.push(elapsed);
           else if (response.ok && body.unchanged) metrics.unchanged.push(elapsed);
@@ -226,10 +237,11 @@ function acceptState(client, body) {
         try {
           const response = await fetch(stateUrl(client), { headers: { Cookie: client.cookie } });
           const body = await response.json();
+          if (response.headers.get("X-State-Cursor")) body.cursor = response.headers.get("X-State-Cursor");
           if (response.ok && body.state) acceptState(client, body);
-          else if (response.status !== 503) metrics.errors += 1;
-        } catch {
-          metrics.errors += 1;
+          else if (response.status !== 503) failure("catchup", `HTTP ${response.status}`);
+        } catch (error) {
+          failure("catchup", `${error.message}; cause=${error.cause?.code || error.cause?.message || "none"}`);
         }
         if (client.version < finalVersion) await sleep(1000);
       }
@@ -263,6 +275,17 @@ function acceptState(client, body) {
       catchupMs: Math.round(performance.now() - catchupStartedAt),
       laggingClients
     };
+    const memory = fs.readFileSync(memoryFile, "utf8").trim().split("\n").map(line => JSON.parse(line));
+    summary.memory = {
+      samples: memory.length,
+      peakRssMiB: Math.round(Math.max(...memory.map(sample => sample.rss)) / 1048576),
+      peakHeapMiB: Math.round(Math.max(...memory.map(sample => sample.heapUsed)) / 1048576),
+      maxRssMiB: Math.round(Math.max(...memory.map(sample => sample.maxRSSKiB)) / 1024)
+    };
+    assert.equal(crypto.createHash("sha256").update(fs.readFileSync(source)).digest("hex"), sourceHash);
+    summary.sourceUnchanged = true;
+    summary.sourceHash = sourceHash;
+    summary.freshConnections = process.env.DL_TEST_FRESH_CONNECTIONS === "1";
     console.log(JSON.stringify(summary));
     if (process.env.DL_TEST_REPORT) fs.writeFileSync(path.resolve(process.env.DL_TEST_REPORT), JSON.stringify(summary, null, 2));
     assert.equal(metrics.errors, 0);

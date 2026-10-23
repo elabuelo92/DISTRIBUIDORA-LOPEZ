@@ -22,33 +22,37 @@
     return result;
   }
   // Retain fingerprints only, never another copy of orders, proofs or histories.
-  function build(state, previous, hash) {
-    const snapshot = { sections: {}, bytes: 256 };
+  function build(state, previous, hash, known) {
+    const snapshot = known || { sections: {}, bytes: 256 };
     const replacements = {}, patches = {};
     for (const [key, value] of Object.entries(state)) {
       if (value === undefined || forbidden.has(key)) continue;
       const rows = records(value, fields[key]);
       const before = previous?.sections[key];
       if (rows) {
-        const fingerprints = new Map();
+        const fingerprints = known ? known.sections[key].records : new Map();
         const upserts = [];
         let changed = !before?.records || before.records.size !== rows.size;
         const oldOrder = before?.records ? [...before.records.keys()] : [];
         let index = 0;
         for (const [id, row] of rows) {
-          const digest = hash(JSON.stringify(row) ?? "null");
-          fingerprints.set(id, digest);
-          snapshot.bytes += 256 + id.length * 2;
+          const digest = known ? fingerprints.get(id) : hash(JSON.stringify(row) ?? "null");
+          if (!known) {
+            fingerprints.set(id, digest);
+            snapshot.bytes += 256 + id.length * 2;
+          }
           if (!before?.records || before.records.get(id) !== digest) upserts.push(row);
           if (oldOrder[index++] !== id) changed = true;
         }
-        snapshot.sections[key] = { records: fingerprints };
+        if (!known) snapshot.sections[key] = { records: fingerprints };
         if (!before?.records) replacements[key] = value;
         else if (changed || upserts.length) patches[key] = { field: fields[key], order: [...rows.keys()], upserts };
       } else {
-        const digest = hash(JSON.stringify(value));
-        snapshot.sections[key] = { hash: digest };
-        snapshot.bytes += 256 + key.length * 2;
+        const digest = known ? known.sections[key].hash : hash(JSON.stringify(value));
+        if (!known) {
+          snapshot.sections[key] = { hash: digest };
+          snapshot.bytes += 256 + key.length * 2;
+        }
         if (!before || before.hash !== digest) replacements[key] = value;
       }
     }
@@ -81,13 +85,25 @@
   }
   function createStore({ hash, token, maxBytes = 48 * 1024 * 1024, maxEntries = 32, ttlMs = 300000, now = Date.now }) {
     const entries = new Map();
+    const references = new Map();
     let bytes = 0;
-    function remove(id) { bytes -= entries.get(id).snapshot.bytes; entries.delete(id); }
-    function response(state, version, scope, cursor, baseVersion) {
+    let reusedSnapshots = 0;
+    function remove(id) {
+      const snapshot = entries.get(id).snapshot;
+      const count = references.get(snapshot) - 1;
+      if (count) references.set(snapshot, count);
+      else { references.delete(snapshot); bytes -= snapshot.bytes; }
+      entries.delete(id);
+    }
+    function response(state, version, scope, cursor, baseVersion, projectionKey = "") {
       for (const [id, entry] of entries) if (now() - entry.at > ttlMs) remove(id);
       const candidate = entries.get(cursor);
       const previous = candidate?.scope === scope && candidate.version === baseVersion ? candidate : null;
-      const built = build(state, previous?.snapshot, hash);
+      // Only the server may identify equivalent role projections. Cursors remain
+      // user-scoped even when their immutable fingerprints share storage.
+      const shared = projectionKey && [...entries.values()].find(entry => entry.version === version && entry.projectionKey === projectionKey);
+      const built = build(state, previous?.snapshot, hash, shared?.snapshot);
+      if (shared) reusedSnapshots++;
       // Key every upsert explicitly so legacy rows without IDs survive insertion/reorder.
       for (const [key, patch] of Object.entries(built.records)) {
         const changed = new Set(patch.upserts);
@@ -96,14 +112,15 @@
       const nextCursor = token();
       if (built.snapshot.bytes <= maxBytes) {
         for (const [id, entry] of entries) if (entry.scope === scope) remove(id);
-        while (entries.size && (entries.size >= maxEntries || bytes + built.snapshot.bytes > maxBytes)) remove(entries.keys().next().value);
-        entries.set(nextCursor, { scope, version, snapshot: built.snapshot, at: now() });
-        bytes += built.snapshot.bytes;
+        while (entries.size && (entries.size >= maxEntries || bytes + (references.has(built.snapshot) ? 0 : built.snapshot.bytes) > maxBytes)) remove(entries.keys().next().value);
+        entries.set(nextCursor, { scope, version, projectionKey, snapshot: built.snapshot, at: now() });
+        if (!references.has(built.snapshot)) bytes += built.snapshot.bytes;
+        references.set(built.snapshot, (references.get(built.snapshot) || 0) + 1);
       }
       return { version, syncFormat: "records-v1", cursor: entries.has(nextCursor) ? nextCursor : null,
         partial: Boolean(previous), baseVersion, state: built.state, records: built.records, removed: built.removed };
     }
-    return { response, metrics: () => ({ entries: entries.size, estimatedBytes: bytes, maxBytes }) };
+    return { response, metrics: () => ({ entries: entries.size, estimatedBytes: bytes, maxBytes, reusedSnapshots }) };
   }
   return { apply, createStore };
 });

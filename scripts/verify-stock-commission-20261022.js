@@ -12,6 +12,12 @@ const suites = [
   ["smoke-stock-count-http.js", "--multi", "--mixed", "--cut", "--durability", "--output", "docs/STOCK-CUT-HTTP-20261022-results.json"]
 ];
 const results = [];
+const outputIndex = process.argv.indexOf("--output");
+const output = outputIndex >= 0 ? process.argv[outputIndex + 1] : null;
+if (output) {
+  suites[suites.length - 1] = ["smoke-stock-count-http.js", "--multi", "--mixed", "--cut", "--durability", "--output", output.replace(/\.json$/, "-http.json")];
+  suites.push("smoke-bootstrap-cache.js", "smoke-first-load-equivalence.js", "smoke-first-install-worker.js");
+}
 if (process.argv.includes("--release185")) suites.push(
   "smoke-state-record-sync.js", "smoke-record-sync-client.js", "smoke-sync-backoff.js",
   "smoke-compact-sync-version.js", "smoke-state-sync-backpressure.js", "smoke-session-stability-v144.js"
@@ -28,7 +34,7 @@ for (const suite of suites) {
   if (result.status !== 0) console.log((result.stderr || result.stdout || result.error?.message || "").slice(-4000));
 }
 const passed = results.every(row => row.passed);
-fs.writeFileSync(path.join(root, process.argv.includes("--release185") ? "docs/PERF-185-REGRESSION-results.json" : "docs/STOCK-COMISIONES-20261022-results.json"), JSON.stringify({
+fs.writeFileSync(path.join(root, output || (process.argv.includes("--release185") ? "docs/PERF-185-REGRESSION-results.json" : "docs/STOCK-COMISIONES-20261022-results.json")), JSON.stringify({
   at: new Date().toISOString(), environment: "local-isolated", runtime: process.version, passed, results
 }, null, 2));
 process.exitCode = passed ? 0 : 1;

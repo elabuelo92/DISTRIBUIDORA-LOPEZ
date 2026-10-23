@@ -497,20 +497,18 @@
     };
   }
 
+  function emptyDriverCommission(state) {
+    return {
+      role: "driver", user: "", accrual: ensureCommissionSettings(state).accrual.driver || COMMISSION_ACCRUAL.driver,
+      baseAmount: 0, cigarettes: 0, merchandise: 0, total: 0, lines: []
+    };
+  }
+
   function calculateOrderCommissions(state, order, options = {}) {
     const normalizedOrder = order || {};
     const includeDriver = options.includeDriver === true || DRIVER_COMMISSION_STATUSES.has(normalizedOrder.status);
     const seller = calculateRoleCommission(state, normalizedOrder, "seller", options);
-    const driver = includeDriver ? calculateRoleCommission(state, normalizedOrder, "driver", options) : {
-      role: "driver",
-      user: "",
-      accrual: ensureCommissionSettings(state).accrual.driver || COMMISSION_ACCRUAL.driver,
-      baseAmount: 0,
-      cigarettes: 0,
-      merchandise: 0,
-      total: 0,
-      lines: []
-    };
+    const driver = includeDriver ? calculateRoleCommission(state, normalizedOrder, "driver", options) : emptyDriverCommission(state);
     return {
       basis: "importe_neto_vendido_no_anulado",
       seller,
@@ -523,34 +521,37 @@
   }
 
   function normalizeCommissionBlock(source, fallback) {
-    const data = source && typeof source === "object" ? source : fallback;
+    const data = source && typeof source === "object" ? source : {};
     return {
-      role: String(data.role || fallback.role || ""),
-      user: String(data.user || fallback.user || ""),
-      accrual: String(data.accrual || fallback.accrual || ""),
-      baseAmount: positive(data.baseAmount ?? fallback.baseAmount),
-      cigarettes: positive(data.cigarettes ?? fallback.cigarettes),
-      merchandise: positive(data.merchandise ?? fallback.merchandise),
-      total: positive(data.total ?? fallback.total),
-      lines: Array.isArray(data.lines) ? data.lines : fallback.lines
+      role: String(data.role || fallback().role || ""),
+      user: String(data.user || fallback().user || ""),
+      accrual: String(data.accrual || fallback().accrual || ""),
+      baseAmount: positive(data.baseAmount ?? fallback().baseAmount),
+      cigarettes: positive(data.cigarettes ?? fallback().cigarettes),
+      merchandise: positive(data.merchandise ?? fallback().merchandise),
+      total: positive(data.total ?? fallback().total),
+      lines: Array.isArray(data.lines) ? data.lines : fallback().lines
     };
   }
 
   function normalizeOrderCommissions(state, order) {
-    const calculated = calculateOrderCommissions(state, order, {
-      includeDriver: DRIVER_COMMISSION_STATUSES.has(order.status)
-    });
-    if (CANCELLED_COMMISSION_STATUSES.has(order.status)) return calculated;
+    const options = { includeDriver: DRIVER_COMMISSION_STATUSES.has(order.status) };
     const stored = order.commissions && typeof order.commissions === "object" ? order.commissions : null;
-    if (!stored) return calculated;
+    if (!stored || CANCELLED_COMMISSION_STATUSES.has(order.status)) return calculateOrderCommissions(state, order, options);
+    // Historical values remain authoritative. Calculate only a missing fallback,
+    // not every line of both roles on every page load or sync.
+    let sellerFallback, driverFallback;
+    const seller = () => sellerFallback || (sellerFallback = calculateRoleCommission(state, order, "seller", options));
+    const driver = () => driverFallback || (driverFallback = options.includeDriver
+      ? calculateRoleCommission(state, order, "driver", options) : emptyDriverCommission(state));
     return {
-      basis: String(stored.basis || calculated.basis),
-      seller: normalizeCommissionBlock(stored.seller, calculated.seller),
-      driver: normalizeCommissionBlock(stored.driver, calculated.driver),
-      cigarettes: positive(stored.cigarettes ?? calculated.cigarettes),
-      merchandise: positive(stored.merchandise ?? calculated.merchandise),
-      total: positive(stored.total ?? calculated.total),
-      calculatedAt: stored.calculatedAt || calculated.calculatedAt
+      basis: String(stored.basis || "importe_neto_vendido_no_anulado"),
+      seller: normalizeCommissionBlock(stored.seller, seller),
+      driver: normalizeCommissionBlock(stored.driver, driver),
+      cigarettes: positive(stored.cigarettes ?? (seller().cigarettes + driver().cigarettes)),
+      merchandise: positive(stored.merchandise ?? (seller().merchandise + driver().merchandise)),
+      total: positive(stored.total ?? (seller().total + driver().total)),
+      calculatedAt: stored.calculatedAt || nowIso()
     };
   }
 

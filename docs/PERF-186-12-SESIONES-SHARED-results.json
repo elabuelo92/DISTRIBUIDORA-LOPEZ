@@ -1,0 +1,176 @@
+{
+  "ok": true,
+  "users": 12,
+  "durationSeconds": 90,
+  "pollIntervalMs": 5000,
+  "mutationIntervalMs": 15000,
+  "maxFullStateResponses": 1,
+  "sectionSync": false,
+  "recordSync": true,
+  "performanceFinal": {
+    "ok": true,
+    "generatedAt": "2026-10-23T03:23:15.064Z",
+    "eventLoopDelayP95Ms": 46,
+    "eventLoopDelayMaxMs": 3636,
+    "stateWrites": {
+      "count": 12,
+      "totalMs": 23478.586899876595,
+      "maxMs": 2388.9765000343323,
+      "lastMs": 1926.6942999362946,
+      "lastMigrationMs": 0.01360011100769043,
+      "lastSerializationMs": 1442.7836990356445,
+      "lastDiskMs": 483.23360085487366,
+      "lastBytes": 98177788,
+      "lastAt": "2026-10-23T03:23:07.237Z",
+      "averageMs": 1957,
+      "sampleCount": 12,
+      "p95Ms": 2389,
+      "p95SerializationMs": 1965,
+      "p95DiskMs": 483
+    },
+    "mobileWriteBatch": {
+      "operations": 0,
+      "commits": 0,
+      "savedWrites": 0,
+      "failures": 0,
+      "maxBatch": 0,
+      "pending": false
+    },
+    "stateReadMigration": {
+      "count": 1,
+      "p95Ms": 1162,
+      "maxMs": 1162
+    },
+    "recordSyncCache": {
+      "entries": 12,
+      "estimatedBytes": 15471802,
+      "maxBytes": 50331648,
+      "reusedSnapshots": 21
+    },
+    "bootstrapCache": {
+      "entries": 2,
+      "bytes": 13182686,
+      "maxBytes": 16777216,
+      "hits": 3,
+      "misses": 2
+    },
+    "stateSync": {
+      "inFlight": 0,
+      "maxConcurrent": 1,
+      "rejectedSinceStart": 1,
+      "queued": 0
+    },
+    "slowThresholdMs": 1000,
+    "requests": [
+      {
+        "key": "GET /api/state",
+        "count": 183,
+        "errors": 1,
+        "slow": 41,
+        "totalMs": 105884.44479990005,
+        "maxMs": 5251,
+        "lastMs": 1148,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:23:15.056Z",
+        "averageMs": 579
+      },
+      {
+        "key": "POST /api/preventa/audit-consultation",
+        "count": 6,
+        "errors": 0,
+        "slow": 6,
+        "totalMs": 12135.49680006504,
+        "maxMs": 2393,
+        "lastMs": 1931,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:23:07.238Z",
+        "averageMs": 2023
+      },
+      {
+        "key": "POST /api/login",
+        "count": 18,
+        "errors": 0,
+        "slow": 7,
+        "totalMs": 14539.982499837875,
+        "maxMs": 2091,
+        "lastMs": 1926,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:21:34.548Z",
+        "averageMs": 808
+      },
+      {
+        "key": "GET /api/health/live",
+        "count": 37,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 24.175600290298462,
+        "maxMs": 5,
+        "lastMs": 0,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:23:04.255Z",
+        "averageMs": 1
+      },
+      {
+        "key": "GET /api/health",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 2.533400058746338,
+        "maxMs": 3,
+        "lastMs": 3,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T03:23:15.060Z",
+        "averageMs": 3
+      }
+    ]
+  },
+  "apiMutations": true,
+  "stateMutations": 6,
+  "full": {
+    "count": 72,
+    "p50Ms": 2531,
+    "p95Ms": 6895,
+    "maxMs": 9940
+  },
+  "initial": {
+    "count": 12,
+    "p95Ms": 9940,
+    "maxMs": 9940
+  },
+  "steady": {
+    "count": 60,
+    "p95Ms": 4051,
+    "maxMs": 4685
+  },
+  "writes": {
+    "count": 6,
+    "p95Ms": 2395,
+    "maxMs": 2395
+  },
+  "unchanged": {
+    "count": 98,
+    "p50Ms": 5,
+    "p95Ms": 112,
+    "maxMs": 1022
+  },
+  "busyResponses": 1,
+  "health": {
+    "count": 36,
+    "p95Ms": 2906,
+    "maxMs": 3078
+  },
+  "errors": 0,
+  "errorDetails": [],
+  "activeSessions": 12,
+  "catchupMs": 4300,
+  "laggingClients": 0,
+  "memory": {
+    "samples": 259,
+    "peakRssMiB": 687,
+    "peakHeapMiB": 305,
+    "maxRssMiB": 695
+  },
+  "sourceUnchanged": true,
+  "sourceHash": "ee7e516e65e8634656f91053d3b2f2df7c6648b9a43a80620c1935900a439ece",
+  "freshConnections": false
+}

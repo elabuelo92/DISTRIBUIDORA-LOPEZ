@@ -10,14 +10,14 @@ const end = source.indexOf("async function pushStateToServer()", start);
 const clone = value => JSON.parse(JSON.stringify(value));
 async function test(role) {
   const store = StateRecordSync.createStore({ hash: value => crypto.createHash("sha256").update(value).digest("hex"), token: () => crypto.randomBytes(24).toString("hex") });
-  let next, url, scheduled = 0;
+  let next, url, headerCursor = null, scheduled = 0;
   const ctx = vm.createContext({
     currentUser: { role }, state: { products: [], orders: [] }, StateRecordSync,
     syncPullRetryAt: 0, syncPullInFlight: false, syncPushInFlight: false, pendingPullAfterPush: false,
     syncRecordCursor: null, syncRecordVersion: 0, syncSections: null, syncSectionsVersion: 0,
     syncVersion: 7, sellerCatalogVersion: 7, syncReady: true, STATE_SYNC_TIMEOUT_MS: 45000,
     lastPresenceRenderAt: Date.now(), activeViewId: () => "precios", apiUrl: value => value,
-    fetchWithTimeout: async value => { url = value; return { status: 200, ok: true, json: async () => clone(next) }; },
+    fetchWithTimeout: async value => { url = value; return { status: 200, ok: true, headers: { get: name => name === "X-State-Cursor" ? headerCursor : null }, json: async () => clone(next) }; },
     setSyncStatus() {}, applyPresencePayload() {}, updateConnectionDiagnostics() {}, applyPresenceToState() {},
     normalizeState: value => value, trackIncomingNotifications() {}, mergeOwnLocationIntoState() {},
     persistLocalMeta() {}, scheduleRenderForCurrentUser() {}, renderOperationalRole: () => true,
@@ -26,10 +26,14 @@ async function test(role) {
   vm.runInContext(source.slice(start, end), ctx);
   const initial = { products: [{ codigo_producto: "1", stock_fisico: 10 }], orders: [{ code: "PED-1", total: 5 }] };
   next = store.response(initial, 7, role, "", 0);
+  if (role === "admin") { headerCursor = next.cursor; next.cursor = null; }
   await ctx.pullStateFromServer();
   assert(url.includes("version=0"));
+  assert(url.includes("bootstrap=shared-v1"));
   assert.deepEqual(clone(ctx.state), initial, "accept full baseline even at the current version");
   assert.equal(ctx.syncRecordVersion, 7);
+  if (role === "admin") assert.equal(ctx.syncRecordCursor, headerCursor);
+  headerCursor = null;
   const changed = clone(initial); changed.products[0].stock_fisico = 9;
   changed.orders.push({ code: "PED-2", total: 8 });
   next = store.response(changed, 8, role, ctx.syncRecordCursor, 7);

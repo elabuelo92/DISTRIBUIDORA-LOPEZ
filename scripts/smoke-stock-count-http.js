@@ -28,6 +28,7 @@ assert.ok([512, 768].includes(heapLimitMiB) && [1, 2].includes(syncCap));
 const reportArg = process.argv.indexOf("--output");
 const reportFile = reportArg >= 0 ? path.resolve(process.argv[reportArg + 1]) : null;
 let serverPerformance;
+let bootstrapVisual;
 let failure;
 const skipped = [];
 assert.ok(!traffic || (multi && mixed), "--traffic requires --multi --mixed");
@@ -115,7 +116,7 @@ async function request(url, body, cookie, expected = 200) {
   const started = performance.now();
   const useRecords = recordSync && !body && url === "/api/state";
   const previous = useRecords ? cursors.get(cookie) : null;
-  const requestUrl = useRecords ? `/api/state?syncFormat=records-v1&version=${previous?.version || 0}${previous?.cursor ? `&cursor=${previous.cursor}` : ""}` : url;
+  const requestUrl = useRecords ? `/api/state?syncFormat=records-v1&bootstrap=shared-v1&version=${previous?.version || 0}${previous?.cursor ? `&cursor=${previous.cursor}` : ""}` : url;
   const serializedBody = body ? JSON.stringify(body) : undefined;
   let response;
   try {
@@ -129,6 +130,7 @@ async function request(url, body, cookie, expected = 200) {
   const raw = await response.text();
   let result;
   try { result = JSON.parse(raw); } catch { throw new Error(`${url}: HTTP ${response.status}: ${raw.slice(0, 400)}`); }
+  if (response.headers.get("X-State-Cursor")) result.cursor = response.headers.get("X-State-Cursor");
   timing.push({ operation: body?.action || url.split("&sections=")[0], ms: Math.round(performance.now() - started), status: response.status, bytes: Buffer.byteLength(raw) });
   assert.ok((Array.isArray(expected) ? expected : [expected]).includes(response.status), `${response.status}: ${JSON.stringify(result).slice(0, 250)}`);
   if (useRecords && response.status === 200) {
@@ -181,6 +183,15 @@ async function main() {
   const initial = await request("/api/state", null, admin);
   const post = (body, expected = 200, cookie = admin) => request("/api/stock/entry", body, cookie, expected);
   const before = initial.result.state;
+  if (process.argv.includes("--bootstrap-visual")) {
+    assert.ok(multi && mixed);
+    bootstrapVisual = await require("./first-load-browser-check").check(base, [
+      { role: "admin", username: "admin1", cookie: admin },
+      { role: "seller", username: "seller-test", cookie: seller },
+      { role: "driver", username: "driver-test1", cookie: workers[2] }
+    ], before.orders.length);
+    console.log(`PASS simultaneous browser first loads: ${JSON.stringify(bootstrapVisual)}`);
+  }
   const physical = before.products.find(p => p.codigo_producto === "A").stock_fisico;
   const reserved = before.products.find(p => p.codigo_producto === "A").stock_reservado;
   assert.equal(reserved, 10, "fixture must exercise active reservations");
@@ -483,7 +494,8 @@ main().catch(async error => {
   child.kill(); await exited;
   if (multi) fs.writeFileSync(reportFile || path.join(root, traffic ? "docs/STOCK-TRAFFIC-183-results.json" : soak ? "docs/STOCK-SOAK-183-results.json" : "docs/STOCK-MULTIUSER-20261021-results.json"), JSON.stringify({
     at: new Date().toISOString(), passed: !process.exitCode, environment: "local-isolated", node: process.version, serverNode, heapLimitMiB, syncCap, freshConnections, serverPerformance, failure, skipped, recordSync, recordSyncMetrics,
-    users: users.map(u => ({ username: u.username, role: u.role })), snapshotUsed: Boolean(snapshotFile), mixed, soak, soakRounds, traffic, trafficRounds, syncBusyRetries, timing,
+    users: users.map(u => ({ username: u.username, role: u.role })), snapshotUsed: Boolean(snapshotFile), mixed, soak, soakRounds, traffic, trafficRounds, syncBusyRetries, timing, bootstrapVisual,
+    clientHeapLimitMiB: Math.round(require("node:v8").getHeapStatistics().heap_size_limit / 1048576),
     memory: fs.existsSync(memoryFile) ? fs.readFileSync(memoryFile, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [],
     logs: logs.slice(-3000)
   }, null, 2));
