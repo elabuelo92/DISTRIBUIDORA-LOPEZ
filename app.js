@@ -364,6 +364,8 @@ let syncPullInFlight = false;
 let syncPullRetryAt = 0;
 let syncSections = null;
 let syncSectionsVersion = 0;
+let syncRecordCursor = null;
+let syncRecordVersion = 0;
 let syncPushInFlight = false;
 let pendingPullAfterPush = false;
 let activeRenderFrame = null;
@@ -486,6 +488,8 @@ let physicalStockUserFilter = "all";
 let physicalStockMode = "all";
 let physicalStockReportType = "current";
 let physicalStockCountMode = false;
+let physicalStockCutRequest = null;
+let physicalStockAdjustExpectedCurrent = null;
 let physicalStockAdjustTargetCode = "";
 let physicalStockAdjustTargetCountId = "";
 const physicalCountDrafts = new Map();
@@ -2430,7 +2434,7 @@ function applyOrderPatches(orders, version) {
 function applyOperationalPatches(payload) {
   if (!payload || payload.state) return;
   if (payload.stockCountPatch) {
-    for (const [key, record] of [["physicalStockCounts", payload.count], ["physicalStockAdjustments", payload.adjustment], ["stockMovements", payload.stockMovement]]) {
+    for (const [key, record] of [["physicalStockCuts", payload.cut], ["physicalStockCounts", payload.count], ["physicalStockAdjustments", payload.adjustment], ["stockMovements", payload.stockMovement]]) {
       if (!record?.id) continue;
       const existing = (state[key] || []).findIndex(item => item.id === record.id);
       if (existing >= 0) state[key][existing] = record;
@@ -2506,7 +2510,7 @@ function applyOperationalPatches(payload) {
 async function postOperationalAction(path, body, options = {}) {
   const response = await fetchWithTimeout(apiUrl(path), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-ERP-Response": "compact-v1" },
     cache: "no-store",
     body: JSON.stringify(body || {})
   }, Math.max(1000, Number(options.timeoutMs || 45000)));
@@ -3442,6 +3446,8 @@ function stopRealtimeChannels() {
   syncPullRetryAt = 0;
   syncSections = null;
   syncSectionsVersion = 0;
+  syncRecordCursor = null;
+  syncRecordVersion = 0;
   if (syncIntervalId) {
     clearTimeout(syncIntervalId);
     syncIntervalId = null;
@@ -13545,7 +13551,7 @@ function renderCommissionOptions() {
     rubrics.innerHTML = values.map((value) => `<option value="${escapeHtml(value)}"></option>`).join("");
   }
   if (products) {
-    products.innerHTML = (state.products || []).map((product) => `<option value="${escapeHtml(product.name)}">${escapeHtml(product.codigo_producto || product.code || product.rubro || "")}</option>`).join("");
+    products.innerHTML = (state.products || []).map((product) => `<option value="${escapeHtml(product.codigo_producto || product.code || product.name)}">${escapeHtml(product.name)}</option>`).join("");
   }
   const reportSeller = byId("commissionReportSeller");
   if (reportSeller) {
@@ -13650,16 +13656,17 @@ function commissionReportData() {
     users.set(block.user, user);
     (block.lines || []).forEach((line, index) => {
       const item = (order.items || [])[index] || {};
-      const key = line.productCode || line.productName || `line-${index}`;
-      const row = products.get(key) || { product: line.productName || item.name || key, qty: 0, gross: 0, weightedPercent: 0, commission: 0 };
+      const productKey = line.productCode || line.productName || `line-${index}`;
+      const percent = numeric(line.percent, 0);
+      const key = JSON.stringify([productKey, percent]);
+      const row = products.get(key) || { product: line.productName || item.name || productKey, qty: 0, gross: 0, percent, commission: 0 };
       row.qty += numeric(line.quantity ?? item.requestedQty ?? item.qty ?? item.quantity ?? item.cantidad, 0);
       row.gross += numeric(line.baseAmount, 0);
-      row.weightedPercent += numeric(line.baseAmount, 0) * numeric(line.percent, 0);
       row.commission += numeric(line.commission, 0);
       products.set(key, row);
     });
   });
-  const productRows = Array.from(products.values()).map((row) => ({ ...row, percent: row.gross > 0 ? row.weightedPercent / row.gross : 0 }))
+  const productRows = Array.from(products.values())
     .sort((a, b) => a.product.localeCompare(b.product, "es", { sensitivity: "base" }));
   return { seller, from, to, orders, users: Array.from(users.values()).sort((a, b) => a.user.localeCompare(b.user, "es")), products: productRows };
 }
@@ -13693,7 +13700,7 @@ function renderSalesCommissionReport() {
   byId("salesCommissionMoreBtn").hidden = report.details.length <= salesCommissionDetailLimit;
 }
 
-const SALES_COMMISSION_EXPORT_HEADERS = ["Vendedor", "Fecha", "Pedido", "Cliente", "Producto", "Cantidad", "Bruto", "Mercaderia general", "Cigarrillos", "% aplicado", "Comision", "Regla"];
+const SALES_COMMISSION_EXPORT_HEADERS = ["Vendedor", "Fecha", "Pedido", "Cliente", "Producto", "Cantidad", "Bruto", "Mercaderia general", "Cigarrillos", "% registrado / promedio en RESUMEN", "Comision", "Regla"];
 
 function salesCommissionExportRows() {
   const filters = commissionReportData();
@@ -14067,7 +14074,7 @@ function fillCommissionRuleForm(ruleId) {
   form.elements.userName.value = target;
   form.elements.scopeType.value = rule.productCode || rule.productName ? "product" : (rule.rubro && rule.rubro !== "*" ? "rubro" : "general");
   form.elements.rubro.value = rule.rubro || "";
-  form.elements.productName.value = rule.productName || rule.productCode || "";
+  form.elements.productName.value = rule.productCode || rule.productName || "";
   form.elements.percent.value = rule.percent;
   form.elements.priority.value = rule.priority;
   form.elements.startsAt.value = (rule.startsAt || "").slice(0, 10);
@@ -14091,7 +14098,9 @@ function commissionRulePayload(extra = {}) {
     (user.username && normalizeSearchText(user.username) === normalizeSearchText(userName))) : null;
   const scopeType = String(data.get("scopeType") || "general");
   const productInput = String(data.get("productName") || "").trim();
-  const product = scopeType === "product" ? (state.products || []).find((item) => normalizeSearchText(item.codigo_producto) === normalizeSearchText(productInput) || normalizeSearchText(item.name) === normalizeSearchText(productInput)) : null;
+  const exactCodes = (state.products || []).filter(item => String(item.codigo_producto || item.code || "").trim() === productInput);
+  const matches = exactCodes.length ? exactCodes : (state.products || []).filter(item => normalizeSearchText(item.name) === normalizeSearchText(productInput));
+  const product = scopeType === "product" && matches.length === 1 ? matches[0] : null;
   if (userName && !person) throw new Error("Seleccionar un vendedor o repartidor valido de la lista.");
   if (scopeType === "rubro" && !String(data.get("rubro") || "").trim()) throw new Error("Seleccionar el rubro de la regla.");
   if (scopeType === "product" && !product) throw new Error("Seleccionar un producto valido de la lista.");
@@ -14558,21 +14567,26 @@ function physicalStockCountDate(value) {
   });
 }
 
-function lastPhysicalStockCount(product) {
+function lastPhysicalStockCount(product, cutId = "") {
   const key = productInventoryKey(product);
   return (state.physicalStockCounts || [])
     .filter((entry) => String(entry.productCode || entry.product || "") === key)
+    .filter((entry) => !cutId || entry.cutId === cutId)
     .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0))[0] || null;
 }
 
-function physicalStockRow(product, traceIndex) {
-  const inventory = OrderEngine.inventory(product);
+function physicalStockRow(product, traceIndex, context) {
+  const inventory = OrderEngine.inventory({ ...product });
   const breakdown = physicalStockBreakdown(product, traceIndex);
-  const expected = inventory.physical;
-  const count = lastPhysicalStockCount(product);
+  const cut = context?.cut || OrderEngine.activePhysicalStockCut(state);
+  const baseline = context ? context.baselines.get(productInventoryKey(product)) : cut?.products.find(row => row.productCode === productInventoryKey(product));
+  const count = context ? context.counts.get(productInventoryKey(product)) : lastPhysicalStockCount(product, cut?.id);
+  const expected = baseline?.physical ?? count?.expectedQty ?? inventory.physical;
   const counted = count ? numeric(count.countedQty, 0) : null;
   const difference = count ? counted - expected : null;
   const differencePercent = count && expected ? (difference / expected) * 100 : 0;
+  const adjustment = context ? context.adjustments.get(count?.id) : (state.physicalStockAdjustments || []).find(entry => entry.countId === count?.id);
+  const frozenBuckets = baseline ? Object.fromEntries(PHYSICAL_STOCK_BUCKETS.map(bucket => [bucket.key, baseline[bucket.key] || 0])) : null;
   return {
     product,
     code: productInventoryKey(product),
@@ -14581,21 +14595,34 @@ function physicalStockRow(product, traceIndex) {
     brand: product.marca || "S/D",
     supplier: productSupplierName(product),
     warehouse: productWarehouseName(product),
-    available: inventory.available,
-    physical: inventory.physical,
-    reserved: inventory.reserved,
+    available: baseline?.available ?? inventory.available,
+    physical: baseline?.physical ?? inventory.physical,
+    reserved: baseline?.reserved ?? inventory.reserved,
+    currentPhysical: inventory.physical,
+    currentReserved: inventory.reserved,
+    cutId: cut?.id || "",
+    adjustment,
     expected,
     difference,
     differencePercent,
     counted,
     count,
-    ...breakdown
+    ...breakdown,
+    ...(frozenBuckets ? { ...frozenBuckets, totalPreDispatch: baseline.reserved } : {})
   };
 }
 
 function physicalStockRows(allProducts = state.products || []) {
   const traceIndex = buildPhysicalStockTraceIndex();
-  return allProducts.map((product) => physicalStockRow(product, traceIndex));
+  const cut = OrderEngine.activePhysicalStockCut(state);
+  const baselines = new Map((cut?.products || []).map(row => [row.productCode, row]));
+  const counts = new Map();
+  for (const count of state.physicalStockCounts || []) {
+    if ((!cut || count.cutId === cut.id) && !counts.has(count.productCode)) counts.set(count.productCode, count);
+  }
+  const adjustments = new Map((state.physicalStockAdjustments || []).map(entry => [entry.countId, entry]));
+  return allProducts.filter(product => !cut || baselines.has(productInventoryKey(product)))
+    .map((product) => physicalStockRow(product, traceIndex, { cut, baselines, counts, adjustments }));
 }
 
 function physicalStockSearchText(row) {
@@ -14642,6 +14669,19 @@ function formatPhysicalDifference(row) {
   `;
 }
 
+function physicalStockDraftIsStale(code, cutId) {
+  const draft = physicalCountDrafts.get(code);
+  return Boolean(draft && draft.cutId !== cutId);
+}
+
+function discardStalePhysicalStockDrafts() {
+  const cutId = OrderEngine.activePhysicalStockCut(state)?.id || "";
+  const stale = [...physicalCountDrafts].filter(([code]) => physicalStockDraftIsStale(code, cutId));
+  if (!stale.length || !window.confirm(`Descartar ${stale.length} borradores de un corte anterior? No se guardaron y no se trasladaran al corte actual.`)) return;
+  for (const [code] of stale) if (!physicalCountSaving.has(code)) physicalCountDrafts.delete(code);
+  renderPhysicalStockControl();
+}
+
 function renderPhysicalStockControl() {
   const tool = renderInventoryFinanceWorkspace("control-stock");
   if (!tool) return;
@@ -14649,6 +14689,14 @@ function renderPhysicalStockControl() {
   const kpis = byId("physicalStockKpis");
   const table = byId("physicalStockTable");
   if (!kpis || !table) return;
+  const cut = OrderEngine.activePhysicalStockCut(state);
+  physicalStockCountMode = Boolean(cut);
+  byId("startPhysicalStockCountBtn").textContent = cut ? "Cerrar corte" : "Iniciar corte de stock";
+  const cutStatus = byId("physicalStockCutStatus");
+  if (cutStatus) cutStatus.textContent = cut ? `Corte ${cut.id} - ${formatOrderTime(cut.at)} - ${cut.user}. Cantidades al corte; operacion actual en columna separada.` : "Sin corte abierto. Existencias actuales.";
+  const staleDrafts = [...physicalCountDrafts.keys()].filter(code => physicalStockDraftIsStale(code, cut?.id || ""));
+  byId("discardPhysicalStockDraftsBtn").hidden = staleDrafts.length === 0;
+  if (staleDrafts.length && cutStatus) cutStatus.textContent += ` ${staleDrafts.length} borradores pertenecen a otro corte; no se aplicaran.`;
   const allRows = physicalStockRows();
   const rows = filteredPhysicalStockRows(allRows);
   physicalStockRubricFilter = updateDynamicFilter("physicalStockRubricFilter", allRows.map((row) => row.rubric), physicalStockRubricFilter, "Todos los rubros");
@@ -14659,7 +14707,7 @@ function renderPhysicalStockControl() {
 
   const totals = allRows.reduce((acc, row) => {
     acc.available += row.available;
-    acc.physical += row.expected;
+    acc.physical += row.physical;
     acc.reserved += row.totalPreDispatch;
     acc.preparing += row.preparing;
     acc.assembled += row.assembled;
@@ -14672,8 +14720,8 @@ function renderPhysicalStockControl() {
   }, { available: 0, physical: 0, reserved: 0, preparing: 0, assembled: 0, readyDispatch: 0, counted: 0, differences: 0 });
 
   kpis.innerHTML = [
-    { label: "Stock disponible", value: totals.available, hint: "Vendible hoy sin sobreventa" },
-    { label: "Stock fisico", value: totals.physical, hint: "Disponible + no despachado" },
+    { label: cut ? "Disponible al corte" : "Stock disponible", value: totals.available, hint: cut ? "Referencia fija" : "Vendible hoy sin sobreventa" },
+    { label: cut ? "Fisico al corte" : "Stock fisico", value: totals.physical, hint: "Disponible + no despachado" },
     { label: "Mercaderia comprometida", value: totals.reserved, hint: "Pedidos antes de despacho" },
     { label: "En preparacion", value: totals.preparing, hint: "Listos para deposito" },
     { label: "Armados", value: totals.assembled, hint: "Preparados fisicamente" },
@@ -14697,22 +14745,23 @@ function renderPhysicalStockControl() {
       <td>${row.assembled}</td>
       <td>${row.labeled}</td>
       <td>${row.readyDispatch}</td>
-      <td><strong>${row.expected}</strong><small>Fisico motor ${row.physical}</small></td>
+      <td><strong>${row.physical}</strong>${row.count ? `<small>Referencia del conteo ${row.expected}</small>` : ""}</td>
+      <td><strong>${row.currentPhysical}</strong><small>Reservado actual ${row.currentReserved}</small></td>
       <td>
-        ${physicalStockCountMode ? `
+        ${physicalStockCountMode && !row.adjustment && !physicalStockDraftIsStale(row.code, row.cutId) ? `
           <div class="count-inline">
-            <input type="number" min="0" step="1" value="${escapeHtml(physicalCountDrafts.get(row.code)?.rawCount ?? row.counted ?? "")}" placeholder="Conteo" data-physical-count="${escapeHtml(row.code)}" ${physicalCountSaving.has(row.code) ? "disabled" : ""}>
+            <input type="number" min="0" step="1" value="${escapeHtml(physicalCountDrafts.get(row.code)?.rawCount ?? row.counted ?? "")}" placeholder="Conteo al corte" aria-label="Conteo al corte" data-physical-count="${escapeHtml(row.code)}" ${physicalCountSaving.has(row.code) ? "disabled" : ""}>
             <input type="text" value="${escapeHtml(physicalCountDrafts.get(row.code)?.observation ?? row.count?.observation ?? "")}" placeholder="Observacion" data-physical-note="${escapeHtml(row.code)}" ${physicalCountSaving.has(row.code) ? "disabled" : ""}>
             <button class="mini-btn" type="button" data-save-physical-count="${escapeHtml(row.code)}" ${physicalCountSaving.has(row.code) ? "disabled" : ""}>${physicalCountSaving.has(row.code) ? "Guardando..." : "Guardar"}</button>
           </div>
-        ` : formatPhysicalDifference(row)}
+        ` : physicalStockDraftIsStale(row.code, row.cutId) ? '<span class="tag warn">Borrador de otro corte</span>' : formatPhysicalDifference(row)}
       </td>
       <td>
         <button class="mini-btn" type="button" data-view-physical-trace="${escapeHtml(row.code)}">Trazar</button>
-        ${row.count?.serverRecorded && row.difference !== 0 && !physicalCountDrafts.has(row.code) && !physicalCountSaving.has(row.code) ? `<button class="mini-btn danger-btn" type="button" data-adjust-physical-stock="${escapeHtml(row.code)}">Ajustar</button>` : ""}
+        ${row.adjustment ? '<span class="tag ok">Ajustado</span>' : row.count?.serverRecorded && (!row.count.cutId || row.count.cutId === cut?.id) && row.difference !== 0 && !physicalCountDrafts.has(row.code) && !physicalCountSaving.has(row.code) ? `<button class="mini-btn danger-btn" type="button" data-adjust-physical-stock="${escapeHtml(row.code)}">Ajustar</button>` : ""}
       </td>
     </tr>
-  `).join("") : '<tr><td class="stock-empty" colspan="11">No hay productos para los filtros seleccionados.</td></tr>';
+  `).join("") : '<tr><td class="stock-empty" colspan="12">No hay productos para los filtros seleccionados.</td></tr>';
 
   renderPhysicalStockTrace(rows[0] || null);
 }
@@ -14745,14 +14794,15 @@ function renderPhysicalStockHistory() {
   const list = byId("physicalStockHistoryList");
   if (!list) return;
   const history = [
+    ...(state.physicalStockCuts || []).map((entry) => ({ ...entry, kind: "Corte" })),
     ...(state.physicalStockAdjustments || []).map((entry) => ({ ...entry, kind: "Ajuste" })),
     ...(state.physicalStockCounts || []).map((entry) => ({ ...entry, kind: "Conteo" }))
   ].sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0)).slice(0, 30);
   list.innerHTML = history.length ? history.map((entry) => `
     <article class="activity">
       <span class="tag ${entry.kind === "Ajuste" ? "warn" : (numeric(entry.difference, 0) ? "danger" : "ok")}">${escapeHtml(entry.kind)}</span>
-      <strong>${escapeHtml(entry.productName || entry.productCode || "Producto")}</strong>
-      <p>${entry.kind === "Ajuste"
+      <strong>${escapeHtml(entry.productName || entry.productCode || entry.id || "Producto")}</strong>
+      <p>${entry.kind === "Corte" ? `${entry.status}. ${entry.products.length} productos. ${entry.closedAt ? `Cerrado ${formatOrderTime(entry.closedAt)}` : "Referencia fija"}` : entry.kind === "Ajuste"
         ? `Stock ${entry.previousStock} -> ${entry.newStock}. Motivo: ${entry.reason || "Sin motivo"}`
         : `Sistema ${entry.expectedQty}, conteo ${entry.countedQty}, diferencia ${entry.difference}. ${entry.observation || ""}`}</p>
       <small>${escapeHtml(`${formatOrderTime(entry.at)} - ${entry.user || "Sistema"}`)}</small>
@@ -14773,7 +14823,8 @@ async function exportPhysicalStockCsv() {
     window.alert("Solo administracion puede exportar inventario fisico.");
     return;
   }
-  const headers = ["codigo", "producto", "rubro", "marca", "proveedor", "deposito", "disponible", "comprometida", "preparandose", "armada", "etiquetada", "pendiente_despacho", "fisico_esperado", "conteo", "diferencia", "porcentaje", "usuario_conteo", "fecha_conteo"];
+  const headers = ["codigo", "producto", "rubro", "marca", "proveedor", "deposito", "disponible", "comprometida", "preparandose", "armada", "etiquetada", "pendiente_despacho", "fisico_esperado", "conteo", "diferencia", "porcentaje", "usuario_conteo", "fecha_conteo", "corte", "fecha_corte", "stock_actual"];
+  const cut = OrderEngine.activePhysicalStockCut(state);
   const rows = physicalStockReportRows().map((row) => ({
     codigo: row.code,
     producto: row.name,
@@ -14792,7 +14843,10 @@ async function exportPhysicalStockCsv() {
     diferencia: row.count ? row.difference : "",
     porcentaje: row.count ? row.differencePercent.toFixed(2) : "",
     usuario_conteo: row.count?.user || "",
-    fecha_conteo: row.count ? formatOrderTime(row.count.at) : ""
+    fecha_conteo: row.count ? formatOrderTime(row.count.at) : "",
+    corte: row.cutId || row.count?.cutId || "",
+    fecha_corte: cut ? formatOrderTime(cut.at) : "",
+    stock_actual: row.currentPhysical
   }));
   if (physicalStockReportType === "adjustments") {
     const adjustmentHeaders = ["producto", "stock_anterior", "stock_nuevo", "motivo", "usuario", "fecha"];
@@ -14808,7 +14862,7 @@ async function exportPhysicalStockCsv() {
     return;
   }
   await downloadTabularExcel(`control-stock-fisico-${safeFilePart(physicalStockReportType)}-${reportDateStamp()}.xlsx`,
-    ["Codigo", "Producto", "Rubro", "Marca", "Proveedor", "Deposito", "Disponible", "Comprometida", "Preparandose", "Armada", "Etiquetada", "Pendiente despacho", "Fisico esperado", "Conteo", "Diferencia", "Porcentaje", "Usuario conteo", "Fecha conteo"],
+    ["Codigo", "Producto", "Rubro", "Marca", "Proveedor", "Deposito", "Disponible", "Comprometida", "Preparandose", "Armada", "Etiquetada", "Pendiente despacho", "Referencia fisica", "Conteo al corte", "Diferencia", "Porcentaje", "Usuario conteo", "Fecha conteo", "Corte", "Fecha corte", "Stock actual"],
     rows.map((row) => headers.map((key) => key === "porcentaje" && row[key] !== "" ? Number(row[key]) : row[key])));
 }
 
@@ -14835,10 +14889,38 @@ function findPhysicalStockInput(attributeName, productCode) {
     .find((input) => String(input.getAttribute(attributeName) || "") === String(productCode || "")) || null;
 }
 
+async function togglePhysicalStockCut() {
+  if (!isAdminUser()) return;
+  const button = byId("startPhysicalStockCountBtn");
+  if (button.disabled) return;
+  if (physicalCountSaving.size || physicalCountDrafts.size) {
+    window.alert("Guardar los borradores antes de iniciar o cerrar el corte.");
+    return;
+  }
+  const cut = OrderEngine.activePhysicalStockCut(state);
+  if (!physicalStockCutRequest) {
+    if (!window.confirm(cut ? "Cerrar este corte? Los conteos quedaran en el historial."
+      : "Guardar una referencia fija del inventario ahora? El conteo debe corresponder a esa hora. Ventas y repartos seguiran operando.")) return;
+    physicalStockCutRequest = cut ? { action: "closeCut", cutId: cut.id }
+      : { action: "startCut", cutId: `CUT-${crypto.randomUUID()}` };
+  }
+  button.disabled = true;
+  try {
+    await postOperationalAction("api/stock/entry", physicalStockCutRequest);
+    physicalStockCutRequest = null;
+  } catch (error) {
+    if (error.status === 400) { physicalStockCutRequest = null; await pullStateFromServer(); }
+    window.alert(error.message || "No se pudo confirmar el corte. Reintentar.");
+  } finally {
+    button.disabled = false;
+    renderPhysicalStockControl();
+  }
+}
+
 async function recordPhysicalStockCount(productCode) {
   if (!isAdminUser() || physicalCountSaving.has(productCode)) return;
   const row = physicalStockRows().find((item) => item.code === productCode);
-  if (!row) return;
+  if (!row || !row.cutId || row.adjustment || physicalStockDraftIsStale(productCode, row.cutId)) return;
   const qtyInput = findPhysicalStockInput("data-physical-count", productCode);
   const noteInput = findPhysicalStockInput("data-physical-note", productCode);
   const rawCount = String(qtyInput && qtyInput.value || "").trim();
@@ -14855,8 +14937,8 @@ async function recordPhysicalStockCount(productCode) {
   const previous = physicalCountDrafts.get(productCode);
   const request = previous?.request && previous.rawCount === rawCount && previous.observation === observation
     ? previous.request : { action: "recordCount", countId: `CNT-${crypto.randomUUID()}`,
-      productCode: row.code, expectedQty: row.expected, countedQty, observation };
-  physicalCountDrafts.set(productCode, { rawCount, observation, request });
+      cutId: row.cutId, productCode: row.code, expectedQty: row.expected, countedQty, observation };
+  physicalCountDrafts.set(productCode, { cutId: row.cutId, rawCount, observation, request });
   physicalCountSaving.add(productCode);
   renderForCurrentUser();
   try {
@@ -14889,16 +14971,17 @@ function openPhysicalStockAdjustDialog(productCode) {
   }
   physicalStockAdjustTargetCode = productCode;
   physicalStockAdjustTargetCountId = row.count.id;
-  const safeNextStock = row.counted;
+  physicalStockAdjustExpectedCurrent = row.currentPhysical;
+  const safeNextStock = row.count.cutId ? row.currentPhysical + row.difference : row.counted;
   byId("physicalStockAdjustTitle").textContent = `Autorizar ajuste - ${row.name}`;
   byId("physicalStockAdjustCode").value = productCode;
-  byId("physicalStockAdjustPrevious").value = row.expected;
+  byId("physicalStockAdjustPrevious").value = row.currentPhysical;
   byId("physicalStockAdjustNext").value = safeNextStock;
   byId("physicalStockAdjustReason").value = row.count.observation || "";
   byId("physicalStockAdjustPassword").value = "";
-  byId("physicalStockAdjustMessage").textContent = row.counted < row.totalPreDispatch
-    ? `El conteo (${row.counted}) es menor a lo reservado no despachado (${row.totalPreDispatch}). Resolver las reservas antes de ajustar.`
-    : "";
+  byId("physicalStockAdjustMessage").textContent = safeNextStock < row.currentReserved
+    ? `El ajuste dejaria ${safeNextStock}, menor al reservado actual (${row.currentReserved}). Resolver las reservas antes de ajustar.`
+    : `Referencia ${row.expected}; conteo ${row.counted}; diferencia ${row.difference}. Stock actual ${row.currentPhysical} -> ${safeNextStock}.`;
   byId("physicalStockAdjustDialog").showModal();
 }
 
@@ -14928,6 +15011,7 @@ async function submitPhysicalStockAdjust(event) {
       action: "reconcileCount",
       productCode,
       countId: row.count.id,
+      expectedCurrentQty: physicalStockAdjustExpectedCurrent,
       reason,
       admin_password: password
     });
@@ -20620,11 +20704,8 @@ byId("clearPhysicalStockFiltersBtn").addEventListener("click", () => {
   byId("physicalStockModeFilter").value = "all";
   renderPhysicalStockControl();
 });
-byId("startPhysicalStockCountBtn").addEventListener("click", () => {
-  physicalStockCountMode = !physicalStockCountMode;
-  byId("startPhysicalStockCountBtn").textContent = physicalStockCountMode ? "Cerrar corte" : "Iniciar corte de stock";
-  renderPhysicalStockControl();
-});
+byId("startPhysicalStockCountBtn").addEventListener("click", togglePhysicalStockCut);
+byId("discardPhysicalStockDraftsBtn").addEventListener("click", discardStalePhysicalStockDrafts);
 byId("exportPhysicalStockCsvBtn").addEventListener("click", exportPhysicalStockCsv);
 byId("exportPhysicalStockPdfBtn").addEventListener("click", exportPhysicalStockPdf);
 byId("physicalStockTable").addEventListener("click", (event) => {
@@ -20647,6 +20728,7 @@ byId("physicalStockTable").addEventListener("input", (event) => {
   const code = input.getAttribute("data-physical-count") || input.getAttribute("data-physical-note");
   if (!code || physicalCountSaving.has(code)) return;
   physicalCountDrafts.set(code, {
+    cutId: OrderEngine.activePhysicalStockCut(state)?.id || "",
     rawCount: findPhysicalStockInput("data-physical-count", code)?.value || "",
     observation: findPhysicalStockInput("data-physical-note", code)?.value || ""
   });
@@ -24235,11 +24317,8 @@ async function pullStateFromServer() {
   try {
     const deferState = activeViewId() === "clientes" ? "&deferState=clients" : "";
     const catalogVersion = currentUser?.role === "seller" ? sellerCatalogVersion : syncVersion;
-    const encodedSections = syncSections && syncSectionsVersion === Number(catalogVersion)
-      ? encodeURIComponent(JSON.stringify(syncSections)) : "";
-    const sectionQuery = encodedSections.length <= 6000 && encodedSections
-      ? `&sections=${encodedSections}` : "";
-    const response = await fetchWithTimeout(apiUrl(`api/state?version=${encodeURIComponent(catalogVersion || 0)}${deferState}&syncFormat=sections-v1${sectionQuery}`), { cache: "no-store" }, STATE_SYNC_TIMEOUT_MS);
+    const cursorReady = syncRecordCursor && syncRecordVersion === Number(catalogVersion);
+    const response = await fetchWithTimeout(apiUrl(`api/state?version=${encodeURIComponent(cursorReady ? catalogVersion : 0)}${deferState}&syncFormat=records-v1${cursorReady ? `&cursor=${encodeURIComponent(syncRecordCursor)}` : ""}`), { cache: "no-store" }, STATE_SYNC_TIMEOUT_MS);
     if (response.status === 401) {
       stopRealtimeChannels();
       currentUser = null;
@@ -24260,7 +24339,18 @@ async function pullStateFromServer() {
     }
     const payload = await response.json();
     const previousSyncVersion = currentUser?.role === "seller" ? sellerCatalogVersion : syncVersion || 0;
-    if (payload.partial) {
+    if (payload.syncFormat === "records-v1") {
+      try {
+        if (payload.partial && (!syncRecordCursor || Number(payload.baseVersion) !== syncRecordVersion
+          || Number(payload.baseVersion) !== Number(previousSyncVersion) || syncPushInFlight)) throw new Error("Sync baseline changed");
+        payload.state = StateRecordSync.apply(state, payload);
+      } catch {
+        syncRecordCursor = null;
+        syncRecordVersion = 0;
+        window.setTimeout(pullStateFromServer, 250);
+        return;
+      }
+    } else if (payload.partial) {
       if (!syncSections || Number(payload.baseVersion) !== syncSectionsVersion
         || Number(payload.baseVersion) !== Number(previousSyncVersion)
         || syncPushInFlight) {
@@ -24297,8 +24387,8 @@ async function pullStateFromServer() {
       return;
     }
     // Do not replace a newer local mutation with an older in-flight snapshot.
-    if (currentUser?.role === "seller" && payload.state && Number(payload.version) < Number(syncVersion)) return;
-    if (payload.state && payload.version > previousSyncVersion) {
+    if (payload.state && Number(payload.version) < Number(syncVersion)) return;
+    if (payload.state && payload.version >= previousSyncVersion) {
       const nextState = normalizeState(payload.state);
       trackIncomingNotifications(nextState);
       state = nextState;
@@ -24308,6 +24398,8 @@ async function pullStateFromServer() {
       if (currentUser?.role === "seller") sellerCatalogVersion = Number(payload.version);
       syncSections = payload.sections || null;
       syncSectionsVersion = Number(payload.version);
+      syncRecordCursor = payload.cursor || null;
+      syncRecordVersion = Number(payload.version);
       persistLocalMeta("pullStateFromServer");
       scheduleRenderForCurrentUser();
     } else if (payload.state) {

@@ -15,6 +15,8 @@ const pollIntervalMs = Math.max(1000, Math.min(30000, Number(process.argv[4] || 
 const mutationIntervalMs = Math.max(10000, Math.min(60000, Number(process.argv[5] || 10000)));
 const maxFullStateResponses = Math.max(1, Math.min(8, Number(process.argv[6] || 2)));
 const sectionSync = process.argv[7] === "sections-v1";
+const recordSync = process.argv[7] === "records-v1";
+const recordEngine = require("../state-record-sync");
 const apiMutations = process.argv[8] === "api";
 if (!process.argv[2] || !fs.statSync(source).isFile()) throw new Error("Indicar una copia local del estado.");
 
@@ -42,7 +44,7 @@ assert.equal(users.length, 12);
 fs.copyFileSync(source, stateFile);
 fs.writeFileSync(path.join(tempDir, "users.json"), JSON.stringify({ users }));
 
-const child = spawn(process.execPath, [path.join(root, "server.js")], {
+const child = spawn(process.env.DL_TEST_SERVER_NODE || process.execPath, ["--max-old-space-size=768", path.join(root, "server.js")], {
   cwd: root,
   env: {
     ...process.env,
@@ -60,6 +62,7 @@ const child = spawn(process.execPath, [path.join(root, "server.js")], {
   stdio: ["ignore", "pipe", "pipe"]
 });
 let childOutput = "";
+const exited = new Promise(resolve => child.once("exit", resolve));
 child.stdout.on("data", (chunk) => { childOutput = (childOutput + chunk.toString()).slice(-4000); });
 child.stderr.on("data", (chunk) => { childOutput = (childOutput + chunk.toString()).slice(-4000); });
 
@@ -101,10 +104,19 @@ function stateUrl(client) {
     query.set("syncFormat", "sections-v1");
     if (client.sections) query.set("sections", JSON.stringify(client.sections));
   }
+  if (recordSync) {
+    query.set("syncFormat", "records-v1");
+    if (client.cursor) query.set("cursor", client.cursor);
+  }
   return `${base}/api/state?${query}`;
 }
 
 function acceptState(client, body) {
+  if (recordSync) {
+    client.state = recordEngine.apply(client.state, body);
+    client.cursor = body.cursor;
+    body = { ...body, state: client.state, partial: false };
+  }
   if (body.sections) client.sections = body.sections;
   if (!body.partial) {
     client.orders = body.state.orders || [];
@@ -224,6 +236,8 @@ function acceptState(client, body) {
     }));
     const laggingClients = clients.filter((client) => client.version < finalVersion).length;
     const healthFinal = await (await fetch(`${base}/api/health`)).json();
+    const admin = clients.find(client => client.user.role === "admin");
+    const performanceFinal = await (await fetch(`${base}/api/admin/performance`, { headers: { Cookie: admin.cookie } })).json();
     const summary = {
       ok: metrics.errors === 0,
       users: clients.length,
@@ -232,6 +246,8 @@ function acceptState(client, body) {
       mutationIntervalMs,
       maxFullStateResponses,
       sectionSync,
+      recordSync,
+      performanceFinal,
       apiMutations,
       stateMutations: metrics.mutations,
       full: { count: metrics.full.length, p50Ms: percentile(metrics.full, .5), p95Ms: percentile(metrics.full, .95), maxMs: percentile(metrics.full, 1) },
@@ -248,6 +264,7 @@ function acceptState(client, body) {
       laggingClients
     };
     console.log(JSON.stringify(summary));
+    if (process.env.DL_TEST_REPORT) fs.writeFileSync(path.resolve(process.env.DL_TEST_REPORT), JSON.stringify(summary, null, 2));
     assert.equal(metrics.errors, 0);
     assert.equal(healthFinal.activeSessions, 12);
     assert.equal(laggingClients, 0);
@@ -255,6 +272,7 @@ function acceptState(client, body) {
   } finally {
     clearInterval(mutationTimer);
     if (child.exitCode === null) child.kill("SIGTERM");
+    await exited;
     const resolved = fs.realpathSync(tempDir);
     if (path.dirname(resolved) !== tempRoot || !path.basename(resolved).startsWith("dl-sync-load-")) {
       throw new Error(`Ruta temporal inesperada: ${resolved}`);

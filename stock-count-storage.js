@@ -5,7 +5,7 @@ const { performance } = require("node:perf_hooks");
 // Counts never edit orders/accounts. Isolate writable collections until commit.
 function draftCountState(state) {
   const draft = { ...state, products: (state.products || []).map(product => ({ ...product })) };
-  for (const key of ["physicalStockCounts", "physicalStockAdjustments", "stockMovements", "globalAudit"]) {
+  for (const key of ["physicalStockCuts", "physicalStockCounts", "physicalStockAdjustments", "stockMovements", "globalAudit"]) {
     draft[key] = [...(state[key] || [])];
   }
   return draft;

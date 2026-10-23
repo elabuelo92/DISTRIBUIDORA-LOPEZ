@@ -1,0 +1,159 @@
+{
+  "ok": true,
+  "users": 12,
+  "durationSeconds": 90,
+  "pollIntervalMs": 5000,
+  "mutationIntervalMs": 15000,
+  "maxFullStateResponses": 1,
+  "sectionSync": false,
+  "recordSync": true,
+  "performanceFinal": {
+    "ok": true,
+    "generatedAt": "2026-10-23T02:13:42.934Z",
+    "eventLoopDelayP95Ms": 605,
+    "eventLoopDelayMaxMs": 6090,
+    "stateWrites": {
+      "count": 12,
+      "totalMs": 24214.691099882126,
+      "maxMs": 2272.002799987793,
+      "lastMs": 2016.7350000143051,
+      "lastMigrationMs": 0.02869999408721924,
+      "lastSerializationMs": 1550.2376997470856,
+      "lastDiskMs": 465.80140030384064,
+      "lastBytes": 98177788,
+      "lastAt": "2026-10-23T02:13:31.138Z",
+      "averageMs": 2018,
+      "sampleCount": 12,
+      "p95Ms": 2272,
+      "p95SerializationMs": 1787,
+      "p95DiskMs": 525
+    },
+    "mobileWriteBatch": {
+      "operations": 0,
+      "commits": 0,
+      "savedWrites": 0,
+      "failures": 0,
+      "maxBatch": 0,
+      "pending": false
+    },
+    "stateReadMigration": {
+      "count": 1,
+      "p95Ms": 5464,
+      "maxMs": 5464
+    },
+    "recordSyncCache": {
+      "entries": 12,
+      "estimatedBytes": 46461856,
+      "maxBytes": 50331648
+    },
+    "stateSync": {
+      "inFlight": 0,
+      "maxConcurrent": 1,
+      "rejectedSinceStart": 19,
+      "queued": 0
+    },
+    "slowThresholdMs": 1000,
+    "requests": [
+      {
+        "key": "GET /api/state",
+        "count": 133,
+        "errors": 19,
+        "slow": 68,
+        "totalMs": 338489.19889974594,
+        "maxMs": 12965,
+        "lastMs": 70,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T02:13:42.899Z",
+        "averageMs": 2545
+      },
+      {
+        "key": "POST /api/login",
+        "count": 18,
+        "errors": 0,
+        "slow": 7,
+        "totalMs": 15254.94300031662,
+        "maxMs": 2383,
+        "lastMs": 2383,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T02:11:58.291Z",
+        "averageMs": 847
+      },
+      {
+        "key": "POST /api/preventa/audit-consultation",
+        "count": 6,
+        "errors": 0,
+        "slow": 6,
+        "totalMs": 12508.321100115776,
+        "maxMs": 2349,
+        "lastMs": 2022,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T02:13:31.138Z",
+        "averageMs": 2085
+      },
+      {
+        "key": "GET /api/health/live",
+        "count": 29,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 22.541800379753113,
+        "maxMs": 6,
+        "lastMs": 1,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T02:13:26.319Z",
+        "averageMs": 1
+      },
+      {
+        "key": "GET /api/health",
+        "count": 1,
+        "errors": 0,
+        "slow": 0,
+        "totalMs": 1.902500033378601,
+        "maxMs": 2,
+        "lastMs": 2,
+        "lastStatus": 200,
+        "lastAt": "2026-10-23T02:13:42.932Z",
+        "averageMs": 2
+      }
+    ]
+  },
+  "apiMutations": true,
+  "stateMutations": 6,
+  "full": {
+    "count": 58,
+    "p50Ms": 3969,
+    "p95Ms": 10336,
+    "maxMs": 18423
+  },
+  "initial": {
+    "count": 12,
+    "p95Ms": 18423,
+    "maxMs": 18423
+  },
+  "steady": {
+    "count": 46,
+    "p95Ms": 6544,
+    "maxMs": 6960
+  },
+  "writes": {
+    "count": 6,
+    "p95Ms": 3098,
+    "maxMs": 3098
+  },
+  "unchanged": {
+    "count": 44,
+    "p50Ms": 217,
+    "p95Ms": 1831,
+    "maxMs": 4976
+  },
+  "busyResponses": 17,
+  "health": {
+    "count": 28,
+    "p95Ms": 2831,
+    "maxMs": 4083
+  },
+  "errors": 0,
+  "errorDetails": [],
+  "activeSessions": 12,
+  "catchupMs": 9010,
+  "laggingClients": 0
+}

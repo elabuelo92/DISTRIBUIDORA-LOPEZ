@@ -21,12 +21,17 @@ const clientPortfolioEngine = require("./client-portfolio-engine");
 const clientHoursEngine = require("./client-hours");
 const maintenanceEngine = require("./maintenance-engine");
 const stockCountStorage = require("./stock-count-storage");
+const stateRecordSync = require("./state-record-sync");
+const stateRecordSnapshots = stateRecordSync.createStore({
+  hash: value => crypto.createHash("sha256").update(value).digest("hex"),
+  token: () => crypto.randomBytes(24).toString("hex")
+});
 
 const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-184";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-185";
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
 const MAINTENANCE_FILE = process.env.DL_MAINTENANCE_FILE || path.join(DATA_DIR, "maintenance-mode.json");
@@ -52,7 +57,7 @@ const PUBLIC_DEMO_FILES = new Set([
   "/config.js", "/maps-config.js", "/order-engine.js", "/account-engine.js",
   "/delivery-engine.js", "/route-optimizer.js", "/sales-commission-report.js", "/legal-engine.js", "/client-portfolio-engine.js",
   "/client-hours.js", "/share-engine.js", "/portfolio-export-engine.js",
-  "/progressive-list.js", "/app.js"
+  "/progressive-list.js", "/state-record-sync.js", "/app.js"
 ]);
 const MANAGED_USER_ROLES = ["admin", "seller", "driver", "receiver", "depot"];
 const MAX_BODY = 16 * 1024 * 1024;
@@ -153,7 +158,7 @@ function send(res, status, type, body, headers) {
     "Content-Length": payload.length,
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, X-ERP-Response",
     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
     "Pragma": "no-cache",
     "Expires": "0",
@@ -176,7 +181,7 @@ function sendJsonBuffer(res, status, payload, headers, prepared = null) {
       "Content-Length": body.length,
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Headers": "Content-Type, X-ERP-Response",
       "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
       "Pragma": "no-cache",
       "Expires": "0",
@@ -2135,36 +2140,18 @@ function writeState(state, options = {}) {
   const migrationMs = performance.now() - migrationStartedAt;
   const serializationStartedAt = performance.now();
   const payload = {
-    version: Date.now(),
+    version: Math.max(Date.now(), Number(stateCache.payload?.version || 0) + 1),
     state: sanitizeState(state)
   };
   const wasNormalized = options.migrate === true || normalizedStateObjects.has(state);
-  const serialized = options.stockCount === true ? null : JSON.stringify(payload);
+  const boundedWrite = options.atomic !== false;
+  const serialized = boundedWrite ? null : JSON.stringify(payload);
   let serializationMs = performance.now() - serializationStartedAt;
   const diskStartedAt = performance.now();
   let countWrite;
-  if (options.stockCount === true) {
+  if (boundedWrite) {
     countWrite = stockCountStorage.writeCountState(STATE_FILE, payload);
     serializationMs += countWrite.serializationMs;
-  } else if (options.atomic !== false) {
-    const temporary = `${STATE_FILE}.${process.pid}.${Date.now()}.tmp`;
-    try {
-      if (options.durableBatch) {
-        const fd = fs.openSync(temporary, "wx");
-        try {
-          fs.writeFileSync(fd, serialized, "utf8");
-          fs.fsyncSync(fd);
-        } finally {
-          fs.closeSync(fd);
-        }
-      } else {
-        fs.writeFileSync(temporary, serialized, "utf8");
-      }
-      fs.renameSync(temporary, STATE_FILE);
-    } catch (error) {
-      try { fs.unlinkSync(temporary); } catch {}
-      throw error;
-    }
   } else {
     fs.writeFileSync(STATE_FILE, serialized, "utf8");
   }
@@ -2219,7 +2206,11 @@ function writeStateResponse(res, state, extra, auditEntries, notificationEntries
   }
   ensureRejectedGps(state);
   const version = writeState(state);
-  sendJson(res, 200, { ok: true, version, state: stateForUser(state, userForState), ...(extra || {}) });
+  if (res.req?.headers["x-erp-response"] === "compact-v1") {
+    sendJson(res, 200, { ok: true, version, ...(extra || {}), compact: true, refreshRequired: true });
+  } else {
+    sendJson(res, 200, { ok: true, version, state: stateForUser(state, userForState), ...(extra || {}) });
+  }
 }
 
 function writeCompactStateResponse(res, state, extra, auditEntries, notificationEntries, options = {}) {
@@ -3045,6 +3036,7 @@ function stateForUser(state, user) {
     clean.bankReconciliation = [];
     clean.deliveryRoutes = [];
     clean.archivedDeliveryRoutes = [];
+    clean.physicalStockCuts = [];
     clean.physicalStockCounts = [];
     clean.physicalStockAdjustments = [];
     clean.maintenanceBackups = [];
@@ -3242,6 +3234,7 @@ function stateForUser(state, user) {
     clean.supplierMovements = [];
     clean.bankTransfers = [];
     clean.bankReconciliation = [];
+    clean.physicalStockCuts = [];
     clean.physicalStockCounts = [];
     clean.physicalStockAdjustments = [];
     clean.maintenanceBackups = [];
@@ -8550,28 +8543,28 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const input = JSON.parse(body || "{}");
       const currentPayload = readStateFileCached();
-      if (["recordCount", "reconcileCount"].includes(input.action)) {
+      if (["startCut", "closeCut", "recordCount", "reconcileCount"].includes(input.action)) {
         try {
           if (input.action === "reconcileCount" && !verifyCurrentUserPassword(sessionUser, input.admin_password || "")) throw new Error("Clave de administrador incorrecta.");
           const draft = stockCountStorage.draftCountState(currentPayload.state || {});
           const previousProduct = entitySnapshot(currentPayload.state, "producto", input.productCode);
-          const result = input.action === "recordCount"
-            ? orderEngine.recordPhysicalCount(draft, input, sessionUser.name)
-            : orderEngine.reconcilePhysicalCount(draft, input, sessionUser.name);
+          const actions = { startCut: orderEngine.startPhysicalStockCut, closeCut: orderEngine.closePhysicalStockCut,
+            recordCount: orderEngine.recordPhysicalCount, reconcileCount: orderEngine.reconcilePhysicalCount };
+          const result = actions[input.action](draft, input, sessionUser.name);
           const extra = { stockCountPatch: true, refreshRequired: true, replayed: result.replayed,
-            count: result.count, adjustment: result.adjustment, products: [result.product],
+            cut: result.cut, count: result.count, adjustment: result.adjustment, products: result.product ? [result.product] : [],
             stockMovement: result.adjustment && draft.stockMovements.find(item => item.id === `STK-${result.adjustment.countId}`) };
           if (result.replayed) {
             sendJson(res, 200, { ok: true, version: currentPayload.version, ...extra });
           } else {
             if (normalizedStateObjects.has(currentPayload.state)) normalizedStateObjects.add(draft);
             writeCompactStateResponse(res, draft, extra, auditEntry(req, sessionUser, input, {
-              action: result.count ? "STOCK_FISICO_CONTEO" : "STOCK_MOVIMIENTO",
-              entityType: "producto", entityId: input.productCode,
-              entityLabel: result.product.name || result.product.descripcion,
-              previousValue: result.count ? null : previousProduct,
-              newValue: result.count || result.product,
-              note: result.count ? "Conteo confirmado en servidor sin modificar stock" : input.reason
+              action: result.cut ? (input.action === "startCut" ? "STOCK_CORTE_INICIADO" : "STOCK_CORTE_CERRADO") : result.count ? "STOCK_FISICO_CONTEO" : "STOCK_MOVIMIENTO",
+              entityType: result.cut ? "inventario" : "producto", entityId: result.cut?.id || input.productCode,
+              entityLabel: result.cut?.id || result.product.name || result.product.descripcion,
+              previousValue: result.cut || result.count ? null : previousProduct,
+              newValue: result.cut ? { id: result.cut.id, at: result.cut.at, status: result.cut.status, products: result.cut.products.length } : result.count || result.product,
+              note: result.cut ? "Referencia de inventario persistida sin modificar existencias" : result.count ? "Conteo confirmado en servidor sin modificar stock" : input.reason
             }), null, { atomic: true, stockCount: true });
           }
         } catch (error) {
@@ -8582,7 +8575,7 @@ const server = http.createServer(async (req, res) => {
       const currentState = currentPayload.state || {};
       try {
         const previousProduct = entitySnapshot(currentState, "producto", input.productCode || input.product);
-        const previousOrdersByCode = new Map((currentState.orders || []).map((order) => [order.code, cloneAuditValue(order)]));
+        const previousOrdersByCode = new Map((currentState.orders || []).map((order) => [order.code, { status: order.status }]));
         const result = orderEngine.applyStockEntry(currentState, input, sessionUser.name);
         writeStateResponse(res, currentState, {
           completedOrders: result.completedOrders,
@@ -10485,6 +10478,7 @@ const server = http.createServer(async (req, res) => {
         },
         mobileWriteBatch: { ...mobileWriteBatch.metrics, pending: mobileWriteBatch.pending },
         stateReadMigration: stateReadMigrationSnapshot(),
+        recordSyncCache: stateRecordSnapshots.metrics(),
         stateSync: {
           inFlight: fullStateResponsesInFlight,
           maxConcurrent: MAX_FULL_STATE_RESPONSES,
@@ -10662,7 +10656,13 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         session.lastSyncAt = new Date().toISOString();
-        if (requestUrl.searchParams.get("syncFormat") === "sections-v1") {
+        if (requestUrl.searchParams.get("syncFormat") === "records-v1") {
+          const scope = JSON.stringify([user.role, user.username, user.name, user.sellerName]);
+          const cursor = requestUrl.searchParams.get("cursor") || "";
+          const projected = stateForUser(currentPayload.state, user);
+          sendJson(res, 200, stateRecordSnapshots.response(projected, currentVersion, scope,
+            /^[a-f0-9]{48}$/.test(cursor) ? cursor : "", clientVersion));
+        } else if (requestUrl.searchParams.get("syncFormat") === "sections-v1") {
           let previousSections = null;
           const rawSections = requestUrl.searchParams.get("sections") || "";
           if (clientVersion > 0 && rawSections.length <= 10000) {
@@ -10717,6 +10717,7 @@ const server = http.createServer(async (req, res) => {
         }
         if (payload.state) {
           // Counts and reconciliations are owned by the stock operation, not generic browser snapshots.
+          payload.state.physicalStockCuts = currentPayload.state.physicalStockCuts || [];
           payload.state.physicalStockCounts = currentPayload.state.physicalStockCounts || [];
           payload.state.collectionVisits = currentPayload.state.collectionVisits || [];
           payload.state.collectionCorrections = currentPayload.state.collectionCorrections || [];

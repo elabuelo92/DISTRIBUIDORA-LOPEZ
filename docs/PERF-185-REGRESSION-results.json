@@ -1,0 +1,191 @@
+{
+  "at": "2026-10-23T02:26:18.572Z",
+  "environment": "local-isolated",
+  "runtime": "v18.19.1",
+  "passed": true,
+  "results": [
+    {
+      "file": "smoke-commission-product-isolation.js",
+      "args": [],
+      "passed": true,
+      "ms": 177,
+      "stdout": "PASS exact product/user scope, same names/different codes, prefixes, unrelated products, cigarettes, inactive fallback, immutable settlements; 2.88% mixed average reproduced\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-p4-commissions.js",
+      "args": [],
+      "passed": true,
+      "ms": 167,
+      "stdout": "PASS P4: regla Todos, Kevin, vendedores, fecha de pagos, filtros y liquidaciones intactas.\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-commission-governance-v122.js",
+      "args": [],
+      "passed": true,
+      "ms": 192,
+      "stdout": "{\n  \"ok\": true,\n  \"version\": \"8790-122\",\n  \"detectedConflicts\": 1,\n  \"duplicateRejected\": true,\n  \"contaminatedEditRepaired\": true,\n  \"activeRulesAfterEdit\": 1,\n  \"historicalRulesAfterEdit\": 1,\n  \"augustCommission\": 40,\n  \"septemberCommission\": 50\n}\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-preventa-commissions-v111.js",
+      "args": [],
+      "passed": true,
+      "ms": 209,
+      "stdout": "{\n  \"ok\": true,\n  \"version\": \"8790-113\",\n  \"general\": 50,\n  \"cigarettes\": 20,\n  \"mixed\": 70,\n  \"discounted\": 45,\n  \"fullyDiscounted\": 0,\n  \"approvedDiscount\": 0,\n  \"cancelled\": 0,\n  \"returned\": 40,\n  \"effectiveSeller\": \"Vendedor cobertura\",\n  \"stockShortageReported\": true,\n  \"stockNeverBlocksSale\": true,\n  \"historicalRuleSnapshot\": {\n    \"id\": \"COM-1792722339943-1852\",\n    \"role\": \"seller\",\n    \"username\": \"\",\n    \"userLabel\": \"Vendedor cobertura\",\n    \"rubro\": \"Mercaderia general\",\n    \"productCode\": \"\",\n    \"productName\": \"\",\n    \"percent\": 5,\n    \"priority\": 90,\n    \"startsAt\": \"2026-01-01T00:00:00.000Z\",\n    \"endsAt\": \"\"\n  }\n}\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-commission-account-v134.js",
+      "args": [],
+      "passed": true,
+      "ms": 297,
+      "stdout": "{\n  \"ok\": true,\n  \"prompt\": 134,\n  \"accrued\": 300,\n  \"paid\": 300,\n  \"balance\": 0,\n  \"partialPayment\": 150,\n  \"firstOrderSettled\": true,\n  \"secondOrderSettledAfterFinalPayment\": true,\n  \"overpaymentBlocked\": true,\n  \"quantitySnapshot\": 10,\n  \"paymentAuditEntries\": 2\n}\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-sales-commission-report-v139.js",
+      "args": [],
+      "passed": true,
+      "ms": 143,
+      "stdout": "Reporte de ventas y comisiones por vendedor: OK\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-commission-numeric-export.js",
+      "args": [],
+      "passed": true,
+      "ms": 1387,
+      "stdout": "PASS: real XLSX numeric amounts, decimals, percent, zero/negative values, filters, payments and unchanged source data.\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-commission-week.js",
+      "args": [],
+      "passed": true,
+      "ms": 135,
+      "stdout": "OK: Monday-Sunday commission ranges, previous week, month/year boundaries.\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-driver-commission-report.js",
+      "args": [],
+      "passed": true,
+      "ms": 1076,
+      "stdout": "PASS P3: stored amounts only, settled orders untouched, deduplication, filters, Argentina dates, missing-data warnings and numeric XLSX.\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-stock-cut.js",
+      "args": [],
+      "passed": true,
+      "ms": 145,
+      "stdout": "PASS persisted immutable cut, dispatch/receipt deltas, retries, one adjustment, stale preview/count rejection, reservations, unchanged orders/accounts, isolation and reload\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-stock-reconciliation.js",
+      "args": [],
+      "passed": true,
+      "ms": 187,
+      "stdout": "Lote de 100 productos: 12.4 ms (motor aislado).\nPASS: conciliacion, reservas, motivos, reintentos, cantidades y carga inicial protegida (datos ficticios).\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-stock-count-memory.js",
+      "args": [],
+      "passed": true,
+      "ms": 215,
+      "stdout": "PASS isolated drafts, reserves/accounts/orders, retry, byte-identical JSON, partial writes, disk failures and UI patch replay\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-rejected-stock-return.js",
+      "args": [],
+      "passed": true,
+      "ms": 3235,
+      "stdout": "PASS engine: +5000 once, reservations unchanged, persistence retry, financial and original lines preserved, invalid cases atomic.\nPASS HTTP: admin only, two simultaneous requests, one receipt and stock entry, same original order.\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-stock-pdf-layout.js",
+      "args": [],
+      "passed": true,
+      "ms": 245,
+      "stdout": "PASS PDF: 100 products, long text, full fields, zero count, multi-page oversized record, no business mutations\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-inventory-finance-workspaces.js",
+      "args": [],
+      "passed": true,
+      "ms": 9406,
+      "stdout": "{\n  \"result\": \"OK\",\n  \"lazyBranches\": 14,\n  \"products\": 700,\n  \"orders\": 101,\n  \"traceCalculationBeforeMs\": 2139.92359995842,\n  \"traceCalculationAfterMs\": 16.410600066184998,\n  \"identical\": true\n}\n{\n  \"accounts\": \"OK\",\n  \"clients\": 1302,\n  \"accountsBeforeMs\": 3549.9688000679016,\n  \"accountsAfterMs\": 62.09920001029968,\n  \"identical\": true\n}\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-stock-count-http.js",
+      "args": [
+        "--multi",
+        "--mixed",
+        "--cut",
+        "--durability",
+        "--output",
+        "docs/STOCK-CUT-HTTP-20261022-results.json"
+      ],
+      "passed": true,
+      "ms": 7552,
+      "stdout": "PASS driver multiple proofs: totals, balance, independent validation, retry, persistence, changed retry, wrong device and invalid splits\nPASS HTTP: simultaneous retries + state reads, one movement, no stock on count, reserves/accounts unchanged, stale/invalid/password/role checks, sessions retained\n{\"responseBytes\":863,\"heapLimitMiB\":512,\"syncCap\":2,\"sessions\":7}\nPASS three admins, two sellers, two drivers; conflicting counts rejected; protected records unchanged\nPASS HTTP fsync failure: no successful acknowledgement, original state intact, temporary files cleaned\nPASS HTTP rename failure: no successful acknowledgement, original state intact, temporary files cleaned\nPASS mixed stock + sale + collection and retries: expected reservation/debt only, historical records unchanged\nPASS HTTP cut: authorization, simultaneous start/count/adjust/close retries, receipt retained, frozen baseline, stale preview rejected, server-owned cut, sessions and financial records preserved\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-state-record-sync.js",
+      "args": [],
+      "passed": true,
+      "ms": 204,
+      "stdout": "PASS record sync: 68 exact reconstructions, legacy rows, reordering, deletes, duplicate IDs, isolated cursors, expiry, bounded memory and missing-baseline rejection\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-record-sync-client.js",
+      "args": [],
+      "passed": true,
+      "ms": 165,
+      "stdout": "PASS real client pull: full bootstrap, incremental changes, invalid baseline recovery and stale response protection for all roles\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-sync-backoff.js",
+      "args": [],
+      "passed": true,
+      "ms": 146,
+      "stdout": "PASS: busy cooldown, session preservation, recovery and expired session\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-compact-sync-version.js",
+      "args": [],
+      "passed": true,
+      "ms": 129,
+      "stdout": "PASS compact sync cursor: admin, seller, driver retain pending refresh and accept subsequent complete sync\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-state-sync-backpressure.js",
+      "args": [],
+      "passed": true,
+      "ms": 5399,
+      "stdout": "{\"ok\":true,\"requests\":12,\"accepted\":12,\"busy\":0,\"liveResponsive\":true,\"unchangedFastPath\":true}\n",
+      "stderr": ""
+    },
+    {
+      "file": "smoke-session-stability-v144.js",
+      "args": [],
+      "passed": true,
+      "ms": 8523,
+      "stdout": "{\"ok\":true,\"burstRequests\":25,\"gpsWrites\":1,\"sessionPreserved\":true,\"liveDuringMaintenance\":true,\"unchangedStateFastPath\":true,\"scheduledPriceListApplied\":true}\n",
+      "stderr": ""
+    }
+  ]
+}

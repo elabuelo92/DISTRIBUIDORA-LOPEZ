@@ -13,9 +13,23 @@ const soak = process.argv.includes("--soak");
 const traffic = process.argv.includes("--traffic");
 const profile = process.argv.includes("--profile");
 const durability = process.argv.includes("--durability");
+const cutTest = process.argv.includes("--cut");
+const visual = process.argv.includes("--visual");
+const recordSync = process.argv.includes("--records");
+const Sync = require("../state-record-sync");
+const cursors = new Map();
+const recordSyncMetrics = { full: 0, delta: 0, unchanged: 0, bytes: 0 };
+let browserCheck;
+const serverNode = process.env.DL_TEST_SERVER_NODE || process.execPath;
+const heapLimitMiB = Number(process.env.DL_TEST_HEAP_MIB || 512);
+const syncCap = Number(process.env.DL_TEST_SYNC_CAP || 2);
+const freshConnections = process.env.DL_TEST_FRESH_CONNECTIONS === "1";
+assert.ok([512, 768].includes(heapLimitMiB) && [1, 2].includes(syncCap));
 const reportArg = process.argv.indexOf("--output");
 const reportFile = reportArg >= 0 ? path.resolve(process.argv[reportArg + 1]) : null;
 let serverPerformance;
+let failure;
+const skipped = [];
 assert.ok(!traffic || (multi && mixed), "--traffic requires --multi --mixed");
 const soakRounds = [];
 const trafficRounds = [];
@@ -88,10 +102,10 @@ const memoryFile = path.join(folder, "memory.jsonl");
 const writeFailureFile = path.join(folder, "write-failure.txt");
 const port = 23000 + Math.floor(Math.random() * 1000);
 const base = `http://127.0.0.1:${port}`;
-const child = spawn(process.execPath, ["--max-old-space-size=512", "--require", "./scripts/local-memory-probe.js", ...(profile ? ["--require", "./scripts/local-cpu-probe.js"] : []), ...(durability ? ["--require", "./scripts/local-write-failure-probe.js"] : []), "server.js"], {
+const child = spawn(serverNode, [`--max-old-space-size=${heapLimitMiB}`, "--require", "./scripts/local-memory-probe.js", ...(profile ? ["--require", "./scripts/local-cpu-probe.js"] : []), ...(durability ? ["--require", "./scripts/local-write-failure-probe.js"] : []), "server.js"], {
   cwd: root, env: { ...process.env, DL_HOST: "127.0.0.1", DL_PORT: String(port), DATA_DIR: folder,
     STATE_FILE: file, LOCAL_TEST_WRITE_FAILURE: durability ? writeFailureFile : "", LOCAL_TEST_MEMORY_FILE: memoryFile, LOCAL_TEST_CPU_FILE: profile ? path.join(root, "docs/CPU-183-baseline.json") : "", USERS_FILE: path.join(folder, "users.json"), DL_LICENSE_ENFORCEMENT: "disabled",
-    DL_INTEGRITY_ENFORCE: "warn", DL_MAX_FULL_STATE_RESPONSES: "2" }, stdio: ["ignore", "pipe", "pipe"]
+    DL_INTEGRITY_ENFORCE: "warn", DL_MAX_FULL_STATE_RESPONSES: String(syncCap) }, stdio: ["ignore", "pipe", "pipe"]
 });
 let logs = "";
 child.stdout.on("data", data => { logs += data; }); child.stderr.on("data", data => { logs += data; });
@@ -99,20 +113,42 @@ const exited = once(child, "exit");
 const read = () => JSON.parse(fs.readFileSync(file)).state;
 async function request(url, body, cookie, expected = 200) {
   const started = performance.now();
-  const response = await fetch(`${base}${url}`, { method: body ? "POST" : "GET",
-    headers: { "Content-Type": "application/json", ...(cookie ? { Cookie: cookie } : {}) },
-    body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(60000) });
+  const useRecords = recordSync && !body && url === "/api/state";
+  const previous = useRecords ? cursors.get(cookie) : null;
+  const requestUrl = useRecords ? `/api/state?syncFormat=records-v1&version=${previous?.version || 0}${previous?.cursor ? `&cursor=${previous.cursor}` : ""}` : url;
+  const serializedBody = body ? JSON.stringify(body) : undefined;
+  let response;
+  try {
+    response = await fetch(`${base}${requestUrl}`, { method: body ? "POST" : "GET",
+    headers: { "Content-Type": "application/json", ...(recordSync ? { "X-ERP-Response": "compact-v1" } : {}), ...(freshConnections ? { Connection: "close" } : {}), ...(cookie ? { Cookie: cookie } : {}) },
+    body: serializedBody, signal: AbortSignal.timeout(60000) });
+  } catch (error) {
+    error.message = `${body?.action || url}: requestBytes=${Buffer.byteLength(serializedBody || "")}: ${error.message}`;
+    throw error;
+  }
   const raw = await response.text();
   let result;
   try { result = JSON.parse(raw); } catch { throw new Error(`${url}: HTTP ${response.status}: ${raw.slice(0, 400)}`); }
   timing.push({ operation: body?.action || url.split("&sections=")[0], ms: Math.round(performance.now() - started), status: response.status, bytes: Buffer.byteLength(raw) });
   assert.ok((Array.isArray(expected) ? expected : [expected]).includes(response.status), `${response.status}: ${JSON.stringify(result).slice(0, 250)}`);
+  if (useRecords && response.status === 200) {
+    recordSyncMetrics.bytes += Buffer.byteLength(raw);
+    if (result.unchanged) {
+      recordSyncMetrics.unchanged++;
+      result.state = previous.state;
+    } else {
+      recordSyncMetrics[result.partial ? "delta" : "full"]++;
+      const reconstructed = Sync.apply(previous?.state || {}, result);
+      cursors.set(cookie, { version: result.version, cursor: result.cursor, state: reconstructed });
+      result.state = reconstructed;
+    }
+  }
   return { result, status: response.status, syncBusy: response.headers.get("X-State-Sync-Busy"),
     retryAfter: Number(response.headers.get("Retry-After")), cookie: String(response.headers.get("set-cookie") || "").split(";")[0] };
 }
 async function trafficSync(cookie) {
   for (let attempt = 0; attempt < 4; attempt++) {
-    const reply = await request("/api/state?syncFormat=sections-v1", null, cookie, [200, 503]);
+    const reply = await request(recordSync ? "/api/state" : "/api/state?syncFormat=sections-v1", null, cookie, [200, 503]);
     if (reply.status === 200) return reply;
     assert.equal(reply.syncBusy, "1");
     assert.equal(reply.result.code, "STATE_SYNC_BUSY");
@@ -183,7 +219,7 @@ async function main() {
   const health = (await request("/api/health")).result;
   assert.equal(health.activeSessions, users.length);
   console.log("PASS HTTP: simultaneous retries + state reads, one movement, no stock on count, reserves/accounts unchanged, stale/invalid/password/role checks, sessions retained");
-  console.log(JSON.stringify({ responseBytes: Buffer.byteLength(JSON.stringify(results[0].result)), heapLimitMiB: 512, sessions: health.activeSessions }));
+  console.log(JSON.stringify({ responseBytes: Buffer.byteLength(JSON.stringify(results[0].result)), heapLimitMiB, syncCap, sessions: health.activeSessions }));
   if (multi) {
     for (let round = 0; round < 3; round++) {
       const qty = read().products.find(p => p.codigo_producto === "A").stock_fisico;
@@ -347,12 +383,106 @@ async function main() {
       }
     }
   }
+  if (cutTest) {
+    const beforeCut = read();
+    const cutInput = { action: "startCut", cutId: "CUT-HTTP-TEST-001" };
+    await post(cutInput, 401, ""); await post(cutInput, 403, seller);
+    const starts = await Promise.all(admins.map(cookie => post(cutInput, 200, cookie)));
+    assert.equal(starts.filter(r => !r.result.replayed).length, 1);
+    const cut = starts[0].result.cut;
+    const frozen = JSON.stringify(cut.products);
+    const reference = cut.products.find(p => p.productCode === "A").physical;
+    if (visual) {
+      browserCheck = await require("./stock-cut-browser-check").open(base, admin);
+      await browserCheck.check("inicio", reference, reference);
+    }
+    assert.deepEqual(read().products, beforeCut.products, "cut cannot alter inventory");
+    for (const key of ["orders", "accounts", "supplierAccounts", "deliveryClosures"]) assert.deepEqual(read()[key], beforeCut[key], `startCut ${key}`);
+    await post({ action: "startCut", cutId: "CUT-HTTP-TEST-002" }, 400);
+    const observed = (await request("/api/state?syncFormat=sections-v1", null, admins[1] || admin)).result.state;
+    assert.equal(observed.physicalStockCuts[0].id, cut.id, "other administrator sees same cut");
+    const mobile = (await request("/api/state", null, seller)).result.state;
+    assert.equal((mobile.physicalStockCuts || []).length, 0, "mobile projection excludes cut snapshots");
+    const counted = { action: "recordCount", cutId: cut.id, countId: "CNT-HTTP-CUT-001", productCode: "A", expectedQty: reference, countedQty: reference - 2 };
+    await Promise.all([
+      post({ productCode: "A", qty: 5, movementType: "Ingreso", note: "Isolated entry after cut" }),
+      ...admins.map(cookie => post(counted, 200, cookie))
+    ]);
+    assert.equal(read().products.find(p => p.codigo_producto === "A").stock_fisico, reference + 5);
+    assert.equal(JSON.stringify(read().physicalStockCuts[0].products), frozen);
+    const afterMovement = read();
+    if (visual) await browserCheck.check("movimiento", reference, reference + 5);
+    await post({ action: "closeCut", cutId: cut.id }, 400);
+    const apply = { ...adjust, countId: counted.countId, expectedCurrentQty: reference + 5 };
+    await post({ ...apply, expectedCurrentQty: reference }, 400);
+    const replies = await Promise.all(admins.map(cookie => post(apply, 200, cookie)));
+    assert.equal(replies.filter(r => !r.result.replayed).length, 1);
+    const afterCut = read();
+    if (visual) await browserCheck.check("ajustado", reference, reference + 3, true);
+    assert.equal(afterCut.products.find(p => p.codigo_producto === "A").stock_fisico, reference + 3);
+    assert.equal(afterCut.products.find(p => p.codigo_producto === "A").stock_reservado, beforeCut.products.find(p => p.codigo_producto === "A").stock_reservado);
+    assert.equal(afterCut.stockMovements.filter(m => m.id === `STK-${counted.countId}`).length, 1);
+    for (const key of ["orders", "accounts", "supplierAccounts", "deliveryClosures"]) assert.deepEqual(afterCut[key], afterMovement[key], `adjustment ${key}`);
+    await post({ ...counted, countId: "CNT-HTTP-CUT-002" }, 400);
+    const stale = (await request("/api/state", null, admin)).result;
+    stale.state.physicalStockCuts = [];
+    const staleWrite = { state: stale.state, baseVersion: stale.version };
+    if (Buffer.byteLength(JSON.stringify(staleWrite)) <= 16 * 1024 * 1024) {
+      await request("/api/state", staleWrite, admin);
+    } else {
+      skipped.push("Generic full-state write exceeds existing 16 MiB API limit; cut ownership is tested with the small fixture, not the production-sized snapshot.");
+      console.log(`LIMITATION: ${skipped[skipped.length - 1]}`);
+    }
+    assert.equal(JSON.stringify(read().physicalStockCuts[0].products), frozen, "generic sync cannot delete or rewrite cut");
+    const closes = await Promise.all(admins.map(cookie => post({ action: "closeCut", cutId: cut.id }, 200, cookie)));
+    assert.equal(closes.filter(r => !r.result.replayed).length, 1);
+    assert.equal(read().physicalStockCuts[0].status, "Cerrado");
+    await post(apply);
+    assert.equal(read().stockMovements.filter(m => m.id === `STK-${counted.countId}`).length, 1);
+    assert.equal((await request("/api/health")).result.activeSessions, users.length);
+    if (visual) {
+      const currentB = read().products.find(p => p.codigo_producto === "B").stock_fisico;
+      await browserCheck.exerciseUiLifecycle(password, currentB + 2);
+      const uiResult = read();
+      assert.equal(uiResult.products.find(p => p.codigo_producto === "B").stock_fisico, currentB + 2);
+      assert.equal(uiResult.physicalStockCuts[0].status, "Cerrado");
+      assert.equal(uiResult.physicalStockAdjustments.filter(a => a.cutId === uiResult.physicalStockCuts[0].id).length, 1);
+      console.log("PASS browser UI: start cut, reload, enter count, authorize adjustment and close cut");
+    }
+    console.log("PASS HTTP cut: authorization, simultaneous start/count/adjust/close retries, receipt retained, frozen baseline, stale preview rejected, server-owned cut, sessions and financial records preserved");
+  }
+  if (recordSync) {
+    for (const cookie of [admin, seller, ...workers.slice(1)]) {
+      const incremental = (await request("/api/state", null, cookie)).result.state;
+      const complete = (await request("/api/state?verifyFull=1", null, cookie)).result.state;
+      assert.deepEqual(incremental, complete, "record reconstruction equals legacy full role projection");
+    }
+    const adminCursor = cursors.get(admin);
+    const cross = (await request(`/api/state?syncFormat=records-v1&cursor=${adminCursor.cursor}&version=1`, null, seller)).result;
+    assert.equal(cross.partial, false);
+    assert.equal((cross.state.physicalStockCuts || []).length, 0);
+    assert.ok(recordSyncMetrics.delta > 0);
+    console.log(`PASS HTTP record synchronization: exact role projections, isolated cursors, compact operations: ${JSON.stringify(recordSyncMetrics)}`);
+  }
   serverPerformance = (await request("/api/admin/performance", null, admin)).result;
 }
-main().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
+main().catch(async error => {
+  failure = { message: error.message, stack: error.stack, cause: error.cause?.message, code: error.cause?.code,
+    serverExit: child.exitCode, serverSignal: child.signalCode };
+  console.error(error);
+  console.error(`Server exit at failure: ${child.exitCode}; signal: ${child.signalCode}`);
+  try {
+    const health = await fetch(`${base}/api/health`, { headers: { Connection: "close" }, signal: AbortSignal.timeout(15000) });
+    failure.healthStatus = health.status;
+    failure.healthBody = await health.text();
+    console.error(`Fresh health after failure: ${health.status}: ${failure.healthBody}`);
+  } catch (probeError) { failure.healthError = probeError.message; console.error(`Fresh health failed: ${probeError.message}`); }
+  process.exitCode = 1;
+}).finally(async () => {
+  if (browserCheck) await browserCheck.close();
   child.kill(); await exited;
   if (multi) fs.writeFileSync(reportFile || path.join(root, traffic ? "docs/STOCK-TRAFFIC-183-results.json" : soak ? "docs/STOCK-SOAK-183-results.json" : "docs/STOCK-MULTIUSER-20261021-results.json"), JSON.stringify({
-    at: new Date().toISOString(), passed: !process.exitCode, environment: "local-isolated", node: process.version, serverPerformance,
+    at: new Date().toISOString(), passed: !process.exitCode, environment: "local-isolated", node: process.version, serverNode, heapLimitMiB, syncCap, freshConnections, serverPerformance, failure, skipped, recordSync, recordSyncMetrics,
     users: users.map(u => ({ username: u.username, role: u.role })), snapshotUsed: Boolean(snapshotFile), mixed, soak, soakRounds, traffic, trafficRounds, syncBusyRetries, timing,
     memory: fs.existsSync(memoryFile) ? fs.readFileSync(memoryFile, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [],
     logs: logs.slice(-3000)

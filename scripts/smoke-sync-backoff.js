@@ -12,6 +12,7 @@ let response;
 const context = vm.createContext({
   currentUser: { role: "admin" }, syncPullRetryAt: 0,
   syncSections: null, syncSectionsVersion: 0,
+  syncRecordCursor: null, syncRecordVersion: 0,
   syncPullInFlight: false, syncPushInFlight: false, pendingPullAfterPush: false,
   syncVersion: 7, sellerCatalogVersion: 7, syncReady: true,
   lastPresenceRenderAt: Date.now(), STATE_SYNC_TIMEOUT_MS: 45000,

@@ -36,7 +36,8 @@ let fail = true, inFlightResolve, requests = [];
 const drafts = new Map(), saving = new Set();
 const ctx = vm.createContext({
   physicalCountDrafts: drafts, physicalCountSaving: saving, isAdminUser: () => true,
-  physicalStockRows: () => [{ code: "A", expected: 310 }],
+  physicalStockRows: () => [{ code: "A", expected: 310, cutId: "CUT-TEST-001" }],
+  physicalStockDraftIsStale: () => false,
   findPhysicalStockInput: attr => ({ value: attr === "data-physical-count" ? "37" : "Conteo" }),
   numeric: Number, crypto: require("node:crypto"), renderForCurrentUser: () => {},
   pullStateFromServer: async () => {}, showCompactNotice: () => {},
@@ -58,6 +59,7 @@ vm.runInContext(source.slice(start, end), ctx);
   await ctx.recordPhysicalStockCount("A");
   assert.equal(requests.length, 2);
   assert.equal(requests[0].countId, requests[1].countId);
+  assert.equal(requests[0].cutId, "CUT-TEST-001");
   assert.equal(drafts.has("A"), true);
   inFlightResolve(); await pending;
   assert.equal(drafts.size, 0); assert.equal(saving.size, 0);

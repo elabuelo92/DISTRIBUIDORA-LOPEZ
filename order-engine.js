@@ -350,20 +350,21 @@
     const ruleCode = normalizeText(rule.productCode);
     const ruleProduct = normalizeText(rule.productName);
     const ruleRubro = normalizeText(rule.rubro);
-    const productMatches = (ruleCode && ruleCode === productCodeValue)
-      || (ruleProduct && (ruleProduct === productNameValue || productNameValue.includes(ruleProduct)));
+    // Product scope is terminal: a miss must never fall through to rubro/default.
+    // A stored code is authoritative even when two products share a name.
+    if (ruleCode || ruleProduct) {
+      const productMatches = ruleCode ? ruleCode === productCodeValue : ruleProduct === productNameValue;
+      return productMatches ? (hasUser ? 5 : 3) : -1;
+    }
     const rubroMatches = ruleRubro && ruleRubro !== "*" && (
       ruleRubro === rubro
-      || rubro.includes(ruleRubro)
       || (ruleRubro.includes("cigarr") && context.isCigarette)
     );
 
-    if (hasUser && (ruleCode || ruleProduct) && productMatches) return 5;
     if (hasUser && rubroMatches) return 4;
-    if (hasUser && (rule.isDefault || ruleRubro === "*" || !ruleRubro)) return 3.5;
-    if (!hasUser && (ruleCode || ruleProduct) && productMatches) return 3;
+    if (hasUser && (ruleRubro === "*" || !ruleRubro)) return 3.5;
     if (!hasUser && rubroMatches) return 2;
-    if (!hasUser && (rule.isDefault || ruleRubro === "*" || !ruleRubro)) return 1;
+    if (!hasUser && (ruleRubro === "*" || !ruleRubro)) return 1;
     return -1;
   }
 
@@ -376,12 +377,11 @@
       .map((rule) => ({ rule, bucket: commissionRuleBucket(rule, context) }))
       .filter((item) => item.bucket >= 0)
       .sort((a, b) => b.bucket - a.bucket || numeric(b.rule.priority) - numeric(a.rule.priority) || b.rule.percent - a.rule.percent)[0]?.rule
-      || settings.rules.find((rule) => rule.role === context.role && rule.isDefault && !normalizeText(rule.username) && !normalizeText(rule.userLabel))
       || normalizeCommissionRule({ role: context.role, rubro: "*", percent: context.role === "driver" ? 4 : 3, isDefault: true });
   }
 
   function previewCommissionRule(state, input = {}) {
-    const product = findProduct(state, input.productCode || input.productName || input.product || "");
+    const product = findProduct(state, { productCode: input.productCode, name: input.productName || input.product });
     const key = itemProductKey(input, product);
     const rubro = productRubric(product, input);
     const rule = findCommissionRule(state, {
@@ -880,6 +880,16 @@
       updatedBy: actor.name || actor.username || "Administracion",
       note: motive
     };
+    if (input.action !== "deactivate" && input.active !== false && (merged.productCode || merged.productName)) {
+      const matches = (state.products || []).filter(product => merged.productCode
+        ? productCode(product) === String(merged.productCode).trim()
+        : normalizeText(productName(product)) === normalizeText(merged.productName));
+      if (matches.length !== 1) throw new Error("Seleccionar un codigo de producto existente y no ambiguo.");
+      merged.productCode = productCode(matches[0]);
+      merged.productName = productName(matches[0]);
+      merged.rubro = "*";
+      merged.isDefault = false;
+    }
     if (input && (input.action === "deactivate" || input.active === false)) {
       merged.active = false;
       merged.status = "Inactiva";
@@ -1868,6 +1878,75 @@
     return completed;
   }
 
+  function activePhysicalStockCut(state) {
+    return (state.physicalStockCuts || []).find(cut => cut.status === "Abierto") || null;
+  }
+
+  function startPhysicalStockCut(state, input, actor) {
+    const id = String(input.cutId || "");
+    if (!/^CUT-[a-zA-Z0-9-]{8,100}$/.test(id)) throw new Error("Identificador de corte invalido.");
+    const existing = (state.physicalStockCuts || []).find(cut => cut.id === id);
+    if (existing) return { cut: existing, replayed: true };
+    if (activePhysicalStockCut(state)) throw new Error("Ya hay un corte abierto. Actualizar y continuar ese corte.");
+    const codes = new Set();
+    const products = (state.products || []).map(product => {
+      const code = productCode(product);
+      if (!code || codes.has(code)) throw new Error("El inventario contiene codigos inexistentes o duplicados. Revisar antes del corte.");
+      codes.add(code);
+      return { productCode: code, productName: productName(product), ...inventory({ ...product }),
+        committed: 0, preparing: 0, assembled: 0, labeled: 0, readyDispatch: 0 };
+    });
+    const byCode = new Map(products.map(row => [row.productCode, row]));
+    const byName = new Map();
+    for (const row of products) {
+      const key = normalizeText(row.productName);
+      byName.set(key, byName.has(key) ? null : row);
+    }
+    const buckets = new Map([[STATUS.PENDING, "committed"], [STATUS.COMMERCIAL_APPROVAL, "committed"],
+      [STATUS.READY, "preparing"], [STATUS.ASSEMBLY, "assembled"], [STATUS.LABELED, "labeled"], [STATUS.READY_DISPATCH, "readyDispatch"]]);
+    for (const order of state.orders || []) {
+      const bucket = buckets.get(order.status);
+      if (order.inventoryMode !== "reservation" || !bucket) continue;
+      for (const item of order.items || []) {
+        const code = String(item.productCode || item.codigo_producto || item.code || "");
+        const row = code ? byCode.get(code) : byName.get(normalizeText(item.name));
+        if (row) row[bucket] += Math.max(0, numeric(item.reservedQty, 0));
+      }
+    }
+    const cut = { id, at: nowIso(), user: actor || "Administracion", status: "Abierto", products };
+    state.physicalStockCuts = [cut, ...(state.physicalStockCuts || [])];
+    return { cut, replayed: false };
+  }
+
+  function closePhysicalStockCut(state, input, actor) {
+    const index = (state.physicalStockCuts || []).findIndex(cut => cut.id === input.cutId);
+    if (index < 0) throw new Error("Corte no encontrado.");
+    const previous = state.physicalStockCuts[index];
+    if (previous.status === "Cerrado") return { cut: previous, replayed: true };
+    const latest = new Map();
+    for (const count of state.physicalStockCounts || []) {
+      if (count.cutId === previous.id && !latest.has(count.productCode)) latest.set(count.productCode, count);
+    }
+    const applied = new Set((state.physicalStockAdjustments || []).map(adjustment => adjustment.countId));
+    if ([...latest.values()].some(count => count.difference !== 0 && !applied.has(count.id))) {
+      throw new Error("Hay diferencias sin resolver. Revisar los conteos y autorizar los ajustes antes de cerrar.");
+    }
+    const cut = { ...previous, status: "Cerrado", closedAt: nowIso(), closedBy: actor || "Administracion" };
+    state.physicalStockCuts[index] = cut;
+    return { cut, replayed: false };
+  }
+
+  function physicalCountCut(state, cutId, code) {
+    const cut = activePhysicalStockCut(state);
+    if (!cut || cut.id !== cutId) throw new Error("El corte no esta abierto. Actualizar antes de continuar.");
+    const baseline = cut.products.find(row => row.productCode === code);
+    if (!baseline) throw new Error("El producto no pertenece a este corte.");
+    if ((state.physicalStockAdjustments || []).some(adjustment => adjustment.cutId === cutId && adjustment.productCode === code)) {
+      throw new Error("Este producto ya fue ajustado en el corte. No se puede aplicar otra diferencia.");
+    }
+    return { cut, baseline };
+  }
+
   function recordPhysicalCount(state, input, actor) {
     const code = String(input.productCode || "").trim();
     const id = String(input.countId || "");
@@ -1882,15 +1961,19 @@
     const existing = (state.physicalStockCounts || []).find(c => c.id === id);
     if (existing) {
       if (existing.productCode !== code || existing.countedQty !== quantity || existing.observation !== observation
-        || existing.expectedQty !== input.expectedQty || !existing.serverRecorded) throw new Error("El identificador ya pertenece a otro conteo.");
+        || existing.expectedQty !== input.expectedQty || (existing.cutId || "") !== (input.cutId || "")
+        || !existing.serverRecorded) throw new Error("El identificador ya pertenece a otro conteo.");
       return { product, count: existing, replayed: true };
     }
     const before = inventory({ ...product });
-    if (typeof input.expectedQty !== "number" || input.expectedQty !== before.physical) throw new Error("El stock cambio. Revisar el stock actual antes de guardar el conteo.");
+    if (!input.cutId && activePhysicalStockCut(state)) throw new Error("Hay un corte abierto. Actualizar y registrar el conteo dentro de ese corte.");
+    const reference = input.cutId ? physicalCountCut(state, input.cutId, code).baseline : before;
+    if (typeof input.expectedQty !== "number" || input.expectedQty !== reference.physical) throw new Error("El stock cambio. Revisar el stock actual antes de guardar el conteo.");
     const count = { id, at: nowIso(), productCode: code, productName: productName(product),
-      expectedQty: before.physical, countedQty: quantity, difference: quantity - before.physical,
-      differencePercent: before.physical ? (quantity - before.physical) / before.physical * 100 : 0,
-      availableQty: before.available, reservedQty: before.reserved, observation,
+      ...(input.cutId ? { cutId: input.cutId, liveQtyAtCount: before.physical } : {}),
+      expectedQty: reference.physical, countedQty: quantity, difference: quantity - reference.physical,
+      differencePercent: reference.physical ? (quantity - reference.physical) / reference.physical * 100 : 0,
+      availableQty: reference.available, reservedQty: reference.reserved, observation,
       user: actor || "Administracion", serverRecorded: true };
     state.physicalStockCounts = state.physicalStockCounts || [];
     state.physicalStockCounts.unshift(count);
@@ -1909,19 +1992,34 @@
     const quantity = Number(count.countedQty);
     if (typeof count.countedQty !== "number" || !Number.isSafeInteger(quantity) || quantity < 0) throw new Error("Conteo fisico invalido.");
     const before = inventory({ ...product });
-    if (Number(count.expectedQty) !== before.physical) throw new Error("El stock cambio desde el conteo. Registrar un nuevo conteo antes de ajustar.");
-    if (quantity < before.reserved) throw new Error(`El conteo es menor al reservado (${before.reserved}). Resolver las reservas antes de ajustar.`);
+    let nextStock = quantity;
+    if (count.cutId) {
+      const { baseline } = physicalCountCut(state, count.cutId, code);
+      if (count.expectedQty !== baseline.physical) throw new Error("El conteo no coincide con la referencia del corte.");
+      const latest = (state.physicalStockCounts || []).find(entry => entry.cutId === count.cutId && entry.productCode === code);
+      if (latest?.id !== count.id) throw new Error("Existe un conteo mas reciente para este producto. Actualizar antes de ajustar.");
+      if (input.expectedCurrentQty !== before.physical) throw new Error("El stock actual cambio. Revisar la vista previa antes de autorizar.");
+      // Apply only the discrepancy; preserve dispatches/receipts after the frozen cut.
+      nextStock = before.physical + quantity - baseline.physical;
+    } else {
+      if (activePhysicalStockCut(state)) throw new Error("Hay un corte abierto. No se puede aplicar un conteo anterior.");
+      if (Number(count.expectedQty) !== before.physical) throw new Error("El stock cambio desde el conteo. Registrar un nuevo conteo antes de ajustar.");
+    }
+    const protectedReserved = Math.max(before.reserved, positive(product.stock_reservado));
+    if (nextStock < protectedReserved || nextStock < 0) throw new Error(`El ajuste dejaria stock menor al reservado (${protectedReserved}). Resolver las reservas antes de ajustar.`);
     const at = nowIso();
     const adjustment = { id: `ADJ-${count.id}`, at, productCode: code, productName: productName(product),
-      previousStock: before.physical, newStock: quantity, reason, user: actor || "Administracion", countId: count.id };
-    product.stock_fisico = quantity;
+      previousStock: before.physical, newStock: nextStock, reason, user: actor || "Administracion", countId: count.id,
+      ...(count.cutId ? { cutId: count.cutId, expectedAtCut: count.expectedQty, countedAtCut: quantity,
+        difference: quantity - count.expectedQty, movementsSinceCut: before.physical - count.expectedQty } : {}) };
+    product.stock_fisico = nextStock;
     refreshProductInventory(product);
     state.physicalStockAdjustments = state.physicalStockAdjustments || [];
     state.physicalStockAdjustments.unshift(adjustment);
-    if (quantity !== before.physical) {
+    if (nextStock !== before.physical) {
       state.stockMovements = state.stockMovements || [];
       state.stockMovements.unshift({ ...adjustment, id: `STK-${count.id}`, type: "Ajuste fisico",
-        qty: quantity - before.physical, stockBefore: before.physical, stockAfter: quantity,
+        qty: nextStock - before.physical, stockBefore: before.physical, stockAfter: nextStock,
         title: productName(product), text: `Conteo ${count.id}. Motivo: ${reason}` });
     }
     state.shortages = buildShortageList(state);
@@ -2798,6 +2896,9 @@
     createOrder,
     allocatePendingOrders,
     applyStockEntry,
+    activePhysicalStockCut,
+    startPhysicalStockCut,
+    closePhysicalStockCut,
     recordPhysicalCount,
     reconcilePhysicalCount,
     nextStatus,
