@@ -1,8 +1,8 @@
 # Prompt 141 - Abastecimiento / Compras pendientes
 
-Estado: **Implementado localmente, pendiente de despliegue**.
+Estado: **Desplegado en produccion y validado tecnicamente: 8790-189**. Revision visual autenticada productiva pendiente; recorrido funcional aprobado en copia aislada.
 Fecha: 2026-10-24. Base: 8790-188, commit 5c1083d85af976fc7531768e8c769732f08c66b3.
-El desarrollo y las pruebas se realizaron en una copia aislada. La inspeccion productiva previa al despliegue fue de solo lectura; aun no se modifico ni reinicio el ERP para P141.
+El desarrollo y las pruebas se realizaron en una copia aislada. El despliegue y reinicio posteriores fueron expresamente autorizados. No se crearon operaciones de prueba ni se modificaron datos de negocio productivos.
 
 ## Implementacion
 
@@ -68,7 +68,20 @@ Publicacion y reinicio autorizados expresamente el 24/10/2026. Paquete preparado
 
 Verificacion final de 189: navegador aislado (18 comprobaciones) sin errores JavaScript; regresion con 7 usuarios y `DL_MAX_FULL_STATE_RESPONSES=1`, igual al limite productivo, aprobada. Pruebas de cache, primera instalacion, sintaxis y simulacion de despliegue 189 aprobadas. La simulacion valida commit/base/fecha, respaldo verificado, recuperacion, comparacion SHA256 completa de datos/usuarios y salud antes de retirar mantenimiento.
 
-Pendiente en este registro: ejecutar respaldo y publicacion, comprobar salud y recursos publicos, comparar datos y completar la revision visual autenticada. No se afirma que P141 ya este en produccion.
+## Despliegue verificado
+
+- Publicado el 24/10/2026; reinicio completado aproximadamente a las 19:35 ART.
+- Commit productivo: `b19b5c1b5d7a4191421c0f859731ca195c65551c`.
+- Respaldo verificado: `/opt/distribuidora-lopez/backups/emergency-20261024-223405`, con `app.tar.gz`, `data.tar.gz`, entorno, manifiesto y comparacion de pedidos.
+- Servicio ERP activo, PID anterior `3605647`, nuevo `3627093`. No se reiniciaron otros servicios.
+- Mantenimiento desactivado; version publica y privada `8790-189`; licencia valida e integridad 28/28. Limite de sincronizacion conservado en 1.
+- `demo-state.json` identico antes/despues: SHA256 `5cfb0dc1d927358242ceaa0d8540454f6874c1751b2591a7fe1a99dc0003137f`.
+- `users.json` identico antes/despues: SHA256 `93033881d6193e2cdfe634afb302a07eedbdd187cf734c26e15b874c71e68162`.
+- Comparacion de pedidos: cero faltantes, agregados o cambios; 2031 pedidos, 78 rutas, 730 productos. Version de datos `1792868869519` conservada. Esto incluye reservas, stock y saldos del estado completo.
+- Recursos publicos `index.html`, `app.js`, `styles.css`, `sw.js`: SHA256 identicos al commit probado, HTTP 200 y sin cache obsoleta. Configuracion dinamica del servidor verificada en 189.
+- La primera comprobacion de recursos quiso comparar `config.js` contra el archivo del repositorio; se corrigio esa comprobacion porque el servidor lo genera desde su entorno. No era una discrepancia del despliegue. No se cambio codigo productivo por esa prueba.
+- Evidencia publica: `P141-production-assets-189-results.json`. Log completo local: `C:\DistribuidoraLopez\.security\P141-deploy-189-20261024.log`.
+- La unica sesion previa se cerro por el reinicio autorizado. Falta el ingreso humano para la revision visual productiva; no se usaron credenciales ni se simularon operaciones reales. Las 18 comprobaciones funcionales de navegador se hicieron en aislamiento.
 
 ## Checklist de aceptacion
 
@@ -80,4 +93,5 @@ Pendiente en este registro: ejecutar respaldo y publicacion, comprobar salud y r
 - [x] Actualizar una vez, sin solicitudes duplicadas ni escrituras de negocio.
 - [x] Confirmar calculo actualizado al volver a entrar y vista oculta sin trabajo de informe.
 - [x] Preservar datos, reservas y saldos en pruebas aisladas.
-- [ ] Publicar y verificar con sesion administrativa real, sin crear operaciones de prueba en produccion.
+- [x] Publicar con respaldo, comparar datos completos y comprobar salud/recursos publicos.
+- [ ] Revisar con sesion administrativa real, sin crear operaciones de prueba en produccion.

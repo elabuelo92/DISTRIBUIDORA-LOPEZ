@@ -1,0 +1,45 @@
+{
+  "at": "2026-10-24T22:36:44.562Z",
+  "passed": true,
+  "readOnly": true,
+  "version": "8790-189",
+  "assets": [
+    {
+      "file": "index.html",
+      "status": 200,
+      "sha256": "db7d0c89cb2ff3c4cddd0268525b92e97c9c1b6d6a6ddddbd598a7e092117af1",
+      "cache": "no-store, no-cache, must-revalidate, max-age=0"
+    },
+    {
+      "file": "app.js",
+      "status": 200,
+      "sha256": "fa9c6cfb238297201c9af65f8dca44ca2dceb3cad195f245bf9a286692308de2",
+      "cache": "no-store, no-cache, must-revalidate, max-age=0"
+    },
+    {
+      "file": "styles.css",
+      "status": 200,
+      "sha256": "cab5aa41a6d72421a95a6beb1ae903d529ed399a23fdb1e8da2c6ac2a7e5f5ec",
+      "cache": "no-store, no-cache, must-revalidate, max-age=0"
+    },
+    {
+      "file": "sw.js",
+      "status": 200,
+      "sha256": "99c24c081b63b8e21326f6811d61d9ffb90fa8ce22807b01a106d305d079c354",
+      "cache": "no-store, no-cache, must-revalidate, max-age=0"
+    }
+  ],
+  "runtimeConfigVersion": "8790-189",
+  "health": {
+    "ok": true,
+    "maintenance": false,
+    "integrity": true,
+    "license": true,
+    "activeSessions": 0,
+    "orders": 2031,
+    "products": 730,
+    "routes": 78,
+    "stateVersion": 1792868869519
+  },
+  "authenticatedProductionWorkflow": "Pending user login; browser workflow verified in isolation"
+}
