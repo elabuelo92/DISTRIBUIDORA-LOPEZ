@@ -56,6 +56,15 @@ const fixture = {
   clients: [], accounts: [], supplierAccounts: [{ balance: 456.78 }],
   physicalStockCounts: [], physicalStockAdjustments: [], stockMovements: [], activity: []
 };
+if (process.argv.includes("--supply-visual")) {
+  assert.ok(!snapshotFile, "supply UI test uses synthetic data only");
+  fixture.deliveryRoutes = [];
+  fixture.orders.push({ code: "PED-RESERVED-142", client: "Test", status: "En Armado", inventoryMode: "reservation",
+    items: [{ productCode: "B", name: "Test B", requestedQty: 5, reservedQty: 5, missingQty: 0, unitPrice: 20 }] });
+  fixture.products.push({ codigo_producto: "C", name: "Pending product", stock_fisico: 0, stock_reservado: 0 });
+  fixture.orders.push({ code: "PED-PENDING-142", client: "Test", status: "Pendiente", inventoryMode: "reservation",
+    items: [{ productCode: "C", name: "Pending product", requestedQty: 5, reservedQty: 0, missingQty: 5, unitPrice: 20 }] });
+}
 if (snapshotFile) {
   const copy = JSON.parse(fs.readFileSync(snapshotFile, "utf8")).state;
   fixture.products = [...fixture.products, ...(copy.products || []).filter(p => !["A", "B"].includes(p.codigo_producto))];
@@ -183,6 +192,10 @@ async function main() {
   const initial = await request("/api/state", null, admin);
   const post = (body, expected = 200, cookie = admin) => request("/api/stock/entry", body, cookie, expected);
   const before = initial.result.state;
+  if (process.argv.includes("--supply-visual")) {
+    await require("./supply-manual-browser-check").check(base, admin, password, read);
+    return;
+  }
   if (process.argv.includes("--bootstrap-visual")) {
     assert.ok(multi && mixed);
     bootstrapVisual = await require("./first-load-browser-check").check(base, [

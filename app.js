@@ -12393,6 +12393,7 @@ function renderStock() {
 }
 
 function renderStockSupply() {
+  if (activeViewId() !== "stock" || operationalWorkspaces.get("stock")?.selected !== "supply") return;
   byId("stockMovements").innerHTML = (state.stockMovements || []).slice(0, 8).map((item) => `
     <article class="activity">
       <span class="tag">${escapeHtml(item.type)}</span>
@@ -14200,10 +14201,12 @@ function exportCommissionsCsv() {
   downloadCsvReport(`comisiones-distribuidora-lopez-${reportDateStamp()}.csv`, header, csvRows);
 }
 
-function renderSupplyPlanner(shortages = OrderEngine.buildShortageList(state)) {
+function renderSupplyPlanner(shortages) {
+  if (!byId("supplyPlannerDialog")?.open) return;
   const summary = byId("supplyPlannerSummary");
   const table = byId("supplyPlannerTable");
   if (!summary || !table) return;
+  shortages = shortages || OrderEngine.buildShortageList(state);
   const totalMissing = shortages.reduce((sum, item) => sum + numeric(item.missingQty, 0), 0);
   const totalTransit = shortages.reduce((sum, item) => sum + numeric(item.inTransit, 0), 0);
   const totalPurchase = shortages.reduce((sum, item) => sum + numeric(item.purchaseQty, 0), 0);
@@ -14306,20 +14309,11 @@ function printSupplyPlanner() {
 }
 
 function openSupplyPlannerDialog() {
-  renderSupplyPlanner();
-  const dialog = byId("supplyPlannerDialog");
-  if (dialog && !dialog.open) dialog.showModal();
-}
-
-function openSupplyPlannerIfPending() {
   if (!isAdminUser()) return;
-  const shortages = OrderEngine.buildShortageList(state);
-  if (!shortages.length) return;
-  renderSupplyPlanner(shortages);
-  window.setTimeout(() => {
-    const dialog = byId("supplyPlannerDialog");
-    if (dialog && !dialog.open) dialog.showModal();
-  }, 120);
+  const dialog = byId("supplyPlannerDialog");
+  if (!dialog || dialog.open) return;
+  dialog.showModal();
+  renderSupplyPlanner();
 }
 
 function stockStatus(product) {
@@ -15635,7 +15629,6 @@ async function submitStockEdit(event) {
     if (completedOrders.length) {
       showCompactNotice(`Stock actualizado. Completos: ${completedOrders.join(", ")}.`, "ok");
     }
-    openSupplyPlannerIfPending();
   } catch (error) {
     setStockEditMessage(error && error.message ? error.message : "No se pudo guardar el producto.");
   } finally {
@@ -21894,7 +21887,6 @@ byId("stockEntryForm").addEventListener("submit", async (event) => {
     if (payload.completedOrders && payload.completedOrders.length) {
       window.alert(`Ingreso aplicado. Pedidos completos para armado: ${payload.completedOrders.join(", ")}.`);
     }
-    openSupplyPlannerIfPending();
   } catch (error) {
     window.alert(error.message || "No se pudo cargar el ingreso.");
   }

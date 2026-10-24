@@ -43,8 +43,8 @@ try {
 
   try {
     $app = Invoke-WebRequest -Uri "$BaseUrl/app.js" -UseBasicParsing -TimeoutSec 8
-    if ($app.Content -match "openSupplyPlannerIfPending" -and $app.Content -match "allocatePendingOrders") {
-      Add-Ok "Front v25 contiene planificador de abastecimiento y autoasignacion."
+    if ($app.Content -match "openSupplyPlannerDialog" -and $app.Content -notmatch "openSupplyPlannerIfPending" -and $app.Content -match "allocatePendingOrders") {
+      Add-Ok "Front contiene planificador manual de abastecimiento y autoasignacion de stock."
     } else {
       Add-Failure "app.js no contiene los marcadores esperados de v25 abastecimiento."
     }

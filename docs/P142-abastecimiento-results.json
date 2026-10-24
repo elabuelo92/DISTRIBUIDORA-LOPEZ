@@ -1,0 +1,60 @@
+{
+  "at": "2026-10-24T21:46:13.836Z",
+  "passed": true,
+  "environment": "local-isolated",
+  "productionAccess": false,
+  "apiRequests": [
+    {
+      "method": "GET",
+      "path": "/api/session"
+    },
+    {
+      "method": "GET",
+      "path": "/api/health"
+    },
+    {
+      "method": "POST",
+      "path": "/api/presence/heartbeat"
+    },
+    {
+      "method": "GET",
+      "path": "/api/state"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/reauth"
+    },
+    {
+      "method": "POST",
+      "path": "/api/state"
+    },
+    {
+      "method": "GET",
+      "path": "/api/state"
+    }
+  ],
+  "supply": {
+    "opens": 2,
+    "builds": 4
+  },
+  "errors": [],
+  "checks": [
+    "stock-entry",
+    "search",
+    "edit-save",
+    "module-navigation",
+    "stock-api-refresh",
+    "tool-navigation",
+    "manual-open-once",
+    "close-button",
+    "reopen-fresh",
+    "escape",
+    "desktop-mobile",
+    "unchanged-consultation-state",
+    "stock-reservations-preserved-on-edit",
+    "one-isolated-receipt",
+    "financial-records-preserved",
+    "no-report-api",
+    "no-duplicate-save"
+  ]
+}

@@ -65,20 +65,23 @@ echo __MEMORY__; free -h
 
 
 def deploy(client, version, allow_operational_archive=False, recover_price_incident=False, expected_commit=None):
-    if version == "8790-187":
+    release_bases = {"8790-187": "ed19fb0c21793b5d2562e85b0748ecf520998a71",
+                     "8790-188": "297df1dcc2312556405f79b3b58cae750faec723"}
+    guarded_release = "1" if version in release_bases else "0"
+    if version in release_bases:
         if not expected_commit or len(expected_commit) != 40 or any(c not in "0123456789abcdef" for c in expected_commit):
-            raise ValueError("Release 187 requires the exact reviewed commit")
+            raise ValueError(f"Release {version} requires the exact reviewed commit")
         if allow_operational_archive or recover_price_incident:
-            raise ValueError("Release 187 cannot modify business data")
+            raise ValueError(f"Release {version} cannot modify business data")
     version_q = shlex.quote(version)
     archive_review = "1" if allow_operational_archive else "0"
     price_recovery = "1" if recover_price_incident else "0"
     command = rf"""
 set -euo pipefail
 cd {APP_DIR}
-if [ "{version}" = "8790-187" ]; then
+if [ "{guarded_release}" = "1" ]; then
   test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-10-24"
-  test "$(git rev-parse HEAD)" = "ed19fb0c21793b5d2562e85b0748ecf520998a71"
+  test "$(git rev-parse HEAD)" = "{release_bases.get(version, '')}"
   test "$(sudo sed -n 's/^DL_MAX_FULL_STATE_RESPONSES=//p' /etc/distribuidora-lopez.env)" = "1"
 fi
 if [ ! -d .git ]; then echo 'ERROR: APP_NOT_GIT'; exit 31; fi
@@ -106,7 +109,7 @@ disable_maintenance() {{
 }}
 
 git fetch origin main
-if [ "{version}" = "8790-187" ]; then test "$(git rev-parse origin/main)" = "{expected_commit}"; fi
+if [ "{guarded_release}" = "1" ]; then test "$(git rev-parse origin/main)" = "{expected_commit}"; fi
 if ! git merge-base --is-ancestor "$OLD_COMMIT" origin/main; then echo 'ERROR: REMOTE_BRANCH_NOT_FAST_FORWARD'; exit 35; fi
 if ! git diff --quiet "$OLD_COMMIT" origin/main -- package.json package-lock.json; then echo 'ERROR: DEPENDENCIES_CHANGED_REQUIRE_SEPARATE_REVIEW'; exit 36; fi
 git show origin/main:scripts/order-dispatch-snapshot.js > /tmp/dl-order-dispatch-snapshot.js
@@ -124,6 +127,14 @@ if [ -n "$DESTRUCTIVE_DIFF" ]; then
   fi
 fi
 
+resume_unchanged_service() {{
+  trap - ERR
+  sudo systemctl start {SERVICE}
+  disable_maintenance
+  echo 'ERROR: PREPARATION_FAILED_OLD_SERVICE_RESUMED'
+  exit 47
+}}
+if [ "{guarded_release}" = "1" ]; then trap resume_unchanged_service ERR; fi
 enable_maintenance
 if ! sudo tar -C /opt/distribuidora-lopez -czf "$BACKUP_DIR/app.tar.gz" app || ! sudo gzip -t "$BACKUP_DIR/app.tar.gz"; then
   disable_maintenance
@@ -139,7 +150,7 @@ if ! sudo tar -C /opt/distribuidora-lopez -czf "$BACKUP_DIR/data.tar.gz" data ||
 fi
 sudo cp /etc/distribuidora-lopez.env "$BACKUP_DIR/distribuidora-lopez.env"
 if [ -f {DATA_DIR}/integrity-manifest.json ]; then sudo cp {DATA_DIR}/integrity-manifest.json "$BACKUP_DIR/integrity-manifest.json"; fi
-sudo node /tmp/dl-order-dispatch-snapshot.js create --state {DATA_DIR}/demo-state.json --date "$TARGET_DATE" --output "$BACKUP_DIR/orders-today-before.json"
+sudo node /tmp/dl-order-dispatch-snapshot.js create --state {DATA_DIR}/demo-state.json --date "$TARGET_DATE" --output "$BACKUP_DIR/orders-today-before.json" >/dev/null
 sudo chown -R {USER}:{USER} "$BACKUP_DIR"
 echo "BACKUP=$BACKUP_DIR"
 echo "ORDER_SNAPSHOT_BEFORE=$BACKUP_DIR/orders-today-before.json"
@@ -166,7 +177,7 @@ rollback_deploy() {{
   exit "$ROLLBACK_CODE"
 }}
 
-if [ "{version}" = "8790-187" ]; then trap 'rollback_deploy 46 UNEXPECTED_DEPLOY_FAILURE' ERR; fi
+if [ "{guarded_release}" = "1" ]; then trap 'rollback_deploy 46 UNEXPECTED_DEPLOY_FAILURE' ERR; fi
 git switch main
 git merge --ff-only origin/main
 node --check server.js
@@ -199,8 +210,8 @@ if ! curl -fsS --max-time 8 http://127.0.0.1:8790/api/health > /tmp/dl-health.js
   rollback_deploy 41 'DEPLOY_HEALTH_FAILED'
 fi
 
-sudo node /tmp/dl-order-dispatch-snapshot.js create --state {DATA_DIR}/demo-state.json --date "$TARGET_DATE" --output "$BACKUP_DIR/orders-today-after.json"
-if ! sudo node /tmp/dl-order-dispatch-snapshot.js compare --before "$BACKUP_DIR/orders-today-before.json" --after "$BACKUP_DIR/orders-today-after.json" --output "$BACKUP_DIR/orders-today-comparison.json"; then
+sudo node /tmp/dl-order-dispatch-snapshot.js create --state {DATA_DIR}/demo-state.json --date "$TARGET_DATE" --output "$BACKUP_DIR/orders-today-after.json" >/dev/null
+if ! sudo node /tmp/dl-order-dispatch-snapshot.js compare --before "$BACKUP_DIR/orders-today-before.json" --after "$BACKUP_DIR/orders-today-after.json" --output "$BACKUP_DIR/orders-today-comparison.json" >/dev/null; then
   rollback_deploy 42 'ORDER_INTEGRITY_COMPARISON_FAILED'
 fi
 if [ "{version}" = "8790-167" ] || [ "{version}" = "8790-168" ] || [ "{version}" = "8790-169" ] || [ "{version}" = "8790-170" ] || [ "{version}" = "8790-171" ] || [ "{version}" = "8790-172" ] || [ "{version}" = "8790-173" ] || [ "{version}" = "8790-174" ] || [ "{version}" = "8790-175" ] || [ "{version}" = "8790-176" ]; then
@@ -214,7 +225,7 @@ if [ "{version}" = "8790-167" ] || [ "{version}" = "8790-168" ] || [ "{version}"
   done
 fi
 sudo chown -R {USER}:{USER} "$BACKUP_DIR"
-if [ "{version}" = "8790-187" ]; then
+if [ "{guarded_release}" = "1" ]; then
   for DATA_NAME in demo-state.json users.json; do
     BEFORE_HASH="$(sudo tar -xOzf "$BACKUP_DIR/data.tar.gz" "data/$DATA_NAME" | sha256sum | cut -d' ' -f1)"
     AFTER_HASH="$(sudo sha256sum "{DATA_DIR}/$DATA_NAME" | cut -d' ' -f1)"
@@ -229,8 +240,8 @@ disable_maintenance
 trap - ERR
 echo __DEPLOYED_COMMIT__; git rev-parse --short HEAD
 echo __BACKUP__; echo "$BACKUP_DIR"
-echo __ORDER_PROTECTION__; cat "$BACKUP_DIR/orders-today-comparison.json"; echo
-echo __HEALTH_LOCAL__; cat /tmp/dl-health.json; echo
+echo __ORDER_PROTECTION__; jq '{{ok, targetDate, missingCount:(.missing | length), addedCount:(.added | length), changedCount:(.changed | length), summaryDifferences, beforeHash, afterHash}}' "$BACKUP_DIR/orders-today-comparison.json"
+echo __HEALTH_LOCAL__; curl -fsS --max-time 10 http://127.0.0.1:8790/api/health; echo
 echo __HEALTH_PUBLIC__; curl -fsS --max-time 15 {PUBLIC_HEALTH}; echo
 echo __SERVICE__; systemctl show {SERVICE} -p MainPID -p MemoryCurrent -p ActiveState -p SubState --no-pager
 """
