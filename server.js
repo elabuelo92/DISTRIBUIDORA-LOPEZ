@@ -21,6 +21,7 @@ const clientPortfolioEngine = require("./client-portfolio-engine");
 const clientHoursEngine = require("./client-hours");
 const maintenanceEngine = require("./maintenance-engine");
 const stockCountStorage = require("./stock-count-storage");
+const physicalCountReferences = stockCountStorage.createCountReferences();
 const stateRecordSync = require("./state-record-sync");
 const stateRecordSnapshots = stateRecordSync.createStore({
   hash: value => crypto.createHash("sha256").update(value).digest("hex"),
@@ -31,7 +32,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-186";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-187";
 const stateBootstrapCache = require("./state-bootstrap-cache").createCache();
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
@@ -4829,80 +4830,85 @@ async function portfolioTemplateBase64() {
 }
 
 async function reportWorkbookBase64(input, user) {
-  const headers = Array.isArray(input.headers) ? input.headers.map((value) => String(value || "").slice(0, 80)) : [];
-  const rows = Array.isArray(input.rows) ? input.rows.slice(0, 50000) : [];
-  if (!headers.length || headers.length > 40) throw new Error("El reporte no tiene columnas validas.");
-  if (rows.some((row) => !Array.isArray(row) || row.length !== headers.length)) throw new Error("El reporte contiene filas invalidas.");
+  const sheets = input.sheets === undefined ? [input] : input.sheets;
+  if (!Array.isArray(sheets) || !sheets.length || sheets.length > 8
+    || sheets.reduce((sum, item) => sum + (item?.rows?.length || 0), 0) > 50000) throw new Error("El reporte supera el limite de hojas o filas.");
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Grupo Rocha Solutions";
   workbook.lastModifiedBy = user.name || user.username || "Administracion";
   workbook.created = new Date();
-  const sheetName = String(input.sheetName || "Reporte").replace(/[\\/*?:\[\]]/g, " ").slice(0, 31) || "Reporte";
-  const sheet = workbook.addWorksheet(sheetName);
-  const requestedFontSize = Number(input.fontSize);
-  const reportFontSize = Number.isFinite(requestedFontSize) && requestedFontSize > 0
-    ? Math.max(8, Math.min(20, requestedFontSize)) : null;
-  const title = String(input.title || "").trim().slice(0, 180);
-  const subtitle = String(input.subtitle || "").trim().slice(0, 240);
-  let headerRowNumber = 1;
-  if (title) {
-    sheet.addRow([title]);
-    sheet.mergeCells(1, 1, 1, headers.length);
-    sheet.getRow(1).font = { bold: true, size: 16, color: { argb: "FF111827" } };
-    sheet.getRow(1).height = 25;
-    sheet.getRow(1).alignment = { vertical: "middle" };
-    if (subtitle) {
-      sheet.addRow([subtitle]);
-      sheet.mergeCells(2, 1, 2, headers.length);
-      sheet.getRow(2).font = { size: 10, color: { argb: "FF374151" } };
-      sheet.getRow(2).height = 19;
+  for (const input of sheets) {
+    const headers = Array.isArray(input?.headers) ? input.headers.map((value) => String(value || "").slice(0, 80)) : [];
+    const rows = Array.isArray(input?.rows) ? input.rows : [];
+    if (!headers.length || headers.length > 40) throw new Error("El reporte no tiene columnas validas.");
+    if (rows.some((row) => !Array.isArray(row) || row.length !== headers.length)) throw new Error("El reporte contiene filas invalidas.");
+    const sheetName = String(input.sheetName || "Reporte").replace(/[\\/*?:\[\]]/g, " ").slice(0, 31) || "Reporte";
+    const sheet = workbook.addWorksheet(sheetName);
+    const requestedFontSize = Number(input.fontSize);
+    const reportFontSize = Number.isFinite(requestedFontSize) && requestedFontSize > 0
+      ? Math.max(8, Math.min(20, requestedFontSize)) : null;
+    const title = String(input.title || "").trim().slice(0, 180);
+    const subtitle = String(input.subtitle || "").trim().slice(0, 240);
+    let headerRowNumber = 1;
+    if (title) {
+      sheet.addRow([title]);
+      sheet.mergeCells(1, 1, 1, headers.length);
+      sheet.getRow(1).font = { bold: true, size: 16, color: { argb: "FF111827" } };
+      sheet.getRow(1).height = 25;
+      sheet.getRow(1).alignment = { vertical: "middle" };
+      if (subtitle) {
+        sheet.addRow([subtitle]);
+        sheet.mergeCells(2, 1, 2, headers.length);
+        sheet.getRow(2).font = { size: 10, color: { argb: "FF374151" } };
+        sheet.getRow(2).height = 19;
+      }
+      headerRowNumber = subtitle ? 3 : 2;
     }
-    headerRowNumber = subtitle ? 3 : 2;
-  }
-  sheet.addRow(headers);
-  rows.forEach((row) => sheet.addRow(row.map((value) => value == null ? "" : value)));
-  sheet.getRow(headerRowNumber).font = { bold: true, color: { argb: "FFFFFFFF" } };
-  sheet.getRow(headerRowNumber).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F766E" } };
-  sheet.getRow(headerRowNumber).height = 22;
-  if (reportFontSize) {
-    sheet.getRow(headerRowNumber).font = { bold: true, size: reportFontSize, color: { argb: "FFFFFFFF" } };
-    sheet.getRow(headerRowNumber).height = Math.max(22, reportFontSize * 3);
-  }
-  sheet.getRow(headerRowNumber).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
-  sheet.views = [{ state: "frozen", ySplit: headerRowNumber }];
-  sheet.autoFilter = { from: { row: headerRowNumber, column: 1 }, to: { row: headerRowNumber, column: headers.length } };
-  const requestedWidths = Array.isArray(input.columnWidths) ? input.columnWidths : [];
-  sheet.columns.forEach((column, index) => {
-    const values = [headers[index], ...rows.slice(0, 500).map((row) => row[index])];
-    const requested = Number(requestedWidths[index]);
-    column.width = Number.isFinite(requested)
-      ? Math.max(6, Math.min(60, requested))
-      : Math.max(12, Math.min(48, values.reduce((max, value) => Math.max(max, String(value == null ? "" : value).length), 0) + 2));
-  });
-  const columnFormats = Array.isArray(input.columnFormats) ? input.columnFormats : [];
-  const wrapColumns = new Set((Array.isArray(input.wrapColumns) ? input.wrapColumns : []).map(Number).filter((value) => Number.isInteger(value) && value >= 1 && value <= headers.length));
-  sheet.eachRow((row, number) => {
-    if (number > headerRowNumber && (number - headerRowNumber) % 2 === 0) row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F4" } };
-    if (number > headerRowNumber) {
-      row.alignment = { vertical: "top" };
-      if (reportFontSize) row.font = { name: "Calibri", size: reportFontSize };
-      let wrappedLines = 1;
-      row.eachCell((cell, columnNumber) => {
-        const format = String(columnFormats[columnNumber - 1] || "").trim();
-        if (format) cell.numFmt = format;
-        if (wrapColumns.has(columnNumber)) cell.alignment = { vertical: "top", wrapText: true };
-        if (reportFontSize && wrapColumns.has(columnNumber)) {
-          const charsPerLine = Math.max(1, Math.floor((sheet.getColumn(columnNumber).width - 2) * 11 / reportFontSize));
-          const lines = String(cell.value == null ? "" : cell.value).split(/\r?\n/)
-            .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / charsPerLine)), 0);
-          wrappedLines = Math.max(wrappedLines, lines);
-        }
-      });
-      if (reportFontSize) row.height = Math.min(409, Math.max(24, wrappedLines * (reportFontSize + 3) + 6));
+    sheet.addRow(headers);
+    rows.forEach((row) => sheet.addRow(row.map((value) => value == null ? "" : value)));
+    sheet.getRow(headerRowNumber).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    sheet.getRow(headerRowNumber).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F766E" } };
+    sheet.getRow(headerRowNumber).height = 22;
+    if (reportFontSize) {
+      sheet.getRow(headerRowNumber).font = { bold: true, size: reportFontSize, color: { argb: "FFFFFFFF" } };
+      sheet.getRow(headerRowNumber).height = Math.max(22, reportFontSize * 3);
     }
-  });
-  sheet.pageSetup = { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
-  sheet.printTitlesRow = `${headerRowNumber}:${headerRowNumber}`;
+    sheet.getRow(headerRowNumber).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+    sheet.views = [{ state: "frozen", ySplit: headerRowNumber }];
+    sheet.autoFilter = { from: { row: headerRowNumber, column: 1 }, to: { row: headerRowNumber, column: headers.length } };
+    const requestedWidths = Array.isArray(input.columnWidths) ? input.columnWidths : [];
+    sheet.columns.forEach((column, index) => {
+      const values = [headers[index], ...rows.slice(0, 500).map((row) => row[index])];
+      const requested = Number(requestedWidths[index]);
+      column.width = Number.isFinite(requested)
+        ? Math.max(6, Math.min(60, requested))
+        : Math.max(12, Math.min(48, values.reduce((max, value) => Math.max(max, String(value == null ? "" : value).length), 0) + 2));
+    });
+    const columnFormats = Array.isArray(input.columnFormats) ? input.columnFormats : [];
+    const wrapColumns = new Set((Array.isArray(input.wrapColumns) ? input.wrapColumns : []).map(Number).filter((value) => Number.isInteger(value) && value >= 1 && value <= headers.length));
+    sheet.eachRow((row, number) => {
+      if (number > headerRowNumber && (number - headerRowNumber) % 2 === 0) row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F4" } };
+      if (number > headerRowNumber) {
+        row.alignment = { vertical: "top" };
+        if (reportFontSize) row.font = { name: "Calibri", size: reportFontSize };
+        let wrappedLines = 1;
+        row.eachCell((cell, columnNumber) => {
+          const format = String(columnFormats[columnNumber - 1] || "").trim();
+          if (format) cell.numFmt = format;
+          if (wrapColumns.has(columnNumber)) cell.alignment = { vertical: "top", wrapText: true };
+          if (reportFontSize && wrapColumns.has(columnNumber)) {
+            const charsPerLine = Math.max(1, Math.floor((sheet.getColumn(columnNumber).width - 2) * 11 / reportFontSize));
+            const lines = String(cell.value == null ? "" : cell.value).split(/\r?\n/)
+              .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / charsPerLine)), 0);
+            wrappedLines = Math.max(wrappedLines, lines);
+          }
+        });
+        if (reportFontSize) row.height = Math.min(409, Math.max(24, wrappedLines * (reportFontSize + 3) + 6));
+      }
+    });
+    sheet.pageSetup = { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
+    sheet.printTitlesRow = `${headerRowNumber}:${headerRowNumber}`;
+  }
   return Buffer.from(await workbook.xlsx.writeBuffer()).toString("base64");
 }
 
@@ -5487,7 +5493,9 @@ function serveFile(req, res) {
   send(res, 200, TYPES[path.extname(file).toLowerCase()] || "application/octet-stream", fs.readFileSync(file));
 }
 
+const connectionPolicy = require("./http-connection-policy").createPolicy();
 const server = http.createServer(async (req, res) => {
+  res.setHeader("Keep-Alive", connectionPolicy.header);
   const requestStartedAt = performance.now();
   res.once("finish", () => recordRequestPerformance(req, res, requestStartedAt));
   try {
@@ -6827,7 +6835,8 @@ const server = http.createServer(async (req, res) => {
           const routeId = requestUrl.searchParams.get("routeId");
           const sources = routeId ? collectionCorrectionEngine.sources(current, routeId).sources.map(s => ({
             id: s.id, client: s.client, cash: s.original.cashAmount ?? s.original.cash ?? 0,
-            transfer: s.original.transferAmount ?? s.original.transfer ?? 0
+            transfer: s.original.transferAmount ?? s.original.transfer ?? 0,
+            pendingTransfer: s.original.transferPendingAmount || 0
           })) : [];
           return sendJson(res, 200, { ok: true, routes: (current.deliveryRoutes || []).filter(r => r.closure).map(r => ({ id: r.id, label: deliveryEngine.routeDisplayName(r) })),
             sources, corrections: (current.collectionCorrections || []).filter(c => c.routeId === routeId) });
@@ -8544,6 +8553,11 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const input = JSON.parse(body || "{}");
       const currentPayload = readStateFileCached();
+      if (input.action === "prepareCount") {
+        try {
+          return sendJson(res, 200, { ok: true, reference: physicalCountReferences.prepare(currentPayload.state, input, sessionUser.username) });
+        } catch (error) { return sendJson(res, 400, { ok: false, error: error.message }); }
+      }
       if (["startCut", "closeCut", "recordCount", "reconcileCount"].includes(input.action)) {
         try {
           if (input.action === "reconcileCount" && !verifyCurrentUserPassword(sessionUser, input.admin_password || "")) throw new Error("Clave de administrador incorrecta.");
@@ -8551,7 +8565,10 @@ const server = http.createServer(async (req, res) => {
           const previousProduct = entitySnapshot(currentPayload.state, "producto", input.productCode);
           const actions = { startCut: orderEngine.startPhysicalStockCut, closeCut: orderEngine.closePhysicalStockCut,
             recordCount: orderEngine.recordPhysicalCount, reconcileCount: orderEngine.reconcilePhysicalCount };
-          const result = actions[input.action](draft, input, sessionUser.name);
+          const reference = input.action === "recordCount" && input.referenceMode === "current"
+            && !(draft.physicalStockCounts || []).some(c => c.id === input.countId)
+            ? physicalCountReferences.verify(currentPayload.state, input, sessionUser.username) : null;
+          const result = actions[input.action](draft, input, sessionUser.name, reference);
           const extra = { stockCountPatch: true, refreshRequired: true, replayed: result.replayed,
             cut: result.cut, count: result.count, adjustment: result.adjustment, products: result.product ? [result.product] : [],
             stockMovement: result.adjustment && draft.stockMovements.find(item => item.id === `STK-${result.adjustment.countId}`) };
@@ -9511,6 +9528,7 @@ const server = http.createServer(async (req, res) => {
       const currentState = currentPayload.state || {};
       try {
         const transferId = decodeURIComponent(transferProofMatch[1]);
+        accountEngine.assertTransferNotReplaced(currentState, transferId);
         const previousTransfer = entitySnapshot(currentState, "transferencia", transferId);
         const transferBefore = (accountEngine.ensureTransferReconciliation(currentState) || []).find((item) => item.id === transferId);
         if (!transferBefore) throw new Error("Transferencia no encontrada para adjuntar comprobante.");
@@ -10663,13 +10681,19 @@ const server = http.createServer(async (req, res) => {
           const cursor = requestUrl.searchParams.get("cursor") || "";
           const projected = stateForUser(currentPayload.state, user);
           const projectionKey = projectedStateCacheKey(user);
+          const sharedBootstrap = projectionKey && requestUrl.searchParams.get("bootstrap") === "shared-v1"
+            && String(res._acceptEncoding || "").toLowerCase().includes("gzip");
+          const encoder = sharedBootstrap && !stateBootstrapCache.has(currentVersion, projectionKey)
+            ? require("./state-bootstrap-cache").createEncoder() : null;
           const message = stateRecordSnapshots.response(projected, currentVersion, scope,
-            /^[a-f0-9]{48}$/.test(cursor) ? cursor : "", clientVersion, projectionKey);
-          if (!message.partial && projectionKey && requestUrl.searchParams.get("bootstrap") === "shared-v1"
-            && String(res._acceptEncoding || "").toLowerCase().includes("gzip")) {
+            /^[a-f0-9]{48}$/.test(cursor) ? cursor : "", clientVersion, projectionKey, encoder?.capture);
+          if (!message.partial && sharedBootstrap) {
             // Only compressed bytes are retained. A private cursor travels outside
             // the shared body; older clients keep the original response contract.
-            const compressed = await stateBootstrapCache.get(currentVersion, projectionKey, () => ({ ...message, cursor: null, baseVersion: 0 }));
+            const compressed = await stateBootstrapCache.get(currentVersion, projectionKey, () => {
+              const payload = { ...message, cursor: null, baseVersion: 0 };
+              return encoder ? encoder.encode(payload) : payload;
+            });
             if (res.destroyed || res.writableEnded) return;
             send(res, 200, "application/json; charset=utf-8", compressed, {
               "Content-Encoding": "gzip", "Vary": "Accept-Encoding",
@@ -10847,5 +10871,5 @@ server.listen(PORT, HOST, () => {
   console.log(`Distribuidora Lopez SERVIDOR_UNICO_8790 ${APP_RUNTIME_VERSION} listening on ${HOST}:${PORT}`);
 });
 
-server.keepAliveTimeout = Math.max(5000, Number(process.env.DL_HTTP_KEEP_ALIVE_TIMEOUT_MS || 10000));
-server.headersTimeout = Math.max(server.keepAliveTimeout + 1000, Number(process.env.DL_HTTP_HEADERS_TIMEOUT_MS || 15000));
+server.keepAliveTimeout = connectionPolicy.keepAliveTimeout;
+server.headersTimeout = connectionPolicy.headersTimeout;

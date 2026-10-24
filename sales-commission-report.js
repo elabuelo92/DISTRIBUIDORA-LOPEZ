@@ -116,23 +116,34 @@
         const returnedValue = requested ? lineTotal * returned / requested : 0;
         returns += returnedValue;
         const value = lineTotal - returnedValue;
-        const row = products.get(code || name) || { code, product: name, units: 0, gross: 0 };
+        const row = products.get(code || name) || { code, product: name, units: 0, gross: 0, billed: 0, returns: 0,
+          knownCost: 0, missingCostLines: 0, missingCostUnits: 0 };
         row.units += quantity;
         row.gross += value;
+        row.billed += lineTotal;
+        row.returns += returnedValue;
         products.set(code || name, row);
         const cost = item.unitCostAtSale ?? item.costSnapshot?.unitCost;
         if (quantity > 0 && (cost === undefined || cost === null || String(cost).trim() === "" || typeof cost === "boolean" || !Number.isFinite(Number(cost)) || Number(cost) < 0)) {
           missingCostLines++;
+          row.missingCostLines++;
+          row.missingCostUnits += quantity;
           missingCosts.push({ orderCode: key, date, code, product: name, quantity });
-        } else if (quantity > 0) knownCost += quantity * Number(cost);
+        } else if (quantity > 0) {
+          knownCost += quantity * Number(cost);
+          row.knownCost += quantity * Number(cost);
+        }
       }
     }
     const round = value => Math.round((value + Number.EPSILON) * 100) / 100;
     return { from, to, orders: orderCount, gross: round(gross), returns: round(returns), netSales: round(gross - returns), knownCost: round(knownCost),
       cmv: missingCostLines ? null : round(knownCost), profit: missingCostLines ? null : round(gross - returns - knownCost),
       missingCostLines, missingCosts, invalidDates,
+      unallocatedSales: round(gross - [...products.values()].reduce((sum, row) => sum + row.billed, 0)),
       costRecordingFrom: dateKey(filters.costHistory?.startedAt) ? filters.costHistory.startedAt : null,
-      products: [...products.values()].map(row => ({ ...row, gross: round(row.gross) })).sort((a,b) => a.product.localeCompare(b.product, "es")),
+      products: [...products.values()].map(row => ({ ...row, billed: round(row.billed), returns: round(row.returns),
+        gross: round(row.gross), knownCost: round(row.knownCost), cost: row.missingCostLines ? null : round(row.knownCost),
+        profit: row.missingCostLines ? null : round(row.gross - row.knownCost) })).sort((a,b) => a.product.localeCompare(b.product, "es")),
       sellers: [...sellers.values()].map(row => ({ ...row, gross: round(row.gross) })).sort((a,b) => a.seller.localeCompare(b.seller, "es")) };
   }
 

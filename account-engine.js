@@ -652,7 +652,24 @@
     return { repeated: false, requestId, amount };
   }
 
+  function correctionForTransfer(state, transferId) {
+    const corrections = state.collectionCorrections || [];
+    const direct = corrections.find(c => (c.supersededTransferIds || []).includes(transferId)
+      || (!c.supersededTransferIds && c.original?.transferId === transferId));
+    if (direct) return direct;
+    if (!corrections.some(c => !c.supersededTransferIds)) return null;
+    const record = (state.bankReconciliation || []).find(b => b.id === transferId);
+    return corrections.find(c => !c.supersededTransferIds && record && c.routeId === record.routeId
+      && c.sourceId === `pedido:${record.orderCode}`) || null;
+  }
+
+  function assertTransferNotReplaced(state, transferId) {
+    const correction = correctionForTransfer(state, transferId);
+    if (correction) throw new Error(`Transferencia reemplazada por correccion ${correction.id}. No se puede volver a acreditar ni modificar.`);
+  }
+
   function attachTransferProof(state, transferId, input, context) {
+    assertTransferNotReplaced(state, transferId);
     ensureTransferReconciliation(state);
     const record = state.bankReconciliation.find((item) => item.id === transferId);
     const { repeated, requestId, amount } = checkTransferProof(record, input);
@@ -707,6 +724,7 @@
   }
 
   function applyValidatedTransferToAccount(state, record, context) {
+    assertTransferNotReplaced(state, record.id);
     if (!isTransferDebtOpen(record.status) || record.accountPaymentApplied) return record;
     const amount = positive(record.amount);
     if (amount <= 0) throw new Error("La transferencia no tiene importe valido.");
@@ -748,6 +766,7 @@
   }
 
   function validateTransfer(state, transferId, input, context) {
+    assertTransferNotReplaced(state, transferId);
     ensureTransferReconciliation(state);
     const record = state.bankReconciliation.find((item) => item.id === transferId);
     if (!record) throw new Error("Transferencia no encontrada para conciliacion.");
@@ -814,6 +833,7 @@
   }
 
   function rejectTransferProof(state, transferId, input, context) {
+    assertTransferNotReplaced(state, transferId);
     ensureTransferReconciliation(state);
     const record = state.bankReconciliation.find((item) => item.id === transferId);
     if (!record) throw new Error("Transferencia no encontrada para conciliacion.");
@@ -839,6 +859,7 @@
   }
 
   function setTransferStatus(state, transferId, status, context) {
+    assertTransferNotReplaced(state, transferId);
     ensureTransferReconciliation(state);
     const nextStatus = transferStatus(status);
     const record = state.bankReconciliation.find((item) => item.id === transferId);
@@ -1131,6 +1152,8 @@
     registerPendingTransfer,
     attachTransferProof,
     checkTransferProof,
+    correctionForTransfer,
+    assertTransferNotReplaced,
     validateTransfer,
     rejectTransferProof,
     isTransferDebtOpen,

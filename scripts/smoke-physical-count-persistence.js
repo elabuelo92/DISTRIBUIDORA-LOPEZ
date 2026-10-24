@@ -34,6 +34,7 @@ const start = source.indexOf("async function recordPhysicalStockCount(");
 const end = source.indexOf("\nfunction openPhysicalStockAdjustDialog", start);
 let fail = true, inFlightResolve, requests = [];
 const drafts = new Map(), saving = new Set();
+drafts.set("A", { cutId: "CUT-TEST-001", reference: { id: "REF-TEST", expectedQty: 310 }, rawCount: "", observation: "" });
 const ctx = vm.createContext({
   physicalCountDrafts: drafts, physicalCountSaving: saving, isAdminUser: () => true,
   physicalStockRows: () => [{ code: "A", expected: 310, cutId: "CUT-TEST-001" }],
@@ -60,6 +61,8 @@ vm.runInContext(source.slice(start, end), ctx);
   assert.equal(requests.length, 2);
   assert.equal(requests[0].countId, requests[1].countId);
   assert.equal(requests[0].cutId, "CUT-TEST-001");
+  assert.equal(requests[0].referenceMode, "current");
+  assert.equal(requests[0].referenceId, "REF-TEST");
   assert.equal(drafts.has("A"), true);
   inFlightResolve(); await pending;
   assert.equal(drafts.size, 0); assert.equal(saving.size, 0);

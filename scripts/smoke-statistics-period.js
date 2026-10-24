@@ -42,10 +42,11 @@ assert.ok(start >= 0 && end > start);
 vm.runInContext(app.slice(start, end), context);
 context.exportStatisticsPeriod().then(async () => {
   assert.equal(exported.fileName, "estadisticas-2026-10-12-2026-10-18.xlsx");
-  assert.equal(exported.rows.find(row => row[0] === "Ventas brutas")[3], 400);
-  assert.equal(exported.rows.find(row => row[0] === "CMV")[3], 120);
-  assert.equal(exported.rows.find(row => row[0] === "Ganancia bruta")[3], 280);
-  assert.ok(exported.rows.some(row => row[1] === "Kevin" && typeof row[3] === "number"));
+  const summary = exported.sheets.find(s => s.sheetName === "Resumen");
+  assert.equal(summary.rows.find(row => row[0] === "Ventas brutas")[3], 400);
+  assert.equal(summary.rows.find(row => row[0] === "CMV")[3], 120);
+  assert.equal(summary.rows.find(row => row[0] === "Ganancia bruta")[3], 280);
+  assert.ok(summary.rows.some(row => row[1] === "Kevin" && typeof row[3] === "number"));
   const ExcelJS = require("exceljs");
   const server = fs.readFileSync(path.join(__dirname, "../server.js"), "utf8");
   const a = server.indexOf("async function reportWorkbookBase64(");
@@ -54,7 +55,13 @@ context.exportStatisticsPeriod().then(async () => {
   const render = new Function("ExcelJS", "Buffer", `${server.slice(a,b)}\nreturn reportWorkbookBase64;`)(ExcelJS, Buffer);
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(Buffer.from(await render(JSON.parse(JSON.stringify(exported)), { username: "test" }), "base64"));
-  const sheet = workbook.worksheets[0];
+  assert.equal(workbook.worksheets.length, 2);
+  const products = workbook.getWorksheet("Productos");
+  assert.equal(products.getCell("G4").value, 120);
+  assert.equal(products.getCell("H4").value, 280);
+  assert.equal(products.getCell("H4").type, ExcelJS.ValueType.Number);
+  assert.equal(products.getCell("H4").numFmt, "#,##0.00");
+  const sheet = workbook.getWorksheet("Resumen");
   const expected = new Map([["Ventas brutas",400],["CMV",120],["Ganancia bruta",280]]);
   sheet.eachRow(row => {
     if (!expected.has(row.getCell(1).value)) return;

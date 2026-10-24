@@ -537,7 +537,16 @@
   function normalizeOrderCommissions(state, order) {
     const options = { includeDriver: DRIVER_COMMISSION_STATUSES.has(order.status) };
     const stored = order.commissions && typeof order.commissions === "object" ? order.commissions : null;
-    if (!stored || CANCELLED_COMMISSION_STATUSES.has(order.status)) return calculateOrderCommissions(state, order, options);
+    if (!stored) return calculateOrderCommissions(state, order, options);
+    if (CANCELLED_COMMISSION_STATUSES.has(order.status)) {
+      const zeroBlock = block => block && ["baseAmount", "cigarettes", "merchandise", "total"]
+        .every(key => Number(block[key]) === 0) && Array.isArray(block.lines)
+        && block.lines.every(line => line && Number(line.baseAmount) === 0 && Number(line.commission) === 0);
+      const alreadyCancelled = ["cigarettes", "merchandise", "total"].every(key => Number(stored[key]) === 0)
+        && zeroBlock(stored.seller) && zeroBlock(stored.driver);
+      // An unrelated stock receipt must not recalculate an already cancelled snapshot.
+      if (!alreadyCancelled) return calculateOrderCommissions(state, order, options);
+    }
     // Historical values remain authoritative. Calculate only a missing fallback,
     // not every line of both roles on every page load or sync.
     let sellerFallback, driverFallback;
@@ -1948,7 +1957,7 @@
     return { cut, baseline };
   }
 
-  function recordPhysicalCount(state, input, actor) {
+  function recordPhysicalCount(state, input, actor, currentReference = null) {
     const code = String(input.productCode || "").trim();
     const id = String(input.countId || "");
     if (!/^CNT-[a-zA-Z0-9-]{8,100}$/.test(id)) throw new Error("Identificador de conteo invalido.");
@@ -1963,15 +1972,26 @@
     if (existing) {
       if (existing.productCode !== code || existing.countedQty !== quantity || existing.observation !== observation
         || existing.expectedQty !== input.expectedQty || (existing.cutId || "") !== (input.cutId || "")
+        || (existing.referenceMode || "cut") !== (input.referenceMode || "cut")
+        || (existing.referenceId || "") !== (input.referenceId || "")
         || !existing.serverRecorded) throw new Error("El identificador ya pertenece a otro conteo.");
       return { product, count: existing, replayed: true };
     }
     const before = inventory({ ...product });
     if (!input.cutId && activePhysicalStockCut(state)) throw new Error("Hay un corte abierto. Actualizar y registrar el conteo dentro de ese corte.");
-    const reference = input.cutId ? physicalCountCut(state, input.cutId, code).baseline : before;
+    const baseline = input.cutId ? physicalCountCut(state, input.cutId, code).baseline : before;
+    if (input.referenceMode && !["current", "cut"].includes(input.referenceMode)) throw new Error("Referencia de conteo invalida.");
+    if (input.referenceMode === "current" && (!input.cutId || !currentReference
+      || currentReference.id !== input.referenceId || currentReference.productCode !== code
+      || currentReference.cutId !== input.cutId || currentReference.expectedQty !== before.physical)) {
+      throw new Error("Comenzar el conteo del producto antes de guardar.");
+    }
+    const reference = input.referenceMode === "current" ? before : baseline;
     if (typeof input.expectedQty !== "number" || input.expectedQty !== reference.physical) throw new Error("El stock cambio. Revisar el stock actual antes de guardar el conteo.");
     const count = { id, at: nowIso(), productCode: code, productName: productName(product),
       ...(input.cutId ? { cutId: input.cutId, liveQtyAtCount: before.physical } : {}),
+      ...(input.referenceMode === "current" ? { referenceMode: "current", referenceId: currentReference.id,
+        startedAt: currentReference.startedAt, cutExpectedQty: baseline.physical } : {}),
       expectedQty: reference.physical, countedQty: quantity, difference: quantity - reference.physical,
       differencePercent: reference.physical ? (quantity - reference.physical) / reference.physical * 100 : 0,
       availableQty: reference.available, reservedQty: reference.reserved, observation,
@@ -1996,12 +2016,12 @@
     let nextStock = quantity;
     if (count.cutId) {
       const { baseline } = physicalCountCut(state, count.cutId, code);
-      if (count.expectedQty !== baseline.physical) throw new Error("El conteo no coincide con la referencia del corte.");
+      if (count.referenceMode !== "current" && count.expectedQty !== baseline.physical) throw new Error("El conteo no coincide con la referencia del corte.");
       const latest = (state.physicalStockCounts || []).find(entry => entry.cutId === count.cutId && entry.productCode === code);
       if (latest?.id !== count.id) throw new Error("Existe un conteo mas reciente para este producto. Actualizar antes de ajustar.");
       if (input.expectedCurrentQty !== before.physical) throw new Error("El stock actual cambio. Revisar la vista previa antes de autorizar.");
       // Apply only the discrepancy; preserve dispatches/receipts after the frozen cut.
-      nextStock = before.physical + quantity - baseline.physical;
+      nextStock = before.physical + quantity - count.expectedQty;
     } else {
       if (activePhysicalStockCut(state)) throw new Error("Hay un corte abierto. No se puede aplicar un conteo anterior.");
       if (Number(count.expectedQty) !== before.physical) throw new Error("El stock cambio desde el conteo. Registrar un nuevo conteo antes de ajustar.");
@@ -2011,8 +2031,12 @@
     const at = nowIso();
     const adjustment = { id: `ADJ-${count.id}`, at, productCode: code, productName: productName(product),
       previousStock: before.physical, newStock: nextStock, reason, user: actor || "Administracion", countId: count.id,
-      ...(count.cutId ? { cutId: count.cutId, expectedAtCut: count.expectedQty, countedAtCut: quantity,
-        difference: quantity - count.expectedQty, movementsSinceCut: before.physical - count.expectedQty } : {}) };
+      ...(count.cutId ? { cutId: count.cutId, referenceMode: count.referenceMode || "cut",
+        ...(count.referenceMode === "current" ? { expectedAtCount: count.expectedQty, countedNow: quantity,
+          expectedAtCut: count.cutExpectedQty, countStartedAt: count.startedAt } : { expectedAtCut: count.expectedQty, countedAtCut: quantity }),
+        difference: quantity - count.expectedQty,
+        ...(count.referenceMode === "current" ? { movementsSinceCount: before.physical - count.expectedQty }
+          : { movementsSinceCut: before.physical - count.expectedQty }) } : {}) };
     product.stock_fisico = nextStock;
     refreshProductInventory(product);
     state.physicalStockAdjustments = state.physicalStockAdjustments || [];

@@ -64,13 +64,23 @@ echo __MEMORY__; free -h
     print(out)
 
 
-def deploy(client, version, allow_operational_archive=False, recover_price_incident=False):
+def deploy(client, version, allow_operational_archive=False, recover_price_incident=False, expected_commit=None):
+    if version == "8790-187":
+        if not expected_commit or len(expected_commit) != 40 or any(c not in "0123456789abcdef" for c in expected_commit):
+            raise ValueError("Release 187 requires the exact reviewed commit")
+        if allow_operational_archive or recover_price_incident:
+            raise ValueError("Release 187 cannot modify business data")
     version_q = shlex.quote(version)
     archive_review = "1" if allow_operational_archive else "0"
     price_recovery = "1" if recover_price_incident else "0"
     command = rf"""
 set -euo pipefail
 cd {APP_DIR}
+if [ "{version}" = "8790-187" ]; then
+  test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-10-24"
+  test "$(git rev-parse HEAD)" = "ed19fb0c21793b5d2562e85b0748ecf520998a71"
+  test "$(sudo sed -n 's/^DL_MAX_FULL_STATE_RESPONSES=//p' /etc/distribuidora-lopez.env)" = "1"
+fi
 if [ ! -d .git ]; then echo 'ERROR: APP_NOT_GIT'; exit 31; fi
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then echo 'ERROR: REMOTE_TRACKED_WORKTREE_DIRTY'; git status --short; exit 32; fi
 OLD_COMMIT="$(git rev-parse HEAD)"
@@ -96,6 +106,7 @@ disable_maintenance() {{
 }}
 
 git fetch origin main
+if [ "{version}" = "8790-187" ]; then test "$(git rev-parse origin/main)" = "{expected_commit}"; fi
 if ! git merge-base --is-ancestor "$OLD_COMMIT" origin/main; then echo 'ERROR: REMOTE_BRANCH_NOT_FAST_FORWARD'; exit 35; fi
 if ! git diff --quiet "$OLD_COMMIT" origin/main -- package.json package-lock.json; then echo 'ERROR: DEPENDENCIES_CHANGED_REQUIRE_SEPARATE_REVIEW'; exit 36; fi
 git show origin/main:scripts/order-dispatch-snapshot.js > /tmp/dl-order-dispatch-snapshot.js
@@ -114,7 +125,11 @@ if [ -n "$DESTRUCTIVE_DIFF" ]; then
 fi
 
 enable_maintenance
-sudo tar -C /opt/distribuidora-lopez -czf "$BACKUP_DIR/app.tar.gz" app
+if ! sudo tar -C /opt/distribuidora-lopez -czf "$BACKUP_DIR/app.tar.gz" app || ! sudo gzip -t "$BACKUP_DIR/app.tar.gz"; then
+  disable_maintenance
+  echo 'ERROR: APP_BACKUP_FAILED'
+  exit 33
+fi
 sudo systemctl stop {SERVICE}
 if ! sudo tar -C /opt/distribuidora-lopez -czf "$BACKUP_DIR/data.tar.gz" data || ! sudo gzip -t "$BACKUP_DIR/data.tar.gz"; then
   sudo systemctl start {SERVICE}
@@ -130,6 +145,7 @@ echo "BACKUP=$BACKUP_DIR"
 echo "ORDER_SNAPSHOT_BEFORE=$BACKUP_DIR/orders-today-before.json"
 
 rollback_deploy() {{
+  trap - ERR
   ROLLBACK_CODE="$1"
   ROLLBACK_REASON="$2"
   echo "ROLLBACK=$ROLLBACK_REASON"
@@ -150,6 +166,7 @@ rollback_deploy() {{
   exit "$ROLLBACK_CODE"
 }}
 
+if [ "{version}" = "8790-187" ]; then trap 'rollback_deploy 46 UNEXPECTED_DEPLOY_FAILURE' ERR; fi
 git switch main
 git merge --ff-only origin/main
 node --check server.js
@@ -197,7 +214,19 @@ if [ "{version}" = "8790-167" ] || [ "{version}" = "8790-168" ] || [ "{version}"
   done
 fi
 sudo chown -R {USER}:{USER} "$BACKUP_DIR"
+if [ "{version}" = "8790-187" ]; then
+  for DATA_NAME in demo-state.json users.json; do
+    BEFORE_HASH="$(sudo tar -xOzf "$BACKUP_DIR/data.tar.gz" "data/$DATA_NAME" | sha256sum | cut -d' ' -f1)"
+    AFTER_HASH="$(sudo sha256sum "{DATA_DIR}/$DATA_NAME" | cut -d' ' -f1)"
+    if [ "$BEFORE_HASH" != "$AFTER_HASH" ]; then rollback_deploy 44 'FULL_DATA_INTEGRITY_COMPARISON_FAILED'; fi
+    echo "FULL_DATA_IDENTICAL=$DATA_NAME:$AFTER_HASH"
+  done
+  if ! jq -e '.ok == true and .version == "{version}" and .stateSync.maxConcurrent == 1 and .security.integrity.ok == true and .security.license.ok == true' /tmp/dl-health.json >/dev/null; then
+    rollback_deploy 45 'RELEASE_HEALTH_FAILED'
+  fi
+fi
 disable_maintenance
+trap - ERR
 echo __DEPLOYED_COMMIT__; git rev-parse --short HEAD
 echo __BACKUP__; echo "$BACKUP_DIR"
 echo __ORDER_PROTECTION__; cat "$BACKUP_DIR/orders-today-comparison.json"; echo
@@ -213,6 +242,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=["inspect", "deploy"])
     parser.add_argument("--version", default="8790-127")
+    parser.add_argument("--expected-commit")
     parser.add_argument("--allow-operational-archive", action="store_true")
     parser.add_argument("--recover-price-incident", action="store_true", help="Restore reviewed 20260928 incident while ERP is stopped")
     args = parser.parse_args()
@@ -221,7 +251,7 @@ def main():
         if args.action == "inspect":
             inspect(client)
         else:
-            deploy(client, args.version, args.allow_operational_archive, args.recover_price_incident)
+            deploy(client, args.version, args.allow_operational_archive, args.recover_price_incident, args.expected_commit)
     finally:
         client.close()
 

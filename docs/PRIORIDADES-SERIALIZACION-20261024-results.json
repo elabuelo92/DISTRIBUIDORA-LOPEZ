@@ -1,0 +1,54 @@
+{
+  "results": [
+    {
+      "streamed": false,
+      "fingerprintsMs": 1462,
+      "totalMs": 3491,
+      "compressedBytes": 11337683,
+      "rssMiB": 304,
+      "heapMiB": 112
+    },
+    {
+      "streamed": true,
+      "fingerprintsMs": 2253,
+      "totalMs": 3040,
+      "compressedBytes": 11337682,
+      "rssMiB": 384,
+      "heapMiB": 214
+    },
+    {
+      "streamed": true,
+      "fingerprintsMs": 2058,
+      "totalMs": 2836,
+      "compressedBytes": 11337682,
+      "rssMiB": 383,
+      "heapMiB": 214
+    },
+    {
+      "streamed": false,
+      "fingerprintsMs": 1967,
+      "totalMs": 4447,
+      "compressedBytes": 11337683,
+      "rssMiB": 445,
+      "heapMiB": 213
+    },
+    {
+      "streamed": false,
+      "fingerprintsMs": 1838,
+      "totalMs": 3940,
+      "compressedBytes": 11337683,
+      "rssMiB": 536,
+      "heapMiB": 212
+    },
+    {
+      "streamed": true,
+      "fingerprintsMs": 2119,
+      "totalMs": 2776,
+      "compressedBytes": 11337682,
+      "rssMiB": 387,
+      "heapMiB": 214
+    }
+  ],
+  "sourceUnchanged": true,
+  "exactState": true
+}

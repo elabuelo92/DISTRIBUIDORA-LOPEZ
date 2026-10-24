@@ -29,7 +29,20 @@ const suites = [
 if (process.argv.some(arg => ["--p9", "--p10", "--p11"].includes(arg))) suites.push(["P9-core", "smoke-p9-corrections.js"], ["P9-http", "smoke-p9-http.js"], ["P9-ui", "smoke-p9-ui.js"]);
 if (process.argv.some(arg => ["--p10", "--p11"].includes(arg))) suites.push(["P10-core", "smoke-p10-cancellation.js"], ["P10-http", "smoke-p10-http.js"]);
 if (process.argv.includes("--p11")) suites.push(["P11-display", "smoke-p11-display.js"], ["P11-invoice", "smoke-invoice-net-price.js"], ["P11-100-orders", "smoke-delivery-planning-100-v133.js"]);
+if (process.argv.includes("--prioridades")) suites.push(
+  ["Conteo actual", "smoke-stock-current-count.js"], ["Corte historico", "smoke-stock-cut.js"],
+  ["Cobranza pendiente", "smoke-pending-collection-correction.js"], ["Efectivo rutas", "smoke-delivery-cash-overview.js"],
+  ["Estadisticas producto", "smoke-product-statistics.js"], ["Comisiones estables", "smoke-commission-normalization-stability.js"],
+  ["Comisiones aisladas", "smoke-commission-product-isolation.js"], ["Exportaciones tabulares", "smoke-tabular-exports.js"],
+  ["Exportaciones legibles", "smoke-readable-exports.js"], ["Reporte ventas", "smoke-sales-commission-report-v139.js"]);
 const results = [];
+if (process.argv.includes("--sync")) suites.push(
+  ["Sync registros", "smoke-state-record-sync.js"], ["Sync pestanas", "smoke-record-sync-tabs.js"],
+  ["Bootstrap exacto", "smoke-bootstrap-cache.js"], ["Sync cliente", "smoke-record-sync-client.js"],
+  ["Sync compacto", "smoke-compact-sync-version.js"], ["Sync espera", "smoke-sync-backoff.js"],
+  ["Sync saturacion", "smoke-state-sync-backpressure.js"], ["Conexion inactiva", "smoke-connection-idle.js"],
+  ["Sesiones", "smoke-session-stability-v144.js"], ["Cache versionada", "smoke-cache-update-v126.js"],
+  ["Primera instalacion", "smoke-first-install-worker.js"]);
 for (const [scope, file, ...args] of suites) {
   const start = Date.now();
   const run = spawnSync(process.execPath, [path.join(__dirname, file), ...args], {

@@ -51,7 +51,8 @@ assert.deepEqual(commit(validated).state.bankReconciliation, validated.bankRecon
 const newBank = commit(validated, { cashAmount: 0, transferAmount: 800, proofHash: "proof2", reference: "OP2", bank: "Banco", attachment: { url: "/proof2.png" } });
 assert.deepEqual(newBank.state.bankReconciliation.find(b => b.id === "B1"), validated.bankReconciliation[0], "original bank immutable");
 validated.bankReconciliation[0].accountPaymentApplied = false;
-assert.throws(() => commit(validated), /pendientes/);
+validated.clients[0].balance = 1000;
+assert.equal(commit(validated).state.clients[0].balance, 500, "pending transfer is not reversed as paid");
 validated.bankReconciliation[0].accountPaymentApplied = true; validated.bankReconciliation[0].supplierPaymentId = "SUP1";
 assert.throws(() => commit(validated), /trianguladas/);
 const visit = fixture(); visit.deliveryRoutes[0].stops = [];

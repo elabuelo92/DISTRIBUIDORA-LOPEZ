@@ -4111,6 +4111,7 @@ function renderDashboardView() {
     renderDashboardInsights(dashboard);
     renderFlow(dashboard);
   } else if (selected === "alerts") renderAlerts();
+  else if (selected === "cash") renderDashboardCash();
   else if (selected === "activity") renderActivity();
   else if (selected === "commissions") renderCommissions();
   else if (selected === "map") renderDashboardPresence();
@@ -4454,6 +4455,7 @@ function buildOperationalDashboard() {
   const debtClients = accountSummaries.filter((summary) => numeric(summary.currentBalance, 0) > 0);
   const overLimitClients = accountSummaries.filter((summary) => numeric(summary.overLimitAmount, 0) > 0 || summary.status === "Sobre limite");
   const pendingTransfers = (state.bankReconciliation || []).filter((record) => {
+    if (AccountEngine.correctionForTransfer(state, record.id)) return false;
     const status = normalizeTransferStatus(record.status, record.attachment);
     return !TRANSFER_FINAL_STATUSES.has(status);
   });
@@ -4496,9 +4498,11 @@ function buildOperationalDashboard() {
 
 function renderMetrics() {
   const dashboard = buildOperationalDashboard();
+  const cash = DeliveryEngine.cashOverview(state);
   const metrics = [
     { tone: "ok", label: "Total vendido hoy", value: money.format(dashboard.dailySales), hint: `${dashboard.todayOrders.length} pedidos ingresados hoy` },
     { tone: "ok", label: "Cobrado neto hoy", value: money.format(dashboard.collectedToday), hint: "Cobros menos reversos administrativos" },
+    { tone: "ok", label: "Efectivo en rutas abiertas", value: money.format(cash.openCash), hint: `${cash.openRoutes} rutas. Efectivo registrado, sin transferencias.` },
     { tone: "warn", label: "Total pendiente", value: money.format(dashboard.totalPending), hint: "Saldo de clientes mas pedidos expuestos" },
     { tone: dashboard.pendingTransfers.length ? "danger" : "ok", label: "Transferencias a validar", value: dashboard.pendingTransfers.length, hint: money.format(dashboard.pendingTransferAmount) }
   ];
@@ -4510,6 +4514,19 @@ function renderMetrics() {
       <small>${escapeHtml(metric.hint)}</small>
     </article>
   `).join("");
+}
+
+function renderDashboardCash() {
+  const report = DeliveryEngine.cashOverview(state);
+  byId("dashboardCashSummary").innerHTML = [["Efectivo cobrado", report.cash], ["Gastos registrados", report.expenses], ["Correcciones", report.corrections], ["Efectivo esperado", report.expected]]
+    .map(([label, value]) => `<div class="session-kpi"><span>${label}</span><strong>${money.format(value)}</strong></div>`).join("");
+  byId("dashboardCashRows").innerHTML = report.rows.map(row => `<tr>
+    <td><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.driver)} / ${escapeHtml(row.day)}</small></td>
+    <td>${row.closed ? "Cerrada hoy" : "Abierta"}</td>
+    <td>${money.format(row.cash)}</td><td>${money.format(row.expenses)}</td>
+    <td>${money.format(row.correction)}</td><td><strong>${money.format(row.expected)}</strong></td>
+    <td>${row.declared === null ? "Sin cierre" : money.format(row.declared)}</td></tr>`).join("")
+    || '<tr><td colspan="7">Sin rutas abiertas ni cierres de hoy.</td></tr>';
 }
 
 function renderDashboardInsights(dashboard = buildOperationalDashboard()) {
@@ -9234,6 +9251,7 @@ function renderDashboardWorkspace() {
   const root = byId("dashboard");
   if (!root) return;
   renderOperationalWorkspace("dashboard", root, "Mi operacion", [
+    { id: "cash", title: "Efectivo de reparto", icon: "wallet", summary: "Cobrado, gastos y efectivo esperado por ruta", allowed: isAdminUser(), selectors: ["#dashboardCashPanel"] },
     { id: "operation", title: "Estado de pedidos", icon: "clipboard-list", summary: "Del ingreso al cierre de la entrega", selectors: ["#dashboardInsights", markWorkspacePanel("flowGrid", "homeFlowPanel")] },
     { id: "alerts", title: "Atencion pendiente", icon: "triangle-alert", summary: "Demoras y alertas de la operacion", selectors: [markWorkspacePanel("alertsList", "homeAlertsPanel")] },
     { id: "map", title: "Equipo en vivo", icon: "map-pinned", summary: "Ubicacion de vendedores y repartidores", allowed: isAdminUser(), selectors: [markWorkspacePanel("dashboardLivePresenceMap", "homeMapPanel")] },
@@ -10902,6 +10920,7 @@ function normalizeTransferStatus(status, hasAttachment = false) {
 }
 
 function transferTrafficLight(record) {
+  if (record.id && AccountEngine.correctionForTransfer(state, record.id)) return { key: "corrected", tone: "info", dot: "", label: "Reemplazada", text: "Correccion administrativa vinculada. Sin nueva acreditacion." };
   const status = normalizeTransferStatus(record.status, record.attachment);
   if (status === TRANSFER_STATUS.OBSERVED) {
     return { key: "critical", tone: "danger", dot: "critical", label: "Observada", text: "Comprobante observado. La deuda sigue pendiente." };
@@ -10923,7 +10942,7 @@ function transferSummaryCounts(records) {
   return records.reduce((acc, record) => {
     const light = transferTrafficLight(record);
     acc[light.key] = (acc[light.key] || 0) + 1;
-    if (light.key !== "green") acc.pendingAmount += numeric(record.amount, 0);
+    if (!["green", "corrected"].includes(light.key)) acc.pendingAmount += numeric(record.amount, 0);
     return acc;
   }, { red: 0, yellow: 0, green: 0, critical: 0, pendingAmount: 0 });
 }
@@ -10990,7 +11009,7 @@ function transferMatchesFilters(record, globalTerms, localTerms) {
 }
 
 function selectedBankTransfers() {
-  return (state.bankReconciliation || []).filter((record) => selectedTransferIds.has(record.id));
+  return (state.bankReconciliation || []).filter((record) => selectedTransferIds.has(record.id) && !AccountEngine.correctionForTransfer(state, record.id));
 }
 
 function setBankBulkStatus(text, tone = "info") {
@@ -11200,17 +11219,18 @@ function renderBankReconciliationList(globalTerms, localTerms) {
     list.innerHTML = records.slice(0, 80).map((record) => {
       const light = transferTrafficLight(record);
       const status = normalizeTransferStatus(record.status, record.attachment);
-      const isFinal = TRANSFER_FINAL_STATUSES.has(status);
+      const corrected = light.key === "corrected";
+      const isFinal = corrected || TRANSFER_FINAL_STATUSES.has(status);
       const attachment = record.attachment && record.attachment.url
         ? `<a class="mini-btn" href="${escapeHtml(record.attachment.url)}" target="_blank" rel="noopener">Ver comprobante</a>`
         : "";
-      const validatedInfo = isFinal
+      const validatedInfo = isFinal && !corrected
         ? `<p>Validada por ${escapeHtml(record.validatedBy || record.accountUpdatedBy || "Administracion")} - ${escapeHtml(formatOrderTime(record.validatedAt || record.accountUpdatedAt || ""))} - Banco ${escapeHtml(record.validationBank || record.bank || "S/D")} - Op. ${escapeHtml(record.operationNumber || "S/D")}</p>`
         : "";
       return `
         <article class="alert bank-transfer-card ${light.key}">
           <div class="bank-transfer-head">
-            <input type="checkbox" data-transfer-select="${escapeHtml(record.id)}" aria-label="Seleccionar ${escapeHtml(record.orderCode || record.id)}" ${selectedTransferIds.has(record.id) ? "checked" : ""}>
+            <input type="checkbox" data-transfer-select="${escapeHtml(record.id)}" aria-label="Seleccionar ${escapeHtml(record.orderCode || record.id)}" ${corrected ? "disabled" : ""} ${selectedTransferIds.has(record.id) ? "checked" : ""}>
             <span class="traffic-dot ${light.dot}" aria-hidden="true"></span>
             <span class="tag ${light.tone}">${escapeHtml(light.label)}</span>
             <strong>${escapeHtml(record.orderCode || "Sin pedido")} - ${escapeHtml(record.client || "Sin cliente")}</strong>
@@ -12224,7 +12244,7 @@ function renderAccounts() {
   }
   const summaries = AccountEngine.accountSummaries(state).filter((summary) => summary.ok);
   const balanceFilter = byId("accountsBalanceFilter")?.value || "all";
-  const clientsWithProof = new Set((state.bankReconciliation || []).filter((record) => record.attachment && !record.accountPaymentApplied && !TRANSFER_FINAL_STATUSES.has(normalizeTransferStatus(record.status, true))).map((record) => record.client));
+  const clientsWithProof = new Set((state.bankReconciliation || []).filter((record) => record.attachment && !record.accountPaymentApplied && !AccountEngine.correctionForTransfer(state, record.id) && !TRANSFER_FINAL_STATUSES.has(normalizeTransferStatus(record.status, true))).map((record) => record.client));
   accountStatusFilter = updateDynamicFilter("accountsStatusFilter", summaries.map((summary) => summary.status), accountStatusFilter, "Todos los estados");
   const filteredSummaries = summaries.filter((summary) => {
     if (balanceFilter === "pending" && summary.currentBalance <= 0) return false;
@@ -14581,7 +14601,7 @@ function physicalStockRow(product, traceIndex, context) {
   const cut = context?.cut || OrderEngine.activePhysicalStockCut(state);
   const baseline = context ? context.baselines.get(productInventoryKey(product)) : cut?.products.find(row => row.productCode === productInventoryKey(product));
   const count = context ? context.counts.get(productInventoryKey(product)) : lastPhysicalStockCount(product, cut?.id);
-  const expected = baseline?.physical ?? count?.expectedQty ?? inventory.physical;
+  const expected = count?.referenceMode === "current" ? count.expectedQty : baseline?.physical ?? count?.expectedQty ?? inventory.physical;
   const counted = count ? numeric(count.countedQty, 0) : null;
   const difference = count ? counted - expected : null;
   const differencePercent = count && expected ? (difference / expected) * 100 : 0;
@@ -14691,9 +14711,9 @@ function renderPhysicalStockControl() {
   if (!kpis || !table) return;
   const cut = OrderEngine.activePhysicalStockCut(state);
   physicalStockCountMode = Boolean(cut);
-  byId("startPhysicalStockCountBtn").textContent = cut ? "Cerrar corte" : "Iniciar corte de stock";
+  byId("startPhysicalStockCountBtn").textContent = cut ? "Finalizar inventario" : "Iniciar inventario";
   const cutStatus = byId("physicalStockCutStatus");
-  if (cutStatus) cutStatus.textContent = cut ? `Corte ${cut.id} - ${formatOrderTime(cut.at)} - ${cut.user}. Cantidades al corte; operacion actual en columna separada.` : "Sin corte abierto. Existencias actuales.";
+  if (cutStatus) cutStatus.textContent = cut ? `Inventario abierto - ${formatOrderTime(cut.at)} - ${cut.user}. Corte ${cut.id}` : "Sin inventario abierto. Existencias actuales.";
   const staleDrafts = [...physicalCountDrafts.keys()].filter(code => physicalStockDraftIsStale(code, cut?.id || ""));
   byId("discardPhysicalStockDraftsBtn").hidden = staleDrafts.length === 0;
   if (staleDrafts.length && cutStatus) cutStatus.textContent += ` ${staleDrafts.length} borradores pertenecen a otro corte; no se aplicaran.`;
@@ -14719,7 +14739,12 @@ function renderPhysicalStockControl() {
     return acc;
   }, { available: 0, physical: 0, reserved: 0, preparing: 0, assembled: 0, readyDispatch: 0, counted: 0, differences: 0 });
 
-  kpis.innerHTML = [
+  kpis.innerHTML = (cut ? [
+    { label: "Productos del inventario", value: allRows.length, hint: "Todos los productos del corte" },
+    { label: "Contados", value: totals.counted, hint: `${allRows.length - totals.counted} por contar` },
+    { label: "Diferencias pendientes", value: allRows.filter(row => row.count && row.difference !== 0 && !row.adjustment).length, hint: "Requieren autorizacion" },
+    { label: "Ajustes aplicados", value: allRows.filter(row => row.adjustment).length, hint: "Diferencias ya registradas" }
+  ] : [
     { label: cut ? "Disponible al corte" : "Stock disponible", value: totals.available, hint: cut ? "Referencia fija" : "Vendible hoy sin sobreventa" },
     { label: cut ? "Fisico al corte" : "Stock fisico", value: totals.physical, hint: "Disponible + no despachado" },
     { label: "Mercaderia comprometida", value: totals.reserved, hint: "Pedidos antes de despacho" },
@@ -14727,7 +14752,7 @@ function renderPhysicalStockControl() {
     { label: "Armados", value: totals.assembled, hint: "Preparados fisicamente" },
     { label: "Listos despacho", value: totals.readyDispatch, hint: "Aun dentro del deposito" },
     { label: "Diferencias", value: totals.differences, hint: `${totals.counted} productos contados` }
-  ].map((item) => `
+  ]).map((item) => `
     <article class="analytics-kpi">
       <span>${escapeHtml(item.label)}</span>
       <strong>${escapeHtml(item.value)}</strong>
@@ -14737,31 +14762,30 @@ function renderPhysicalStockControl() {
 
   table.innerHTML = rows.length ? rows.map((row) => `
     <tr data-physical-product="${escapeHtml(row.code)}">
-      <td><strong>${escapeHtml(row.code || "S/C")}</strong><small>${escapeHtml(row.product.codigo_barras || "")}</small></td>
-      <td><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(`${row.rubric} - ${row.brand} - ${row.supplier}`)}</small></td>
-      <td><strong>${row.available}</strong></td>
-      <td>${row.committed}</td>
-      <td>${row.preparing}</td>
-      <td>${row.assembled}</td>
-      <td>${row.labeled}</td>
-      <td>${row.readyDispatch}</td>
-      <td><strong>${row.physical}</strong>${row.count ? `<small>Referencia del conteo ${row.expected}</small>` : ""}</td>
-      <td><strong>${row.currentPhysical}</strong><small>Reservado actual ${row.currentReserved}</small></td>
+      <td><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.code || "S/C")} - ${escapeHtml(row.supplier)}</small></td>
+      <td><strong>${row.physical}</strong></td>
+      <td><strong>${row.currentPhysical}</strong><small>Reservado ${row.currentReserved} / Disponible ${Math.max(0, row.currentPhysical - row.currentReserved)}</small></td>
       <td>
-        ${physicalStockCountMode && !row.adjustment && !physicalStockDraftIsStale(row.code, row.cutId) ? `
+        ${physicalStockCountMode && !row.adjustment && !physicalStockDraftIsStale(row.code, row.cutId) && physicalCountDrafts.get(row.code)?.reference ? `
           <div class="count-inline">
-            <input type="number" min="0" step="1" value="${escapeHtml(physicalCountDrafts.get(row.code)?.rawCount ?? row.counted ?? "")}" placeholder="Conteo al corte" aria-label="Conteo al corte" data-physical-count="${escapeHtml(row.code)}" ${physicalCountSaving.has(row.code) ? "disabled" : ""}>
+            <small>Referencia ${physicalCountDrafts.get(row.code).reference.expectedQty} - ${escapeHtml(formatOrderTime(physicalCountDrafts.get(row.code).reference.startedAt))}</small>
+            <input type="number" min="0" step="1" value="${escapeHtml(physicalCountDrafts.get(row.code)?.rawCount ?? "")}" placeholder="Contado ahora" aria-label="Contado ahora" data-physical-count="${escapeHtml(row.code)}" ${physicalCountSaving.has(row.code) ? "disabled" : ""}>
             <input type="text" value="${escapeHtml(physicalCountDrafts.get(row.code)?.observation ?? row.count?.observation ?? "")}" placeholder="Observacion" data-physical-note="${escapeHtml(row.code)}" ${physicalCountSaving.has(row.code) ? "disabled" : ""}>
-            <button class="mini-btn" type="button" data-save-physical-count="${escapeHtml(row.code)}" ${physicalCountSaving.has(row.code) ? "disabled" : ""}>${physicalCountSaving.has(row.code) ? "Guardando..." : "Guardar"}</button>
+            <button class="mini-btn" type="button" data-save-physical-count="${escapeHtml(row.code)}" ${physicalCountSaving.has(row.code) ? "disabled" : ""}>${physicalCountSaving.has(row.code) ? "Guardando..." : "Guardar conteo"}</button>
+            <button class="mini-btn" type="button" data-cancel-physical-count="${escapeHtml(row.code)}" ${physicalCountSaving.has(row.code) ? "disabled" : ""}>Cancelar</button>
           </div>
-        ` : physicalStockDraftIsStale(row.code, row.cutId) ? '<span class="tag warn">Borrador de otro corte</span>' : formatPhysicalDifference(row)}
+        ` : physicalStockDraftIsStale(row.code, row.cutId) ? '<span class="tag warn">Borrador de otro corte</span>' : `
+          <strong>${row.counted ?? "Sin contar"}</strong>${row.count ? `<small>${row.count.referenceMode === "current" ? "Contado ahora" : "Conteo historico al corte"}</small>` : ""}
+          ${physicalCountDrafts.has(row.code) ? `<small class="danger-text">Conteo no guardado: ${escapeHtml(physicalCountDrafts.get(row.code).rawCount)}. Referencia vencida o modificada.</small><button class="mini-btn" type="button" data-cancel-physical-count="${escapeHtml(row.code)}">Descartar borrador</button>` : ""}
+          ${physicalStockCountMode && !row.adjustment ? `<button class="mini-btn" type="button" data-begin-physical-count="${escapeHtml(row.code)}" ${physicalCountSaving.has(row.code) ? "disabled" : ""}>${row.count ? "Volver a contar" : "Comenzar conteo"}</button>` : ""}`}
       </td>
+      <td>${formatPhysicalDifference(row)}${row.adjustment ? `<small>Aplicado: ${row.adjustment.previousStock} a ${row.adjustment.newStock}</small>` : ""}</td>
       <td>
         <button class="mini-btn" type="button" data-view-physical-trace="${escapeHtml(row.code)}">Trazar</button>
         ${row.adjustment ? '<span class="tag ok">Ajustado</span>' : row.count?.serverRecorded && (!row.count.cutId || row.count.cutId === cut?.id) && row.difference !== 0 && !physicalCountDrafts.has(row.code) && !physicalCountSaving.has(row.code) ? `<button class="mini-btn danger-btn" type="button" data-adjust-physical-stock="${escapeHtml(row.code)}">Ajustar</button>` : ""}
       </td>
     </tr>
-  `).join("") : '<tr><td class="stock-empty" colspan="12">No hay productos para los filtros seleccionados.</td></tr>';
+  `).join("") : '<tr><td class="stock-empty" colspan="6">No hay productos para los filtros seleccionados.</td></tr>';
 
   renderPhysicalStockTrace(rows[0] || null);
 }
@@ -14823,7 +14847,7 @@ async function exportPhysicalStockCsv() {
     window.alert("Solo administracion puede exportar inventario fisico.");
     return;
   }
-  const headers = ["codigo", "producto", "rubro", "marca", "proveedor", "deposito", "disponible", "comprometida", "preparandose", "armada", "etiquetada", "pendiente_despacho", "fisico_esperado", "conteo", "diferencia", "porcentaje", "usuario_conteo", "fecha_conteo", "corte", "fecha_corte", "stock_actual"];
+  const headers = ["codigo", "producto", "rubro", "marca", "proveedor", "deposito", "disponible", "comprometida", "preparandose", "armada", "etiquetada", "pendiente_despacho", "fisico_esperado", "conteo", "diferencia", "porcentaje", "usuario_conteo", "fecha_conteo", "corte", "fecha_corte", "stock_actual", "tipo_referencia", "inicio_conteo"];
   const cut = OrderEngine.activePhysicalStockCut(state);
   const rows = physicalStockReportRows().map((row) => ({
     codigo: row.code,
@@ -14846,7 +14870,9 @@ async function exportPhysicalStockCsv() {
     fecha_conteo: row.count ? formatOrderTime(row.count.at) : "",
     corte: row.cutId || row.count?.cutId || "",
     fecha_corte: cut ? formatOrderTime(cut.at) : "",
-    stock_actual: row.currentPhysical
+    stock_actual: row.currentPhysical,
+    tipo_referencia: row.count ? (row.count.referenceMode === "current" ? "Al comenzar producto" : "Al corte general") : "Sin conteo",
+    inicio_conteo: row.count?.startedAt ? formatOrderTime(row.count.startedAt) : ""
   }));
   if (physicalStockReportType === "adjustments") {
     const adjustmentHeaders = ["producto", "stock_anterior", "stock_nuevo", "motivo", "usuario", "fecha"];
@@ -14862,7 +14888,7 @@ async function exportPhysicalStockCsv() {
     return;
   }
   await downloadTabularExcel(`control-stock-fisico-${safeFilePart(physicalStockReportType)}-${reportDateStamp()}.xlsx`,
-    ["Codigo", "Producto", "Rubro", "Marca", "Proveedor", "Deposito", "Disponible", "Comprometida", "Preparandose", "Armada", "Etiquetada", "Pendiente despacho", "Referencia fisica", "Conteo al corte", "Diferencia", "Porcentaje", "Usuario conteo", "Fecha conteo", "Corte", "Fecha corte", "Stock actual"],
+    ["Codigo", "Producto", "Rubro", "Marca", "Proveedor", "Deposito", "Disponible", "Comprometida", "Preparandose", "Armada", "Etiquetada", "Pendiente despacho", "Referencia del conteo", "Cantidad contada", "Diferencia", "Porcentaje", "Usuario conteo", "Fecha conteo", "Corte", "Fecha corte", "Stock actual", "Tipo referencia", "Inicio conteo"],
     rows.map((row) => headers.map((key) => key === "porcentaje" && row[key] !== "" ? Number(row[key]) : row[key])));
 }
 
@@ -14879,7 +14905,7 @@ function exportPhysicalStockPdf() {
       `${row.code || "S/C"}\n${row.name}`,
       `Rubro: ${row.rubric}\nMarca: ${row.brand}\nProveedor: ${row.supplier}\nDeposito: ${row.warehouse}`,
       `Disponible: ${row.available}\nComprometida: ${row.committed}\nPreparandose: ${row.preparing}\nArmada: ${row.assembled}\nEtiquetada: ${row.labeled}\nPendiente despacho: ${row.readyDispatch}\nFisico esperado: ${row.expected}`,
-      `Conteo: ${row.counted ?? "Pendiente"}\nDiferencia: ${row.count ? row.difference : "-"}\nPorcentaje: ${row.count ? row.differencePercent.toFixed(2) : "-"}\nUsuario: ${row.count?.user || "-"}\nFecha: ${row.count ? formatOrderTime(row.count.at) : "-"}`
+      `Conteo: ${row.counted ?? "Pendiente"}\nReferencia: ${row.count?.referenceMode === "current" ? "Al comenzar producto" : "Al corte general"}\nInicio: ${row.count?.startedAt ? formatOrderTime(row.count.startedAt) : "-"}\nDiferencia: ${row.count ? row.difference : "-"}\nUsuario: ${row.count?.user || "-"}\nFecha: ${row.count ? formatOrderTime(row.count.at) : "-"}`
     ]);
   downloadBlob(`control-stock-fisico-${safeFilePart(physicalStockReportType)}-${reportDateStamp()}.pdf`, makeTablePdf("Distribuidora Lopez - Control de Stock Fisico", headers, rows, { wrapText: true, fontSize: 10, weights: adjustments ? [2, 1, 1, 3, 2] : [2.2, 2.4, 2.4, 2.4] }));
 }
@@ -14899,8 +14925,8 @@ async function togglePhysicalStockCut() {
   }
   const cut = OrderEngine.activePhysicalStockCut(state);
   if (!physicalStockCutRequest) {
-    if (!window.confirm(cut ? "Cerrar este corte? Los conteos quedaran en el historial."
-      : "Guardar una referencia fija del inventario ahora? El conteo debe corresponder a esa hora. Ventas y repartos seguiran operando.")) return;
+    if (!window.confirm(cut ? "Finalizar este inventario? Los conteos quedaran en el historial."
+      : "Iniciar inventario? Ventas y repartos seguiran operando. Cada producto tendra su referencia al comenzar a contarlo.")) return;
     physicalStockCutRequest = cut ? { action: "closeCut", cutId: cut.id }
       : { action: "startCut", cutId: `CUT-${crypto.randomUUID()}` };
   }
@@ -14915,6 +14941,18 @@ async function togglePhysicalStockCut() {
     button.disabled = false;
     renderPhysicalStockControl();
   }
+}
+
+async function beginPhysicalStockCount(productCode) {
+  if (!isAdminUser() || physicalCountSaving.has(productCode)) return;
+  const cut = OrderEngine.activePhysicalStockCut(state);
+  if (!cut) return;
+  physicalCountSaving.add(productCode);
+  try {
+    const payload = await postOperationalAction("api/stock/entry", { action: "prepareCount", productCode, cutId: cut.id });
+    physicalCountDrafts.set(productCode, { cutId: cut.id, reference: payload.reference, rawCount: "", observation: "" });
+  } catch (error) { window.alert(error.message || "No se pudo comenzar el conteo."); }
+  finally { physicalCountSaving.delete(productCode); renderPhysicalStockControl(); }
 }
 
 async function recordPhysicalStockCount(productCode) {
@@ -14935,10 +14973,12 @@ async function recordPhysicalStockCount(productCode) {
   }
   const observation = String(noteInput && noteInput.value || "").trim();
   const previous = physicalCountDrafts.get(productCode);
+  if (!previous?.reference) { window.alert("Comenzar el conteo del producto antes de guardar."); return; }
   const request = previous?.request && previous.rawCount === rawCount && previous.observation === observation
     ? previous.request : { action: "recordCount", countId: `CNT-${crypto.randomUUID()}`,
-      cutId: row.cutId, productCode: row.code, expectedQty: row.expected, countedQty, observation };
-  physicalCountDrafts.set(productCode, { cutId: row.cutId, rawCount, observation, request });
+      cutId: row.cutId, productCode: row.code, expectedQty: previous.reference.expectedQty, countedQty, observation,
+      referenceMode: "current", referenceId: previous.reference.id };
+  physicalCountDrafts.set(productCode, { ...previous, cutId: row.cutId, rawCount, observation, request });
   physicalCountSaving.add(productCode);
   renderForCurrentUser();
   try {
@@ -14950,6 +14990,7 @@ async function recordPhysicalStockCount(productCode) {
     // Network failures retain the same id so a lost response can be retried safely.
     if (error.status === 400) {
       physicalCountDrafts.get(productCode).request = null;
+      physicalCountDrafts.get(productCode).reference = null;
       await pullStateFromServer();
     }
     window.alert(`${error.message || "No se pudo guardar el conteo."} El borrador se conserva en esta pantalla; no cerrar ni recargar.`);
@@ -17177,9 +17218,10 @@ function renderStatisticsPeriod() {
     byId("statisticsStatus").textContent += report.costRecordingFrom
       ? ` Registro de costos iniciado: ${new Date(report.costRecordingFrom).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })}. Historicos anteriores sin reconstruccion.`
       : " Registro de costos pendiente de la primera carga posterior al corte. Historicos anteriores sin reconstruccion.";
+    if (report.unallocatedSales) byId("statisticsStatus").textContent += ` Importe sin detalle conciliado por producto: ${money.format(report.unallocatedSales)}.`;
     byId("analyticsKpis").innerHTML = [["Ventas brutas", report.gross], ["Devoluciones", report.returns], ["Ventas menos devoluciones", report.netSales], ["Costo de mercaderia vendida (CMV)", report.cmv], ["Ganancia bruta", report.profit]].map(([label,value]) => `<article class="analytics-kpi"><span>${label}</span><strong>${value === null ? "Sin costo historico completo" : money.format(value)}</strong></article>`).join("");
     byId("sellerSalesChart").innerHTML = `<div class="responsive-table"><table><thead><tr><th>Vendedor</th><th>Pedidos</th><th>Importe</th></tr></thead><tbody>${report.sellers.map(row => `<tr><td>${escapeHtml(row.seller)}</td><td>${row.orders}</td><td>${money.format(row.gross)}</td></tr>`).join("")}<tr><th>Total</th><td>${report.orders}</td><td>${money.format(report.gross)}</td></tr></tbody></table></div>`;
-    byId("productConsumptionChart").innerHTML = `<div class="responsive-table"><table><thead><tr><th>Codigo</th><th>Producto</th><th>Unidades</th><th>Importe</th></tr></thead><tbody>${report.products.slice(0, 250).map(row => `<tr><td>${escapeHtml(row.code)}</td><td>${escapeHtml(row.product)}</td><td>${row.units}</td><td>${money.format(row.gross)}</td></tr>`).join("")}</tbody></table></div>${report.products.length > 250 ? '<p>Primeros 250 productos. El Excel incluye todos.</p>' : ""}`;
+    byId("productConsumptionChart").innerHTML = `<div class="responsive-table"><table><thead><tr><th>Codigo</th><th>Producto</th><th>Cantidad neta</th><th>Importe facturado</th><th>Devoluciones</th><th>Ventas netas</th><th>Costo total (CMV)</th><th>Ganancia bruta</th></tr></thead><tbody>${report.products.slice(0, 250).map(row => `<tr><td>${escapeHtml(row.code)}</td><td>${escapeHtml(row.product)}</td><td>${row.units}</td><td>${money.format(row.billed)}</td><td>${money.format(row.returns)}</td><td>${money.format(row.gross)}</td><td>${row.cost === null ? `Sin costo: ${row.missingCostUnits} u.` : money.format(row.cost)}</td><td>${row.profit === null ? "Pendiente de costo" : money.format(row.profit)}</td></tr>`).join("")}</tbody></table></div>${report.products.length > 250 ? '<p>Primeros 250 productos. El Excel incluye todos.</p>' : ""}`;
   } catch (error) {
     byId("statisticsStatus").textContent = error.message;
     byId("statisticsExport").disabled = true;
@@ -17190,7 +17232,14 @@ function renderStatisticsPeriod() {
 async function exportStatisticsPeriod() {
   try {
     const r = statisticsPeriodReport();
-    await downloadXlsxReport({ fileName: `estadisticas-${r.from}-${r.to}.xlsx`, sheetName: "Estadisticas", headers: ["Concepto / Codigo", "Detalle", "Cantidad / Pedidos", "Importe"], rows: [
+    await downloadXlsxReport({ fileName: `estadisticas-${r.from}-${r.to}.xlsx`, sheets: [
+      { sheetName: "Productos", title: "Ventas y ganancia por producto", subtitle: `${r.from} al ${r.to}. Facturado con descuentos aprobados; neto de devoluciones. Costos historicos, sin estimaciones.`,
+        headers: ["Codigo", "Producto", "Cantidad neta", "Importe facturado", "Devoluciones", "Ventas netas", "Costo total (CMV)", "Ganancia bruta", "Cobertura de costos"],
+        columnWidths: [14, 42, 15, 20, 18, 20, 20, 20, 30], wrapColumns: [2, 9], fontSize: 12,
+        columnFormats: ["@", "", "0.##", "#,##0.00", "#,##0.00", "#,##0.00", "#,##0.00", "#,##0.00", ""],
+        rows: r.products.map(row => [row.code, row.product, row.units, row.billed, row.returns, row.gross, row.cost, row.profit,
+          row.missingCostLines ? `${row.missingCostUnits} unidades sin costo historico` : "Completo"]) },
+      { sheetName: "Resumen", headers: ["Concepto", "Detalle", "Cantidad / Pedidos", "Importe"], rows: [
       ["Periodo", `${r.from} al ${r.to}`, "", ""],
       ["Ventas brutas", "", r.orders, r.gross], ["CMV", r.missingCostLines ? "Costo historico incompleto" : "", "", r.cmv],
       ["Ganancia bruta", r.missingCostLines ? "No disponible" : "", "", r.profit],
@@ -17199,11 +17248,10 @@ async function exportStatisticsPeriod() {
       ["Inicio del registro de costos", r.costRecordingFrom || "Pendiente de primera carga posterior al corte", "", ""],
       ["Lineas sin costo historico", "", r.missingCostLines, ""], ["Pedidos con fecha invalida excluidos", "", r.invalidDates, ""],
       ["POR VENDEDOR", "", "", ""], ...r.sellers.map(row => ["", row.seller, row.orders, row.gross]),
-      ["TOTAL VENDEDORES", "", r.orders, r.gross], ["POR PRODUCTO", "", "", ""],
-      ...r.products.map(row => [row.code, row.product, row.units, row.gross]),
+      ["TOTAL VENDEDORES", "", r.orders, r.gross], ["Importe sin detalle por producto", "Revisar origen si distinto de cero", "", r.unallocatedSales],
       ["COSTOS HISTORICOS PENDIENTES", "Pedido / fecha / producto", "Unidades", ""],
       ...r.missingCosts.map(row => [row.code, `${row.orderCode} / ${row.date} / ${row.product}`, row.quantity, ""])
-    ] });
+    ] } ] });
   } catch (error) { showCompactNotice(error.message || "No se pudo exportar Estadisticas.", "danger"); }
 }
 
@@ -20720,6 +20768,12 @@ byId("physicalStockTable").addEventListener("click", (event) => {
     recordPhysicalStockCount(count.dataset.savePhysicalCount);
     return;
   }
+  const begin = event.target.closest("[data-begin-physical-count]");
+  if (begin) { beginPhysicalStockCount(begin.dataset.beginPhysicalCount); return; }
+  const cancel = event.target.closest("[data-cancel-physical-count]");
+  if (cancel && !physicalCountSaving.has(cancel.dataset.cancelPhysicalCount)) {
+    physicalCountDrafts.delete(cancel.dataset.cancelPhysicalCount); renderPhysicalStockControl(); return;
+  }
   const adjust = event.target.closest("[data-adjust-physical-stock]");
   if (adjust) openPhysicalStockAdjustDialog(adjust.dataset.adjustPhysicalStock);
 });
@@ -20728,6 +20782,7 @@ byId("physicalStockTable").addEventListener("input", (event) => {
   const code = input.getAttribute("data-physical-count") || input.getAttribute("data-physical-note");
   if (!code || physicalCountSaving.has(code)) return;
   physicalCountDrafts.set(code, {
+    ...physicalCountDrafts.get(code),
     cutId: OrderEngine.activePhysicalStockCut(state)?.id || "",
     rawCount: findPhysicalStockInput("data-physical-count", code)?.value || "",
     observation: findPhysicalStockInput("data-physical-note", code)?.value || ""

@@ -33,6 +33,8 @@ const CRITICAL_FILES = [
   "stock-count-storage.js",
   "state-record-sync.js",
   "state-bootstrap-cache.js",
+  "http-connection-policy.js",
+  "sales-commission-report.js",
   "durable-write-batch.js",
   "share-engine.js",
   "delivery-engine.js",

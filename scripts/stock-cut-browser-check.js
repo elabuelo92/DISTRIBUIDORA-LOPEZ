@@ -24,23 +24,23 @@ async function open(base, cookie) {
     await row.waitFor();
     await page.waitForFunction(({ baseline, current, adjusted }) => {
       const row = document.querySelector('[data-physical-product="A"]');
-      return row?.children[8]?.querySelector("strong")?.textContent === String(baseline)
-        && row?.children[9]?.querySelector("strong")?.textContent === String(current)
+      return row?.children[1]?.querySelector("strong")?.textContent === String(baseline)
+        && row?.children[2]?.querySelector("strong")?.textContent === String(current)
         && (!adjusted || row.textContent.includes("Ajustado"));
     }, { baseline, current, adjusted }, { timeout: 30000 });
     assert.match(await page.locator("#physicalStockCutStatus").innerText(), /CUT-HTTP-TEST-001/);
-    assert.equal(await row.locator("td").nth(8).locator("strong").innerText(), String(baseline));
-    assert.equal(await row.locator("td").nth(9).locator("strong").innerText(), String(current));
+    assert.equal(await row.locator("td").nth(1).locator("strong").innerText(), String(baseline));
+    assert.equal(await row.locator("td").nth(2).locator("strong").innerText(), String(current));
     if (adjusted) {
       assert.match(await row.innerText(), /Ajustado/);
       assert.equal(await row.locator("[data-adjust-physical-stock]").count(), 0);
     }
     await row.scrollIntoViewIfNeeded();
-    await page.screenshot({ path: path.join(__dirname, `../docs/STOCK-CORTE-${stage}-20261022.png`) });
+    await page.screenshot({ path: path.join(__dirname, `../docs/STOCK-CONTEO-${stage}-20261024.png`) });
     await page.setViewportSize({ width: 390, height: 844 });
     const fits = await page.locator("#physicalStockCutStatus").evaluate(element => element.scrollWidth <= element.clientWidth + 1);
     assert.ok(fits, "cut identification fits on mobile");
-    await page.screenshot({ path: path.join(__dirname, `../docs/STOCK-CORTE-${stage}-movil-20261022.png`) });
+    await page.screenshot({ path: path.join(__dirname, `../docs/STOCK-CONTEO-${stage}-movil-20261024.png`) });
     await page.setViewportSize({ width: 1440, height: 1000 });
     assert.deepEqual(errors, [], "no uncaught UI errors");
   }
@@ -50,8 +50,9 @@ async function open(base, cookie) {
     await page.locator("#control-stock.active").waitFor();
     const tool = page.locator('#control-stock [data-tool-id="count"]');
     if (await tool.isVisible()) await tool.click();
-    await page.waitForFunction(() => document.querySelector("#startPhysicalStockCountBtn")?.textContent === "Iniciar corte de stock");
+    await page.waitForFunction(() => document.querySelector("#startPhysicalStockCountBtn")?.textContent === "Iniciar inventario");
     await page.locator("#startPhysicalStockCountBtn").click();
+    await page.locator('[data-begin-physical-count="B"]').click();
     const input = page.locator('[data-physical-count="B"]');
     await input.waitFor();
     await input.fill(String(nextQty));
@@ -66,10 +67,12 @@ async function open(base, cookie) {
     assert.match(await page.locator('[data-physical-product="B"]').innerText(), /Borrador de otro corte/);
     assert.equal(await input.count(), 0, "old quantity cannot be submitted to the new cut");
     await page.locator("#discardPhysicalStockDraftsBtn").click();
+    await page.locator('[data-begin-physical-count="B"]').click();
     await input.waitFor();
     assert.equal(await input.inputValue(), "", "discarding does not copy the old count");
     await input.fill(String(nextQty));
     await page.locator('[data-physical-note="B"]').fill("Prueba visual aislada");
+    await page.locator('[data-physical-product="B"]').screenshot({ path: path.join(__dirname, "../docs/STOCK-CONTEO-producto-en-curso-20261024.png") });
     await page.locator('[data-save-physical-count="B"]').click();
     const adjust = page.locator('[data-adjust-physical-stock="B"]');
     await adjust.waitFor();
@@ -79,7 +82,7 @@ async function open(base, cookie) {
     await page.locator('#physicalStockAdjustForm [type="submit"]').click();
     await page.locator("#physicalStockAdjustDialog").waitFor({ state: "hidden" });
     await page.locator("#startPhysicalStockCountBtn").click();
-    await page.waitForFunction(() => document.querySelector("#startPhysicalStockCountBtn")?.textContent === "Iniciar corte de stock");
+    await page.waitForFunction(() => document.querySelector("#startPhysicalStockCountBtn")?.textContent === "Iniciar inventario");
     assert.deepEqual(errors, []);
   }
   return { check, exerciseUiLifecycle, close: () => browser.close() };

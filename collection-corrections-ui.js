@@ -2,6 +2,7 @@
 function isCollectionReversal(entry) { return Boolean(entry.correctionId && entry.type === "Reverso administrativo de cobranza"); }
 function accountCollectionNet(entry) { return entry.type === "Anulacion remito proveedor" ? 0 : Number(entry.credit || 0) - (isCollectionReversal(entry) ? Number(entry.debit || 0) : 0); }
 let correctionBusy = false, correctionPreview = null, correctionRequestId = "";
+let correctionSources = [];
 async function loadCollectionCorrections(routeId = "") {
   if (correctionBusy || !isAdminUser()) return;
   correctionBusy = true;
@@ -9,10 +10,12 @@ async function loadCollectionCorrections(routeId = "") {
     const response = await fetchWithTimeout(apiUrl(`api/collection-corrections?routeId=${encodeURIComponent(routeId)}`), { cache: "no-store" }, 15000);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error);
+    correctionSources = data.sources;
     correctionPreview = null; correctionRequestId = crypto.randomUUID();
     byId("collectionCorrectionsContent").innerHTML = `<form id="collectionCorrectionForm" class="form-grid">
       <label>Ruta cerrada<select name="routeId" required><option value="">Seleccionar</option>${data.routes.map(r => `<option value="${escapeHtml(r.id)}" ${r.id === routeId ? "selected" : ""}>${escapeHtml(r.label)}</option>`).join("")}</select></label>
-      <label>Cobro original<select name="sourceId" required><option value="">Seleccionar</option>${data.sources.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.client || "Sin cliente")} - ${escapeHtml(s.id)} - Efectivo ${money.format(s.cash)} / Transferencia ${money.format(s.transfer)}</option>`).join("")}</select></label>
+      <label>Cobro original<select name="sourceId" required><option value="">Seleccionar</option>${data.sources.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.client || "Sin cliente")} - ${escapeHtml(s.id)} - Efectivo ${money.format(s.cash)} / Transferencia declarada ${money.format(Math.max(s.transfer, s.pendingTransfer || 0))}</option>`).join("")}</select></label>
+      <p id="collectionCorrectionSource" role="status"></p>
       <label>Efectivo correcto<input name="cashAmount" type="number" min="0" step="0.01" required></label>
       <label>Transferencia correcta<input name="transferAmount" type="number" min="0" step="0.01" required></label>
       <label>Banco<input name="bank" value="Mercado Pago" maxlength="120"></label>
@@ -38,6 +41,16 @@ document.addEventListener("input", event => {
 });
 document.addEventListener("change", event => {
   if (event.target.matches('#collectionCorrectionForm select[name="routeId"]')) loadCollectionCorrections(event.target.value);
+  if (event.target.matches('#collectionCorrectionForm select[name="sourceId"]')) {
+    const source = correctionSources.find(s => s.id === event.target.value);
+    const form = byId("collectionCorrectionForm");
+    form.elements.cashAmount.value = source?.cash ?? "";
+    form.elements.transferAmount.value = source ? Math.max(source.transfer, source.pendingTransfer || 0) : "";
+    byId("collectionCorrectionSource").textContent = source ? `Cobro original: efectivo ${money.format(source.cash)} / transferencia ${money.format(source.transfer)} / transferencia declarada pendiente ${money.format(source.pendingTransfer)}` : "";
+    correctionPreview = null; correctionRequestId = crypto.randomUUID();
+    byId("applyCollectionCorrection").disabled = true;
+    byId("collectionCorrectionImpact").textContent = "";
+  }
 });
 document.addEventListener("submit", async event => {
   if (event.target.id !== "collectionCorrectionForm") return;
@@ -52,7 +65,7 @@ document.addEventListener("submit", async event => {
     const result = await postOperationalAction("api/collection-corrections", { ...input, action: "preview" });
     correctionPreview = { ...input, token: result.token };
     const p = result.impact;
-    byId("collectionCorrectionImpact").innerHTML = `<dl><dt>Saldo actual</dt><dd>${money.format(p.balanceBefore)}</dd><dt>Reverso</dt><dd>${money.format(p.reversal)}</dd><dt>Saldo despues del ajuste</dt><dd>${money.format(p.balanceAfter)}</dd><dt>Transferencia por validar</dt><dd>${money.format(p.pendingValidation)}</dd><dt>Saldo tras validacion bancaria</dt><dd>${money.format(p.balanceAfterValidation)}</dd><dt>Ajuste efectivo / transferencia</dt><dd>${money.format(p.cashDelta)} / ${money.format(p.transferDelta)}</dd></dl><strong>Cierre historico: sin cambios</strong>`;
+    byId("collectionCorrectionImpact").innerHTML = `<dl><dt>Saldo actual</dt><dd>${money.format(p.balanceBefore)}</dd><dt>Reverso de pagos acreditados</dt><dd>${money.format(p.reversal)}</dd><dt>Pendientes anteriores reemplazados</dt><dd>${money.format(p.pendingTransferCancelled || 0)}</dd><dt>Saldo despues del ajuste</dt><dd>${money.format(p.balanceAfter)}</dd><dt>Nueva transferencia por validar</dt><dd>${money.format(p.pendingValidation)}</dd><dt>Saldo tras validacion bancaria</dt><dd>${money.format(p.balanceAfterValidation)}</dd><dt>Variacion efectivo / transferencia declarada</dt><dd>${money.format(p.cashDelta)} / ${money.format(p.transferDelta)}</dd></dl><strong>Cierre historico: sin cambios</strong>`;
     byId("collectionCorrectionError").textContent = "";
   } catch (error) { byId("collectionCorrectionError").textContent = error.message; }
   finally { lockCorrection(false); }

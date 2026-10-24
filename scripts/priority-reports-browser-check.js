@@ -1,0 +1,73 @@
+"use strict";
+const assert = require("node:assert/strict"), fs = require("node:fs"), path = require("node:path");
+const { chromium } = require("playwright");
+async function check(base, cookie, readState) {
+  assert.ok(base.startsWith("http://127.0.0.1:"));
+  const executablePath = ["C:/Program Files/Google/Chrome/Application/chrome.exe", "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"].find(p => fs.existsSync(p));
+  const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
+  try {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true });
+    await context.route("**/*", route => route.request().url().startsWith(base) ? route.continue() : route.abort());
+    const separator = cookie.indexOf("=");
+    await context.addCookies([{ name: cookie.slice(0, separator), value: cookie.slice(separator + 1), url: base }]);
+    const page = await context.newPage(), errors = [];
+    page.on("pageerror", error => errors.push(error.message));
+    const shot = async name => {
+      await page.screenshot({ path: path.join(__dirname, `../docs/PRIORIDADES-${name}-20261024.png`) });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.screenshot({ path: path.join(__dirname, `../docs/PRIORIDADES-${name}-movil-20261024.png`) });
+      await page.setViewportSize({ width: 1440, height: 1000 });
+    };
+    await page.goto(`${base}/#dashboard`);
+    await page.locator('#dashboard [data-tool-id="cash"]').click({ timeout: 30000 });
+    await page.locator("#dashboardCashRows tr").waitFor();
+    assert.match(await page.locator("#dashboardCashSummary").innerText(), /Efectivo cobrado/);
+    assert.match(await page.locator("#dashboardCashRows").innerText(), /500/);
+    await shot("efectivo");
+    await page.locator('.nav-item[data-view="estadisticas"]').click();
+    const sales = page.locator('#estadisticas [data-tool-id="sales"]');
+    await sales.click();
+    await page.locator("#statisticsFrom").fill("2026-10-01");
+    await page.locator("#statisticsTo").fill("2026-10-31");
+    await page.locator("#statisticsTo").blur();
+    await page.waitForFunction(() => document.querySelector("#productConsumptionChart")?.textContent.includes("Producto test"));
+    assert.match(await page.locator("#productConsumptionChart").innerText(), /Costo total \(CMV\)/i);
+    assert.match(await page.locator("#productConsumptionChart").innerText(), /600/);
+    assert.match(await page.locator("#productConsumptionChart").innerText(), /400/);
+    const download = page.waitForEvent("download");
+    await page.locator("#statisticsExport").click();
+    const file = await download;
+    const xlsx = path.join(__dirname, "../docs/PRIORIDADES-estadisticas-20261024.xlsx");
+    await file.saveAs(xlsx);
+    const workbook = new (require("exceljs").Workbook)(); await workbook.xlsx.readFile(xlsx);
+    assert.equal(workbook.getWorksheet("Productos").getCell("H4").value, 400);
+    await shot("estadisticas");
+    await page.locator('.nav-item[data-view="reparto"]').click();
+    const tool = page.locator('#reparto [data-tool-id="collection-corrections"]');
+    await tool.click();
+    await page.locator("#loadCollectionCorrections").click();
+    await page.locator('#collectionCorrectionForm [name="routeId"]').selectOption("R-P9");
+    await page.locator('#collectionCorrectionForm [name="sourceId"]').selectOption("pedido:PED-PENDING");
+    assert.equal(await page.locator('#collectionCorrectionForm [name="cashAmount"]').inputValue(), "0");
+    assert.equal(await page.locator('#collectionCorrectionForm [name="transferAmount"]').inputValue(), "1000");
+    await page.locator('#collectionCorrectionForm [name="cashAmount"]').fill("900");
+    await page.locator('#collectionCorrectionForm [name="transferAmount"]').fill("0");
+    await page.locator('#collectionCorrectionForm [name="reason"]').fill("Correccion de efectivo en copia aislada");
+    await page.locator('#collectionCorrectionForm [type="submit"]').click();
+    await page.locator("#applyCollectionCorrection:enabled").waitFor();
+    assert.match(await page.locator("#collectionCorrectionImpact").innerText(), /Pendientes anteriores reemplazados/);
+    await shot("cobranza-preview");
+    // Compare the correction itself after the browser's legacy-data initialization.
+    const historyBaseline = readState();
+    const saved = page.waitForResponse(response => response.url().endsWith("/api/collection-corrections") && response.request().postDataJSON()?.action === "apply");
+    await page.locator("#applyCollectionCorrection").click();
+    const savedResponse = await saved;
+    assert.equal(savedResponse.status(), 200, JSON.stringify(await savedResponse.json()));
+    await page.waitForFunction(() => document.querySelector("#collectionCorrectionsContent")?.textContent.includes("Correccion de efectivo en copia aislada"));
+    for (const key of ["orders", "products", "deliveryRoutes", "deliveryClosures", "collectionVisits", "commissionSettlements", "bankReconciliation"]) assert.deepEqual(readState()[key], historyBaseline[key], `browser correction ${key}`);
+    assert.deepEqual(errors, []);
+    console.log("PASS browser: cash route report, product costs/profit, downloaded numeric XLSX, pending correction preview AND apply, desktop/mobile renders, no uncaught errors");
+    return historyBaseline;
+  } finally { await browser.close(); }
+}
+module.exports = { check };

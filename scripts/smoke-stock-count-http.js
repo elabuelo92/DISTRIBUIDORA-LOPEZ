@@ -462,6 +462,34 @@ async function main() {
     }
     console.log("PASS HTTP cut: authorization, simultaneous start/count/adjust/close retries, receipt retained, frozen baseline, stale preview rejected, server-owned cut, sessions and financial records preserved");
   }
+  if (process.argv.includes("--current")) {
+    const initial = read(), cutId = "CUT-HTTP-CURRENT";
+    await post({ action: "startCut", cutId });
+    const product = () => read().products.find(p => p.codigo_producto === "A");
+    const preparation = { action: "prepareCount", cutId, productCode: "A" };
+    await post(preparation, 401, ""); await post(preparation, 403, seller);
+    const frozen = JSON.stringify(read());
+    const oldRef = (await post(preparation)).result.reference;
+    assert.equal(JSON.stringify(read()), frozen, "preparing count does not write business state");
+    await post({ productCode: "A", qty: 3, movementType: "Ingreso", note: "Movement during count" });
+    await post({ action: "recordCount", cutId, productCode: "A", countId: "CNT-CURRENT-STALE", referenceMode: "current", referenceId: oldRef.id, expectedQty: oldRef.expectedQty, countedQty: oldRef.expectedQty - 2 }, 400);
+    const reference = (await post(preparation)).result.reference;
+    assert.equal(reference.expectedQty, product().stock_fisico);
+    const count = { action: "recordCount", cutId, productCode: "A", countId: "CNT-CURRENT-HTTP-OK", referenceMode: "current", referenceId: reference.id, expectedQty: reference.expectedQty, countedQty: reference.expectedQty - 2 };
+    if (admins[1]) await post(count, 400, admins[1]);
+    await Promise.all([post(count), post(count)]);
+    await post({ productCode: "A", qty: 5, movementType: "Ingreso", note: "Receipt after count" });
+    const current = product().stock_fisico;
+    const apply = { ...adjust, productCode: "A", countId: count.countId, expectedCurrentQty: current };
+    await Promise.all(admins.map(cookie => post(apply, 200, cookie)));
+    assert.equal(product().stock_fisico, current - 2);
+    assert.equal(product().stock_reservado, initial.products.find(p => p.codigo_producto === "A").stock_reservado);
+    assert.equal(read().stockMovements.filter(m => m.id === `STK-${count.countId}`).length, 1);
+    const afterCurrentCount = read();
+    for (const key of ["orders", "accounts", "supplierAccounts", "deliveryClosures"]) assert.deepEqual(afterCurrentCount[key], initial[key], `current count ${key}`);
+    await post({ action: "closeCut", cutId });
+    console.log("PASS HTTP current count: readonly reference, movement/owner rejection, concurrent retries, later receipt retained, one adjustment, reserves/financial data unchanged");
+  }
   if (recordSync) {
     for (const cookie of [admin, seller, ...workers.slice(1)]) {
       const incremental = (await request("/api/state", null, cookie)).result.state;

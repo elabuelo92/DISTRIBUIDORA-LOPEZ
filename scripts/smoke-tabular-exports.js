@@ -8,9 +8,12 @@ const extract = (start, end) => source.slice(source.indexOf(start), source.index
 const reports = [];
 const notices = [];
 const row = { code: "00170", name: 'Producto, con "comillas" y acento', rubric: "Rubro", brand: "Marca", supplier: "Proveedor", warehouse: "Central", available: 10, committed: 2, preparing: 1, assembled: 0, labeled: 0, readyDispatch: 1, expected: 14, counted: 0, difference: -14, differencePercent: -100, count: { user: "Test", at: "2026-10-12" } };
+row.count.referenceMode = "current"; row.count.startedAt = "2026-10-12T10:00:00Z";
+row.currentPhysical = 14; row.cutId = "CUT-TEST";
 const context = vm.createContext({
   isAdminUser: () => true, window: { alert: (message) => notices.push(message) },
   physicalStockReportType: "all", physicalStockReportRows: () => [row],
+  OrderEngine: { activePhysicalStockCut: () => ({ id: "CUT-TEST", at: "2026-10-12" }) },
   state: { physicalStockAdjustments: [{ productName: "Producto", previousStock: 10, newStock: 8, reason: "Control", user: "Test", at: "2026-10-12" }] },
   stockReportRows: () => [{ codigo: "00170", barras: "00000123", producto: "Producto", fisico: 14, costo: 12.5 }],
   formatOrderTime: String, reportDateStamp: () => "20261012", safeFilePart: String,
@@ -22,8 +25,10 @@ vm.runInContext(extract("async function downloadTabularExcel(", "function export
   await context.exportPhysicalStockCsv();
   let report = reports.pop();
   assert.ok(report.fileName.endsWith(".xlsx"));
-  assert.equal(report.headers.length, 18);
-  assert.equal(report.rows[0].length, 18);
+  assert.equal(report.headers.length, 23);
+  assert.equal(report.rows[0].length, 23);
+  assert.equal(report.rows[0][21], "Al comenzar producto");
+  assert.equal(report.rows[0][22], row.count.startedAt);
   assert.equal(report.rows[0][0], "00170");
   assert.equal(report.rows[0][1], row.name);
   assert.equal(report.rows[0][13], 0);

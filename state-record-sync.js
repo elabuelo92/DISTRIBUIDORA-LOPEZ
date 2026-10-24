@@ -22,7 +22,7 @@
     return result;
   }
   // Retain fingerprints only, never another copy of orders, proofs or histories.
-  function build(state, previous, hash, known) {
+  function build(state, previous, hash, known, capture) {
     const snapshot = known || { sections: {}, bytes: 256 };
     const replacements = {}, patches = {};
     for (const [key, value] of Object.entries(state)) {
@@ -36,7 +36,9 @@
         const oldOrder = before?.records ? [...before.records.keys()] : [];
         let index = 0;
         for (const [id, row] of rows) {
-          const digest = known ? fingerprints.get(id) : hash(JSON.stringify(row) ?? "null");
+          const raw = !known || capture ? JSON.stringify(row) ?? "null" : null;
+          if (capture) capture(key, index, raw);
+          const digest = known ? fingerprints.get(id) : hash(raw);
           if (!known) {
             fingerprints.set(id, digest);
             snapshot.bytes += 256 + id.length * 2;
@@ -48,7 +50,9 @@
         if (!before?.records) replacements[key] = value;
         else if (changed || upserts.length) patches[key] = { field: fields[key], order: [...rows.keys()], upserts };
       } else {
-        const digest = known ? known.sections[key].hash : hash(JSON.stringify(value));
+        const raw = !known || capture ? JSON.stringify(value) : null;
+        if (capture) capture(key, -1, raw);
+        const digest = known ? known.sections[key].hash : hash(raw);
         if (!known) {
           snapshot.sections[key] = { hash: digest };
           snapshot.bytes += 256 + key.length * 2;
@@ -95,14 +99,14 @@
       else { references.delete(snapshot); bytes -= snapshot.bytes; }
       entries.delete(id);
     }
-    function response(state, version, scope, cursor, baseVersion, projectionKey = "") {
+    function response(state, version, scope, cursor, baseVersion, projectionKey = "", capture = null) {
       for (const [id, entry] of entries) if (now() - entry.at > ttlMs) remove(id);
       const candidate = entries.get(cursor);
       const previous = candidate?.scope === scope && candidate.version === baseVersion ? candidate : null;
       // Only the server may identify equivalent role projections. Cursors remain
       // user-scoped even when their immutable fingerprints share storage.
       const shared = projectionKey && [...entries.values()].find(entry => entry.version === version && entry.projectionKey === projectionKey);
-      const built = build(state, previous?.snapshot, hash, shared?.snapshot);
+      const built = build(state, previous?.snapshot, hash, shared?.snapshot, previous ? null : capture);
       if (shared) reusedSnapshots++;
       // Key every upsert explicitly so legacy rows without IDs survive insertion/reorder.
       for (const [key, patch] of Object.entries(built.records)) {
@@ -111,7 +115,8 @@
       }
       const nextCursor = token();
       if (built.snapshot.bytes <= maxBytes) {
-        for (const [id, entry] of entries) if (entry.scope === scope) remove(id);
+        // Replace this client's baseline, not other tabs of the same account.
+        if (previous) remove(cursor);
         while (entries.size && (entries.size >= maxEntries || bytes + (references.has(built.snapshot) ? 0 : built.snapshot.bytes) > maxBytes)) remove(entries.keys().next().value);
         entries.set(nextCursor, { scope, version, projectionKey, snapshot: built.snapshot, at: now() });
         if (!references.has(built.snapshot)) bytes += built.snapshot.bytes;

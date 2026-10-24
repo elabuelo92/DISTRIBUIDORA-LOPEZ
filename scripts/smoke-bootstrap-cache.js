@@ -2,7 +2,7 @@
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const zlib = require("node:zlib");
-const { createCache } = require("../state-bootstrap-cache");
+const { createCache, createEncoder } = require("../state-bootstrap-cache");
 const { createStore, apply } = require("../state-record-sync");
 
 (async () => {
@@ -72,5 +72,18 @@ const { createStore, apply } = require("../state-record-sync");
   releaseOld();
   await stale;
   assert.equal(await race.get(2, "admin", create), freshBody, "old in-flight compression cannot replace new version");
+  const encoder = createEncoder();
+  const exact = { orders: [{ code: "A", value: "quote\" newline\n unicode \u00f1" }, null], products: [],
+    stockMovements: [{ id: "DUP" }, { id: "DUP" }], missing: undefined, nested: { nullable: null, zero: 0 } };
+  const encodedMessage = store.response(exact, 100, "encoded", "", 0, "encoded", encoder.capture);
+  const expected = JSON.stringify(encodedMessage);
+  const chunks = encoder.encode(encodedMessage);
+  exact.orders[0].value = "subsequent write";
+  const streamed = await createCache().get(100, "encoded", () => chunks);
+  assert.deepEqual(JSON.parse(zlib.gunzipSync(streamed)), JSON.parse(expected), "streamed snapshot is exact and frozen before async compression");
+  const deltaEncoder = createEncoder();
+  const delta = store.response(exact, 101, "encoded", encodedMessage.cursor, 100, "encoded", deltaEncoder.capture);
+  assert.equal(delta.partial, true);
+  assert.deepEqual(apply(JSON.parse(expected).state, delta), JSON.parse(JSON.stringify(exact)));
   console.log("PASS bootstrap: exact projections/deltas, per-user cursors, shared fingerprint accounting, compressed-only bounded cache, expiry, version invalidation, races and failure cleanup");
 })().catch(error => { console.error(error); process.exitCode = 1; });

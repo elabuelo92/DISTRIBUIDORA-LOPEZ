@@ -436,7 +436,10 @@
       route.pendingTotal = moneyValue(route.pendingTotal);
       route.returnTotal = moneyValue(route.returnTotal);
       route.closure = route.closure && typeof route.closure === "object" ? route.closure : null;
-      if (!route.manualOrder) reorderPendingStops(route, state.deliverySettings);
+      // Reading a closed route must not reorder or timestamp its historical snapshot.
+      if (!route.manualOrder && !route.closure && !route.closedAt && route.status !== ROUTE_STATUS.COMPLETED) {
+        reorderPendingStops(route, state.deliverySettings);
+      }
     });
     return state;
   }
@@ -816,6 +819,36 @@
     // Legacy route totals include promises. This is a visit snapshot, not bank validation.
     return { promisedTransfer, expectedTransfer: moneyValue(Math.max(0,
       moneyValue(route && route.transferTotal) - promisedTransfer)) };
+  }
+
+  function cashOverview(state, day = routeDay(new Date())) {
+    const corrections = new Map(), seenCorrections = new Set(), seenRoutes = new Set();
+    for (const correction of state.collectionCorrections || []) {
+      if (!correction.id || seenCorrections.has(correction.id)) continue;
+      seenCorrections.add(correction.id);
+      corrections.set(correction.routeId, signedMoneyValue((corrections.get(correction.routeId) || 0)
+        + numeric(correction.impact?.cashDelta, 0)));
+    }
+    const rows = [];
+    for (const route of state.deliveryRoutes || []) {
+      if (!route.id || seenRoutes.has(route.id)) continue;
+      seenRoutes.add(route.id);
+      if ([ROUTE_STATUS.PLANNED, "Cancelada"].includes(route.status)) continue;
+      const closed = !!(route.closure || route.closedAt || [ROUTE_STATUS.COMPLETED, "Cerrada"].includes(route.status));
+      const closedAt = route.closedAt || route.closure?.at || route.closure?.createdAt;
+      if (closed && (!closedAt || routeDay(closedAt) !== day)) continue;
+      const cash = moneyValue(route.cashTotal);
+      const expenses = moneyValue(route.closure?.expenseTotal);
+      const correction = corrections.get(route.id) || 0;
+      rows.push({ id: route.id, name: routeDisplayName(route), driver: route.driverUser || route.driverName || "Sin asignar",
+        day: route.day || "", closed, cash, expenses, correction,
+        expected: signedMoneyValue(cash - expenses + correction),
+        declared: route.closure?.reportedCash == null ? null : moneyValue(route.closure.reportedCash) });
+    }
+    const sum = (list, key) => signedMoneyValue(list.reduce((total, row) => total + row[key], 0));
+    const open = rows.filter(row => !row.closed);
+    return { day, rows, openRoutes: open.length, openCash: sum(open, "cash"), openExpected: sum(open, "expected"),
+      cash: sum(rows, "cash"), expenses: sum(rows, "expenses"), corrections: sum(rows, "correction"), expected: sum(rows, "expected") };
   }
 
   function routeClosureSummary(route, input) {
@@ -1578,6 +1611,7 @@
     closeRoute,
     relocateOrders,
     routeClosureSummary,
+    cashOverview,
     routeTransferSummary,
     updateSettings,
     navigationUrl,
