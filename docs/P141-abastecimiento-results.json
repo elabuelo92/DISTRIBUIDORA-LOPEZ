@@ -1,0 +1,72 @@
+{
+  "at": "2026-10-24T22:27:16.885Z",
+  "passed": true,
+  "environment": "local-isolated",
+  "productionAccess": false,
+  "apiRequests": [
+    {
+      "method": "GET",
+      "path": "/api/session"
+    },
+    {
+      "method": "GET",
+      "path": "/api/health"
+    },
+    {
+      "method": "POST",
+      "path": "/api/presence/heartbeat"
+    },
+    {
+      "method": "GET",
+      "path": "/api/state"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/reauth"
+    },
+    {
+      "method": "POST",
+      "path": "/api/state"
+    },
+    {
+      "method": "GET",
+      "path": "/api/state"
+    },
+    {
+      "method": "POST",
+      "path": "/api/reports/xlsx"
+    },
+    {
+      "method": "POST",
+      "path": "/api/reports/xlsx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/state"
+    }
+  ],
+  "supply": {
+    "builds": 7
+  },
+  "errors": [],
+  "checks": [
+    "stock-entry",
+    "search",
+    "edit-save",
+    "module-navigation",
+    "stock-api-refresh",
+    "manual-section",
+    "no-modal",
+    "all-filters",
+    "date-range",
+    "invalid-date-range",
+    "xlsx-numeric-and-identifiers",
+    "pdf-download",
+    "print-filtered",
+    "single-refresh",
+    "desktop-mobile",
+    "read-only-report",
+    "protected-data",
+    "lazy-hidden-section"
+  ]
+}

@@ -9201,7 +9201,7 @@ function renderInventoryFinanceWorkspace(moduleId) {
     stock: [
       ["products", "Inventario de productos", "boxes", ["stockTable"]],
       ["overview", "Resumen de stock", "chart-column", ["stockKpis"], admin],
-      ["supply", "Abastecimiento", "package", ["shortageList"]],
+      ["supply", "Abastecimiento / Compras pendientes", "package", ["supplyPlannerTable"]],
       ["ledger", "Movimientos de stock", "history", ["stockLedgerTable"], admin]
     ],
     precios: [
@@ -12393,25 +12393,10 @@ function renderStock() {
 }
 
 function renderStockSupply() {
-  if (activeViewId() !== "stock" || operationalWorkspaces.get("stock")?.selected !== "supply") return;
-  byId("stockMovements").innerHTML = (state.stockMovements || []).slice(0, 8).map((item) => `
-    <article class="activity">
-      <span class="tag">${escapeHtml(item.type)}</span>
-      <strong>${escapeHtml(item.title)}</strong>
-      <p>${escapeHtml(item.text)}</p>
-    </article>
-  `).join("") || '<article class="activity"><span class="tag warn">Sin movimientos</span><strong>No hay kardex registrado</strong><p>Los movimientos apareceran al cargar inventario, compras, reservas o despachos.</p></article>';
-
-  const shortages = OrderEngine.buildShortageList(state);
-  byId("shortageList").innerHTML = shortages.length ? shortages.map((item) => `
-    <article class="activity shortage-item">
-      <span class="tag ${item.purchaseQty > 0 ? "danger" : "warn"}">${item.purchaseQty > 0 ? "Comprar" : "En transito"}</span>
-      <strong>${escapeHtml(item.name)}</strong>
-      <p>Faltan ${item.missingQty}. En transito ${item.inTransit}. Compra necesaria ${item.purchaseQty}.</p>
-      <small>${escapeHtml(item.orders.map((order) => `${order.code} ${order.client} x${order.qty}`).join(" | "))}</small>
-    </article>
-  `).join("") : '<article class="activity"><span class="tag ok">Completo</span><strong>Sin faltantes comprometidos</strong><p>Todos los pedidos activos tienen stock reservado.</p></article>';
-  renderSupplyPlanner(shortages);
+  if (!supplyPlannerVisible()) return;
+  supplyPlannerCache = null;
+  renderSupplyPlanner();
+  if (!supplyPlannerRefreshing) byId("supplyPlannerUpdated").textContent = `Consulta ${new Date().toLocaleTimeString("es-AR")}`;
 }
 
 function selectVisibleStockProducts() {
@@ -14201,12 +14186,102 @@ function exportCommissionsCsv() {
   downloadCsvReport(`comisiones-distribuidora-lopez-${reportDateStamp()}.csv`, header, csvRows);
 }
 
-function renderSupplyPlanner(shortages) {
-  if (!byId("supplyPlannerDialog")?.open) return;
+let supplyPlannerCache = null;
+let supplyPlannerRefreshing = false;
+let supplyPlannerExporting = false;
+
+function supplyPlannerVisible() {
+  return activeViewId() === "stock" && operationalWorkspaces.get("stock")?.selected === "supply";
+}
+
+function supplyPlannerFilters() {
+  return {
+    product: byId("supplyProductFilter").value.trim(),
+    supplier: byId("supplySupplierFilter").value,
+    rubric: byId("supplyRubricFilter").value,
+    from: byId("supplyDateFrom").value,
+    to: byId("supplyDateTo").value,
+    status: byId("supplyStatusFilter").value
+  };
+}
+
+function supplyPlannerOrderDate(order) {
+  const value = String(order.createdAt || "");
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : stockMovementDateKey(value);
+}
+
+function buildSupplyPlannerRows(source, filters) {
+  if (filters.from && filters.to && filters.from > filters.to) return [];
+  const orders = (source.orders || []).filter(order => {
+    if (!filters.from && !filters.to) return true;
+    const date = supplyPlannerOrderDate(order);
+    return date && (!filters.from || date >= filters.from) && (!filters.to || date <= filters.to);
+  });
+  // The existing engine normalizes inventory fields in place. Give this read-only
+  // report product copies, preserving both its formula and the live state.
+  const products = (source.products || []).map(product => ({ ...product }));
+  const byCode = new Map(), byName = new Map();
+  for (const product of products) {
+    const code = String(product.codigo_producto || product.code || "").trim();
+    const name = normalizeSearchText(product.descripcion || product.name);
+    if (code && !byCode.has(code)) byCode.set(code, product);
+    if (name && !byName.has(name)) byName.set(name, product);
+  }
+  const dates = new Map(orders.map(order => [order.code, supplyPlannerOrderDate(order)]));
+  return OrderEngine.buildShortageList({ products, orders }).map(item => {
+    const product = byCode.get(String(item.productCode || "").trim()) || byName.get(normalizeSearchText(item.name)) || {};
+    return {
+      ...item,
+      supplier: productSupplierName(product),
+      rubric: product.rubro || "Sin rubro",
+      cost: Math.max(0, numeric(product.costo ?? product.cost, 0)),
+      list2: productPriceForListNumber(product, 2),
+      supplyStatus: item.purchaseQty > 0 ? "purchase" : "transit",
+      statusLabel: item.purchaseQty > 0 ? "Compra pendiente" : "Cubierto por transito",
+      orders: item.orders.map(order => ({ ...order, date: dates.get(order.code) || "Sin fecha" }))
+    };
+  });
+}
+
+function supplyPlannerRows() {
+  const filters = supplyPlannerFilters();
+  const dateKey = `${filters.from}|${filters.to}`;
+  if (!supplyPlannerCache || supplyPlannerCache.products !== state.products
+    || supplyPlannerCache.orders !== state.orders || supplyPlannerCache.dateKey !== dateKey) {
+    supplyPlannerCache = { products: state.products, orders: state.orders, dateKey,
+      rows: buildSupplyPlannerRows(state, filters) };
+  }
+  return supplyPlannerCache.rows;
+}
+
+function filteredSupplyPlannerRows() {
+  const filters = supplyPlannerFilters();
+  const terms = searchTerms(filters.product);
+  return supplyPlannerRows().filter(item => (
+    (!terms.length || matchesSearch(`${item.productCode || ""} ${item.name}`, terms))
+    && (filters.supplier === "all" || item.supplier === filters.supplier)
+    && (filters.rubric === "all" || item.rubric === filters.rubric)
+    && (filters.status === "all" || item.supplyStatus === filters.status)
+  ));
+}
+
+function renderSupplyPlanner() {
+  if (!supplyPlannerVisible()) return;
   const summary = byId("supplyPlannerSummary");
   const table = byId("supplyPlannerTable");
   if (!summary || !table) return;
-  shortages = shortages || OrderEngine.buildShortageList(state);
+  const filters = supplyPlannerFilters();
+  const invalidDates = Boolean(filters.from && filters.to && filters.from > filters.to);
+  const error = byId("supplyPlannerError");
+  error.hidden = !invalidDates;
+  error.textContent = invalidDates ? "La fecha desde no puede ser posterior a la fecha hasta." : "";
+  for (const id of ["exportSupplyPlannerExcelBtn", "exportSupplyPlannerPdfBtn", "printSupplyPlannerBtn"]) {
+    byId(id).disabled = invalidDates || (id === "exportSupplyPlannerExcelBtn" && supplyPlannerExporting);
+  }
+  const allRows = supplyPlannerRows();
+  updateDynamicFilter("supplySupplierFilter", [...(state.products || []).map(productSupplierName), ...allRows.map(item => item.supplier)], filters.supplier, "Todos");
+  updateDynamicFilter("supplyRubricFilter", [...(state.products || []).map(product => product.rubro || "Sin rubro"), ...allRows.map(item => item.rubric)], filters.rubric, "Todos");
+  const shortages = filteredSupplyPlannerRows();
   const totalMissing = shortages.reduce((sum, item) => sum + numeric(item.missingQty, 0), 0);
   const totalTransit = shortages.reduce((sum, item) => sum + numeric(item.inTransit, 0), 0);
   const totalPurchase = shortages.reduce((sum, item) => sum + numeric(item.purchaseQty, 0), 0);
@@ -14222,41 +14297,95 @@ function renderSupplyPlanner(shortages) {
     <article class="supply-planner-kpi">
       <span>Compra necesaria</span>
       <strong>${totalPurchase}</strong>
-      <small>Transito informado ${totalTransit}</small>
+    </article>
+    <article class="supply-planner-kpi">
+      <span>Mercaderia en transito</span>
+      <strong>${totalTransit}</strong>
     </article>
   `;
   table.innerHTML = shortages.length ? shortages.map((item) => `
     <tr>
+      <td>${escapeHtml(item.productCode || "S/C")}</td>
       <td>
         <strong>${escapeHtml(item.name)}</strong>
-        <small>${item.purchaseQty > 0 ? "Compra pendiente" : "Cubierto por transito"}</small>
       </td>
+      <td>${escapeHtml(item.supplier)}<small>${escapeHtml(item.rubric)}</small></td>
       <td><strong>${numeric(item.missingQty, 0)}</strong></td>
       <td>${numeric(item.inTransit, 0)}</td>
       <td><span class="tag ${item.purchaseQty > 0 ? "danger" : "warn"}">${numeric(item.purchaseQty, 0)}</span></td>
+      <td>${escapeHtml(item.statusLabel)}</td>
       <td>
         <div class="supply-order-list">
-          ${item.orders.map((order) => `<small>${escapeHtml(`${order.code} - ${order.client} - ${order.qty} u.`)}</small>`).join("")}
+          ${item.orders.map((order) => `<small>${escapeHtml(`${order.code} - ${order.client} - ${order.qty} u. - ${order.date}`)}</small>`).join("")}
         </div>
       </td>
     </tr>
-  `).join("") : '<tr><td class="stock-empty" colspan="5">No hay compras pendientes por pedidos en abastecimiento.</td></tr>';
+  `).join("") : '<tr><td class="stock-empty" colspan="8">No hay faltantes para los filtros seleccionados.</td></tr>';
 }
 
-function supplyPlannerPrintRows() {
-  return OrderEngine.buildShortageList(state)
-    .filter((item) => numeric(item.purchaseQty, 0) > 0)
-    .map((item) => {
-      const product = (state.products || []).find((entry) => sameText(entry.codigo_producto || entry.code, item.productCode))
-        || (state.products || []).find((entry) => sameText(entry.name || entry.descripcion, item.name))
-        || {};
-      return {
-        units: numeric(item.purchaseQty, 0),
-        product: item.name,
-        cost: Math.max(0, numeric(product.costo ?? product.cost, 0)),
-        list2: productPriceForListNumber(product, 2)
-      };
-    });
+async function refreshSupplyPlanner() {
+  if (!supplyPlannerVisible() || supplyPlannerRefreshing) return;
+  const status = byId("supplyPlannerUpdated");
+  if (syncPullInFlight || syncPushInFlight || Date.now() < syncPullRetryAt || !syncVersion) {
+    status.textContent = "Sincronizacion pendiente. Volver a intentar al finalizar.";
+    return;
+  }
+  supplyPlannerRefreshing = true;
+  byId("refreshSupplyPlannerBtn").disabled = true;
+  status.textContent = "Actualizando...";
+  try {
+    await pullStateFromServer();
+    renderStockSupply();
+    status.textContent = !currentUser || !syncReady || Date.now() < syncPullRetryAt
+      ? "No se pudo confirmar la actualizacion. Se conservan los ultimos datos disponibles."
+      : `Actualizado ${new Date().toLocaleTimeString("es-AR")}`;
+  } finally {
+    supplyPlannerRefreshing = false;
+    byId("refreshSupplyPlannerBtn").disabled = false;
+  }
+}
+
+function supplyPlannerReport() {
+  const filters = supplyPlannerFilters();
+  if (filters.from && filters.to && filters.from > filters.to) return null;
+  const rows = filteredSupplyPlannerRows();
+  return {
+    headers: ["Codigo", "Producto", "Proveedor", "Rubro", "Cantidad faltante", "En transito", "Compra sugerida", "Estado", "Pedidos afectados", "Costo unitario", "Lista 2"],
+    rows: rows.map(item => [item.productCode || "S/C", item.name, item.supplier, item.rubric,
+      item.missingQty, item.inTransit, item.purchaseQty, item.statusLabel,
+      item.orders.map(order => `${order.code} - ${order.client} - ${order.qty} u. - ${order.date}`).join("\n"), item.cost, item.list2]),
+    subtitle: `Pedidos desde ${filters.from || "sin limite"} hasta ${filters.to || "sin limite"}. Producto: ${filters.product || "todos"}. Proveedor: ${filters.supplier === "all" ? "todos" : filters.supplier}. Rubro: ${filters.rubric === "all" ? "todos" : filters.rubric}. Estado: ${filters.status === "all" ? "todos" : filters.status === "purchase" ? "Compra pendiente" : "Cubierto por transito"}.`
+  };
+}
+
+async function exportSupplyPlannerExcel() {
+  if (!isAdminUser() || !supplyPlannerVisible() || supplyPlannerExporting) return;
+  const report = supplyPlannerReport();
+  if (!report) return;
+  const button = byId("exportSupplyPlannerExcelBtn");
+  if (button.disabled) return;
+  supplyPlannerExporting = true;
+  button.disabled = true;
+  try {
+    await downloadXlsxReport({ fileName: `compras-pendientes-${reportDateStamp()}.xlsx`, sheetName: "Compras pendientes",
+      title: "Compras pendientes", subtitle: report.subtitle,
+      headers: report.headers, rows: report.rows, fontSize: 13, wrapColumns: [1, 2, 3, 4, 8, 9],
+      columnFormats: ["@", "", "", "", "0.##", "0.##", "0.##", "", "", "#,##0.00", "#,##0.00"] });
+  } catch (error) {
+    showCompactNotice(error.message || "No se pudo exportar compras pendientes.", "danger");
+  } finally {
+    supplyPlannerExporting = false;
+    const filters = supplyPlannerFilters();
+    button.disabled = Boolean(filters.from && filters.to && filters.from > filters.to);
+  }
+}
+
+function exportSupplyPlannerPdf() {
+  if (!isAdminUser() || !supplyPlannerVisible()) return;
+  const report = supplyPlannerReport();
+  if (!report) return;
+  downloadBlob(`compras-pendientes-${reportDateStamp()}.pdf`,
+    makeReadableReportPdf("Distribuidora Lopez - Compras pendientes", report.headers, report.rows, { subtitle: report.subtitle }));
 }
 
 function printSupplyPlanner() {
@@ -14264,11 +14393,18 @@ function printSupplyPlanner() {
     showCompactNotice("Solo administracion puede imprimir compras pendientes.", "warn");
     return;
   }
-  const rows = supplyPlannerPrintRows();
-  if (!rows.length) {
+  if (!supplyPlannerVisible()) return;
+  const report = supplyPlannerReport();
+  if (!report) return;
+  if (!report.rows.length) {
     showCompactNotice("No hay productos pendientes de compra.", "info");
     return;
   }
+  const printHeaders = ["Codigo / Producto", "Proveedor / Rubro", "Faltante", "En transito", "Comprar", "Estado / Pedidos afectados", "Costo / Lista 2"];
+  const printRows = report.rows.map(row => [
+    `${row[0]}\n${row[1]}`, `${row[2]}\n${row[3]}`, row[4], row[5], row[6],
+    `${row[7]}\n${row[8]}`, `Costo: ${row[9]}\nLista 2: ${row[10]}`
+  ]);
   const generatedAt = new Date().toLocaleString("es-AR");
   const html = `<!doctype html>
     <html>
@@ -14276,24 +14412,26 @@ function printSupplyPlanner() {
         <meta charset="utf-8">
         <title>Productos pendientes de compra</title>
         <style>
-          @page { size: A4; margin: 10mm; }
+          @page { size: A4 landscape; margin: 10mm; }
           * { box-sizing: border-box; }
-          body { margin: 0; color: #111; font-family: Arial, sans-serif; font-size: 11pt; }
+          body { margin: 0; color: #111; font-family: Arial, sans-serif; font-size: 10pt; }
           header { display: flex; justify-content: space-between; align-items: end; border-bottom: 1px solid #111; padding-bottom: 5mm; margin-bottom: 5mm; }
           h1 { margin: 0; font-size: 18pt; }
           p { margin: 0; color: #444; font-size: 9pt; }
-          table { width: 100%; border-collapse: collapse; }
-          th, td { border-bottom: 1px solid #bbb; padding: 3mm 2mm; text-align: left; }
+          table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+          th, td { border-bottom: 1px solid #bbb; padding: 3mm 2mm; text-align: left; overflow-wrap: anywhere; white-space: pre-line; }
           th { font-size: 9pt; text-transform: uppercase; }
-          .units { width: 22mm; text-align: center; font-weight: 800; }
-          .money { width: 32mm; text-align: right; white-space: nowrap; }
+          thead { display: table-header-group; }
+          tr { break-inside: avoid; }
         </style>
       </head>
       <body>
         <header><div><h1>Productos pendientes de compra</h1><p>Distribuidora Lopez</p></div><p>${escapeHtml(generatedAt)}</p></header>
+        <p>${escapeHtml(report.subtitle)}</p>
         <table>
-          <thead><tr><th class="units">Unidad</th><th>Producto</th><th class="money">Costo</th><th class="money">Lista 2</th></tr></thead>
-          <tbody>${rows.map((row) => `<tr><td class="units">${escapeHtml(String(row.units))}</td><td>${escapeHtml(row.product)}</td><td class="money">${money.format(row.cost)}</td><td class="money">${money.format(row.list2)}</td></tr>`).join("")}</tbody>
+          <colgroup>${[20, 14, 7, 7, 9, 31, 12].map(width => `<col style="width:${width}%">`).join("")}</colgroup>
+          <thead><tr>${printHeaders.map(header => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
+          <tbody>${printRows.map(row => `<tr>${row.map(value => `<td>${escapeHtml(String(value))}</td>`).join("")}</tr>`).join("")}</tbody>
         </table>
         <script>window.onload = function () { window.focus(); window.print(); };</script>
       </body>
@@ -14306,14 +14444,6 @@ function printSupplyPlanner() {
   printWindow.document.open();
   printWindow.document.write(html);
   printWindow.document.close();
-}
-
-function openSupplyPlannerDialog() {
-  if (!isAdminUser()) return;
-  const dialog = byId("supplyPlannerDialog");
-  if (!dialog || dialog.open) return;
-  dialog.showModal();
-  renderSupplyPlanner();
 }
 
 function stockStatus(product) {
@@ -21803,8 +21933,19 @@ byId("manualStockBtn").addEventListener("click", () => {
   byId("stockEntryForm").reset();
   byId("stockEntryDialog").showModal();
 });
-byId("openSupplyPlannerBtn").addEventListener("click", openSupplyPlannerDialog);
+byId("refreshSupplyPlannerBtn").addEventListener("click", refreshSupplyPlanner);
+byId("exportSupplyPlannerExcelBtn").addEventListener("click", exportSupplyPlannerExcel);
+byId("exportSupplyPlannerPdfBtn").addEventListener("click", exportSupplyPlannerPdf);
 byId("printSupplyPlannerBtn").addEventListener("click", printSupplyPlanner);
+byId("supplyProductFilter").addEventListener("input", renderSupplyPlanner);
+for (const id of ["supplySupplierFilter", "supplyRubricFilter", "supplyDateFrom", "supplyDateTo", "supplyStatusFilter"]) {
+  byId(id).addEventListener("change", renderSupplyPlanner);
+}
+byId("clearSupplyFiltersBtn").addEventListener("click", () => {
+  for (const id of ["supplyProductFilter", "supplyDateFrom", "supplyDateTo"]) byId(id).value = "";
+  for (const id of ["supplySupplierFilter", "supplyRubricFilter", "supplyStatusFilter"]) byId(id).value = "all";
+  renderSupplyPlanner();
+});
 
 byId("orderForm").addEventListener("input", renderOrderAccountPreview);
 

@@ -15,6 +15,7 @@ const profile = process.argv.includes("--profile");
 const durability = process.argv.includes("--durability");
 const cutTest = process.argv.includes("--cut");
 const visual = process.argv.includes("--visual");
+const supplyPreview = process.argv.includes("--supply-preview");
 const recordSync = process.argv.includes("--records");
 const Sync = require("../state-record-sync");
 const cursors = new Map();
@@ -56,14 +57,19 @@ const fixture = {
   clients: [], accounts: [], supplierAccounts: [{ balance: 456.78 }],
   physicalStockCounts: [], physicalStockAdjustments: [], stockMovements: [], activity: []
 };
-if (process.argv.includes("--supply-visual")) {
+if (process.argv.includes("--supply-visual") || supplyPreview) {
   assert.ok(!snapshotFile, "supply UI test uses synthetic data only");
   fixture.deliveryRoutes = [];
   fixture.orders.push({ code: "PED-RESERVED-142", client: "Test", status: "En Armado", inventoryMode: "reservation",
     items: [{ productCode: "B", name: "Test B", requestedQty: 5, reservedQty: 5, missingQty: 0, unitPrice: 20 }] });
-  fixture.products.push({ codigo_producto: "C", name: "Pending product", stock_fisico: 0, stock_reservado: 0 });
-  fixture.orders.push({ code: "PED-PENDING-142", client: "Test", status: "Pendiente", inventoryMode: "reservation",
+  fixture.products.push({ codigo_producto: "C", name: "Pending product", proveedor: "Supplier One", rubro: "Cleaning", stock_fisico: 0, stock_reservado: 0, costo: 12.5, precio_lista_2: 20 });
+  fixture.products.push({ codigo_producto: "00170", name: "Transit product", proveedor: "Supplier Two", rubro: "Food", stock_fisico: 0, stock_reservado: 0, stock_en_transito: 10 });
+  fixture.orders.push({ code: "PED-PENDING-142", client: "Test", status: "Pendiente", createdAt: "2026-10-23T12:00:00Z", inventoryMode: "reservation",
     items: [{ productCode: "C", name: "Pending product", requestedQty: 5, reservedQty: 0, missingQty: 5, unitPrice: 20 }] });
+  fixture.orders.push({ code: "PED-PENDING-141", client: "Test", status: "Pendiente", createdAt: "2026-10-24T12:00:00Z", inventoryMode: "reservation",
+    items: [{ productCode: "C", name: "Pending product", requestedQty: 7, reservedQty: 0, missingQty: 7, unitPrice: 20 }] });
+  fixture.orders.push({ code: "PED-TRANSIT-141", client: "Test", status: "Pendiente", createdAt: "2026-10-24T12:00:00Z", inventoryMode: "reservation",
+    items: [{ productCode: "00170", name: "Transit product", requestedQty: 4, reservedQty: 0, missingQty: 4, unitPrice: 20 }] });
 }
 if (snapshotFile) {
   const copy = JSON.parse(fs.readFileSync(snapshotFile, "utf8")).state;
@@ -192,6 +198,12 @@ async function main() {
   const initial = await request("/api/state", null, admin);
   const post = (body, expected = 200, cookie = admin) => request("/api/stock/entry", body, cookie, expected);
   const before = initial.result.state;
+  if (supplyPreview) {
+    console.log(`LOCAL_SUPPLY_PREVIEW=${base}/#stock`);
+    console.log(`Synthetic admin: admin1 / ${password}`);
+    await new Promise(resolve => { process.once("SIGINT", resolve); process.once("SIGTERM", resolve); });
+    return;
+  }
   if (process.argv.includes("--supply-visual")) {
     await require("./supply-manual-browser-check").check(base, admin, password, read);
     return;

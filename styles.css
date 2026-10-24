@@ -3295,14 +3295,52 @@ button.price-list-chip:focus-visible {
   width: min(1040px, calc(100vw - 24px));
 }
 
-.supply-planner-modal {
-  gap: 16px;
+.supply-planner-panel > .panel-header {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
+.supply-planner-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.supply-planner-filters label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.supply-planner-filters input,
+.supply-planner-filters select {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+}
+
+.supply-planner-actions {
+  flex-wrap: wrap;
+}
+
+.supply-planner-actions button {
+  white-space: normal;
 }
 
 .supply-planner-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(140px, 1fr));
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
   gap: 10px;
+  margin-bottom: 16px;
 }
 
 .supply-planner-kpi {
@@ -3312,7 +3350,7 @@ button.price-list-chip:focus-visible {
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #f8fbfb;
+  background: var(--surface);
 }
 
 .supply-planner-kpi span {
@@ -3331,6 +3369,24 @@ button.price-list-chip:focus-visible {
 .supply-order-list {
   display: grid;
   gap: 4px;
+}
+
+@media (max-width: 600px) {
+  .supply-planner-panel > .panel-header {
+    display: block;
+  }
+  .supply-planner-panel .supply-planner-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 12px;
+  }
+  .supply-planner-panel .supply-planner-filters,
+  .supply-planner-panel .supply-planner-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .supply-planner-filters label:first-child {
+    grid-column: 1 / -1;
+  }
 }
 
 .stock-report {

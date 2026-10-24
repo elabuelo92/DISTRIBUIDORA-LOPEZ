@@ -22,10 +22,7 @@ async function check(base, cookie, password, read) {
     await page.locator('#stock [data-tool-id="products"]').click();
     await page.locator('[data-edit-product="Test B"]').waitFor();
     await page.evaluate(() => {
-      window.supplyProbe = { opens: 0, builds: 0 };
-      const modal = document.querySelector("#supplyPlannerDialog");
-      const show = modal.showModal.bind(modal);
-      modal.showModal = () => { window.supplyProbe.opens++; return show(); };
+      window.supplyProbe = { builds: 0 };
       const build = OrderEngine.buildShortageList;
       OrderEngine.buildShortageList = (...args) => { window.supplyProbe.builds++; return build(...args); };
     });
@@ -34,7 +31,7 @@ async function check(base, cookie, password, read) {
     const protectedFields = ["accounts", "supplierAccounts", "physicalStockCounts", "physicalStockAdjustments", "deliveryRoutes"];
     async function stillClosed() {
       await page.waitForTimeout(350); // Beyond the removed 120 ms auto-open delay.
-      assert.equal(await page.locator("#supplyPlannerDialog").evaluate(element => element.open), false);
+      assert.equal(await page.locator("#supplyPlannerDialog").count(), 0);
       assert.equal(await page.locator("#supplyPlannerTable").innerHTML(), "", "no hidden report generation");
     }
     await stillClosed();
@@ -71,33 +68,101 @@ async function check(base, cookie, password, read) {
     assert.equal(afterReceipt.stockMovements.length, beforeReceipt.stockMovements.length + 1, "one intended isolated receipt only");
     for (const key of protectedFields) assert.deepEqual(afterReceipt[key], before[key], key);
     const expectedShortages = require("../order-engine").buildShortageList(afterReceipt);
-    assert.ok(expectedShortages.some(item => item.productCode === "C" && item.purchaseQty === 5));
+    assert.ok(expectedShortages.some(item => item.productCode === "C" && item.purchaseQty === 12));
     await page.locator('#stock select[aria-label="Cambiar herramienta"]').selectOption("supply");
-    await page.locator("#openSupplyPlannerBtn").waitFor();
-    await stillClosed();
+    await page.locator("#supplyPlannerTable").waitFor();
+    assert.equal(await page.locator("dialog[open]").count(), 0);
+    assert.equal(await page.locator("#supplyPlannerTable tr").count(), 2);
     const callsBefore = requests.length;
     const snapshot = JSON.stringify(read());
-    await page.locator("#openSupplyPlannerBtn").click();
-    await page.locator("#supplyPlannerDialog[open]").waitFor();
     assert.match(await page.locator("#supplyPlannerTable").innerText(), /Pending product/);
-    assert.equal(await page.evaluate(() => window.supplyProbe.opens), 1);
-    await page.screenshot({ path: path.join(__dirname, "../docs/P142-abastecimiento-manual.png") });
+    const observed = await page.evaluate(() => filteredSupplyPlannerRows().map(r => [r.productCode, r.missingQty, r.inTransit, r.purchaseQty]));
+    assert.deepEqual(observed, expectedShortages.map(r => [r.productCode, r.missingQty, r.inTransit, r.purchaseQty]));
+    const initialBuilds = await page.evaluate(() => window.supplyProbe.builds);
+    await page.locator("#supplyProductFilter").fill("Pending");
+    assert.equal(await page.locator("#supplyPlannerTable tr").count(), 1);
+    await page.locator("#supplySupplierFilter").selectOption("Supplier Two");
+    assert.match(await page.locator("#supplyPlannerTable").innerText(), /No hay faltantes/);
+    await page.locator("#clearSupplyFiltersBtn").click();
+    await page.locator("#supplyRubricFilter").selectOption("Food");
+    assert.match(await page.locator("#supplyPlannerTable").innerText(), /Transit product/);
+    await page.locator("#clearSupplyFiltersBtn").click();
+    await page.locator("#supplyStatusFilter").selectOption("transit");
+    assert.equal(await page.locator("#supplyPlannerTable tr").count(), 1);
+    assert.equal(await page.evaluate(() => window.supplyProbe.builds), initialBuilds, "filters reuse one calculation");
+    await page.locator("#clearSupplyFiltersBtn").click();
+    await page.locator("#supplyDateFrom").fill("2026-10-23");
+    await page.locator("#supplyDateTo").fill("2026-10-23");
+    assert.equal(await page.locator("#supplyPlannerTable tr").count(), 1);
+    assert.equal(await page.locator("#supplyPlannerTable tr td").nth(3).innerText(), "5");
+    await page.locator("#supplyDateFrom").fill("2026-10-24");
+    assert.equal(await page.locator("#supplyPlannerError").isVisible(), true);
+    assert.equal(await page.locator("#exportSupplyPlannerExcelBtn").isDisabled(), true);
+    await page.locator("#supplyDateTo").fill("2026-10-24");
+    await page.locator("#supplyProductFilter").fill("Pending");
+    assert.equal(await page.locator("#supplyPlannerTable tr td").nth(3).innerText(), "7");
+    const outputDir = path.join(__dirname, "../docs/P141-exports");
+    fs.mkdirSync(outputDir, { recursive: true });
+    async function download(button, fileName) {
+      const ready = page.waitForEvent("download");
+      await page.locator(button).click();
+      const file = await ready;
+      assert.equal(await file.failure(), null);
+      await file.saveAs(path.join(outputDir, fileName));
+      return path.join(outputDir, fileName);
+    }
+    const filteredExcel = await download("#exportSupplyPlannerExcelBtn", "compras-filtradas.xlsx");
+    await download("#exportSupplyPlannerPdfBtn", "compras-filtradas.pdf");
+    const ExcelJS = require("exceljs");
+    const book = new ExcelJS.Workbook();
+    await book.xlsx.readFile(filteredExcel);
+    const sheet = book.getWorksheet(1);
+    assert.equal(sheet.rowCount, 4);
+    assert.equal(sheet.getCell("E4").value, 7);
+    assert.equal(sheet.getCell("G4").value, 7);
+    assert.equal(sheet.getCell("J4").value, 12.5);
+    assert.match(sheet.getCell("I4").value, /PED-PENDING-141/);
+    assert.ok(!sheet.getCell("I4").value.includes("PED-PENDING-142"));
+    await context.addInitScript(() => { window.print = () => {}; });
+    const popupReady = page.waitForEvent("popup");
+    await page.locator("#printSupplyPlannerBtn").click();
+    const popup = await popupReady;
+    await popup.waitForLoadState();
+    assert.equal(await popup.locator("tbody tr").count(), 1);
+    assert.match(await popup.locator("tbody").innerText(), /PED-PENDING-141/);
+    assert.ok(!(await popup.locator("tbody").innerText()).includes("PED-PENDING-142"));
+    await popup.pdf({ path: path.join(outputDir, "impresion-filtrada.pdf"), preferCSSPageSize: true });
+    await popup.close();
+    await page.locator("#clearSupplyFiltersBtn").click();
+    const allExcel = await download("#exportSupplyPlannerExcelBtn", "compras-todas.xlsx");
+    await download("#exportSupplyPlannerPdfBtn", "compras-todas.pdf");
+    await book.xlsx.readFile(allExcel);
+    assert.equal(book.getWorksheet(1).getCell("A5").value, "00170", "leading zeros retained as text");
+    assert.equal(book.getWorksheet(1).getCell("G5").value, 0);
+    await page.screenshot({ path: path.join(__dirname, "../docs/P141-abastecimiento-desktop.png"), fullPage: true });
+    await page.locator("#themeToggleBtn").click();
+    await page.screenshot({ path: path.join(__dirname, "../docs/P141-abastecimiento-oscuro.png"), fullPage: true });
+    const colors = await page.locator("#supplyProductFilter").evaluate(element => ({ color: getComputedStyle(element).color, background: getComputedStyle(element).backgroundColor }));
+    assert.notEqual(colors.color, colors.background);
+    assert.notEqual(colors.background, "rgb(255, 255, 255)");
+    await page.locator("#themeToggleBtn").click();
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: path.join(__dirname, "../docs/P142-abastecimiento-movil.png") });
-    await page.locator('#supplyPlannerDialog button[aria-label="Cerrar"]').click();
-    await page.waitForTimeout(500);
-    assert.equal(await page.locator("#supplyPlannerDialog").evaluate(element => element.open), false);
+    await page.screenshot({ path: path.join(__dirname, "../docs/P141-abastecimiento-movil.png"), fullPage: true });
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+    assert.equal(overflow, false, "mobile page does not overflow; table scrolls within its container");
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await page.locator("#openSupplyPlannerBtn").click();
-    await page.locator("#supplyPlannerDialog[open]").waitFor();
-    await page.keyboard.press("Escape");
-    assert.equal(await page.locator("#supplyPlannerDialog").evaluate(element => element.open), false);
-    assert.equal(await page.evaluate(() => window.supplyProbe.opens), 2, "one opening per manual action");
+    const beforeRefresh = requests.filter(item => item.path === "/api/state" && item.method === "GET").length;
+    await page.locator("#refreshSupplyPlannerBtn").click();
+    await page.waitForFunction(() => !supplyPlannerRefreshing);
+    assert.match(await page.locator("#supplyPlannerUpdated").innerText(), /Actualizado/);
+    assert.equal(requests.filter(item => item.path === "/api/state" && item.method === "GET").length, beforeRefresh + 1);
     await page.locator('#stock select[aria-label="Cambiar herramienta"]').selectOption("products");
+    const beforeHidden = await page.evaluate(() => window.supplyProbe.builds);
+    await page.locator("#stockProductSearch").fill("Test");
+    assert.equal(await page.evaluate(() => window.supplyProbe.builds), beforeHidden);
     await page.locator('#stock select[aria-label="Cambiar herramienta"]').selectOption("supply");
-    await page.waitForTimeout(350);
-    assert.equal(await page.locator("#supplyPlannerDialog").evaluate(element => element.open), false, "tool changes do not reopen");
-    assert.deepEqual(requests.slice(callsBefore).filter(item => item.method !== "GET" || !["/api/state", "/api/presence", "/api/health", "/api/session"].includes(item.path)), [], "consultation adds no API requests beyond normal read synchronization");
+    assert.equal(await page.locator("dialog[open]").count(), 0, "tool changes do not open any popup");
+    assert.deepEqual(requests.slice(callsBefore).filter(item => item.method === "POST" && item.path !== "/api/reports/xlsx" && item.path !== "/api/presence/heartbeat"), [], "consultation/export never writes business data");
     assert.equal(JSON.stringify(read()), snapshot, "consult/close report is read-only");
     assert.equal(requests.filter(item => item.path === "/api/admin/reauth" && item.method === "POST").length, 1);
     assert.equal(requests.filter(item => item.path === "/api/state" && item.method === "POST").length, 1, "saving has no duplicated listener/request");
@@ -107,8 +172,11 @@ async function check(base, cookie, password, read) {
       checks: ["stock-entry", "search", "edit-save", "module-navigation", "stock-api-refresh", "tool-navigation",
         "manual-open-once", "close-button", "reopen-fresh", "escape", "desktop-mobile", "unchanged-consultation-state",
         "stock-reservations-preserved-on-edit", "one-isolated-receipt", "financial-records-preserved", "no-report-api", "no-duplicate-save"] };
-    fs.writeFileSync(path.join(__dirname, "../docs/P142-abastecimiento-results.json"), JSON.stringify(report, null, 2));
-    console.log("PASS P142 browser: Stock/search/edit/save/navigation/stock API refresh do not open report; click opens once; close/reopen/Escape; desktop/mobile; backend shortages intact; no report API or data mutation");
+    report.checks = ["stock-entry", "search", "edit-save", "module-navigation", "stock-api-refresh", "manual-section", "no-modal",
+      "all-filters", "date-range", "invalid-date-range", "xlsx-numeric-and-identifiers", "pdf-download", "print-filtered",
+      "single-refresh", "desktop-mobile", "read-only-report", "protected-data", "lazy-hidden-section"];
+    fs.writeFileSync(path.join(__dirname, "../docs/P141-abastecimiento-results.json"), JSON.stringify(report, null, 2));
+    console.log("PASS P141 browser: permanent manual section, all filters, real XLSX/PDF/print, one refresh, no automatic dialogs, desktop/mobile, unchanged data");
     console.log(JSON.stringify(report));
   } finally { await browser.close(); }
 }
