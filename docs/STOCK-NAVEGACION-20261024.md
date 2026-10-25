@@ -1,8 +1,8 @@
 # Stock e Inventario - tres accesos
 
-Estado: **Implementado localmente, pendiente de despliegue**.
-Fecha: 2026-10-24. Base productiva publicada en el turno anterior: 8790-189.
-No hubo acceso, cambios, mantenimiento ni reinicio productivo en esta tarea.
+Estado: **Desplegado en produccion y validado tecnicamente: 8790-190**.
+Fecha: 2026-10-24, 21:21 ART. Base productiva anterior: 8790-189.
+Los tres accesos se incluyeron en el paquete P143 con autorizacion expresa, respaldo y reinicio controlado del ERP. Datos y usuarios identicos antes/despues.
 
 ## Cambios
 
@@ -33,4 +33,12 @@ No hubo acceso, cambios, mantenimiento ni reinicio productivo en esta tarea.
 
 Demo aislada: http://127.0.0.1:23822/#stock. Solo datos ficticios.
 Proceso de preview: 20172. Usuario ficticio `admin1`, clave `LocalCountTest-Only!`.
-El indicador de version de la demo conserva la base 8790-189; estos cambios visuales adicionales no estan publicados. Antes de publicar corresponde asignar nueva version/cache, respaldar y verificar integridad productiva.
+La demo fue usada para pruebas aisladas; no es evidencia de la version productiva. La publicacion real 8790-190 incluye nueva version/cache e integridad verificada de 29 archivos.
+
+## Verificacion productiva
+
+- Commit `9345c3734e9fe39269caa95f02d7e45f6be2023e`; respaldo `/opt/distribuidora-lopez/backups/emergency-20261025-002033`.
+- Salud publica correcta y sin mantenimiento. Los archivos publicados coinciden con los probados.
+- P141/P142 ya estaban en 189 y continúan incluidos; los tres accesos quedan publicados en 190.
+- No se alteraron formulas, cantidades, reservas, movimientos ni saldos. Comparacion completa de datos identica.
+- Detalle de despliegue en `PROMPT-143-CLIENTES-20261024.md` y `P143-production-validation.json`.

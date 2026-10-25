@@ -1,7 +1,9 @@
 # P143 - Edicion segura de clientes / version 8790-190
 
-Estado: implementado localmente; despliegue autorizado, sujeto a pruebas finales y respaldo.
+Estado: **Desplegado en produccion y validado tecnicamente: 8790-190**.
 Paquete: correccion de Clientes + tres accesos de Stock autorizados expresamente.
+Publicacion: 24/10/2026, 21:21 ART. Verificacion publica completada a las 21:24 ART.
+Pendiente: prueba manual con contrasena guardada en Chrome y Android fisico; guardado inferior a 1 s en la base grande.
 
 ## Diagnostico
 
@@ -23,11 +25,11 @@ Paquete: correccion de Clientes + tres accesos de Stock autorizados expresamente
 
 ## Tiempos y limite pendiente
 
-- Base ficticia de 2500 clientes/3000 pedidos: antes 343-448 ms para API + recarga de listado. Primera prueba posterior: API 209-272 ms; pantalla 450 ms escritorio / 306 ms en emulacion movil. Sin consulta adicional del listado al guardar.
-- Copia historica local de aproximadamente 98 MB: antes 2,4-3,4 s; primera prueba posterior 2,1-3,0 s. Mediana aproximada: 2,94 s -> 2,22 s. Persistir el archivo completo sigue dominando el tiempo.
+- Base ficticia de 2500 clientes/3000 pedidos: antes 343-448 ms para API + recarga de listado. Ultima repeticion sobre el codigo publicado: API 202-236 ms; pantalla 293 ms escritorio / 394 ms en emulacion movil. Sin consulta adicional del listado al guardar.
+- Copia historica local de aproximadamente 98 MB: antes 2,44-3,41 s; despues 1,95-2,43 s. Mediana: 2,94 s -> 2,20 s (25% menos). Persistir el archivo completo sigue dominando el tiempo.
 - El usuario autorizo publicar estas correcciones y continuar despues con el objetivo inferior a 1 s. No se presenta ese objetivo como alcanzado ni estos tiempos locales como mediciones productivas.
 - Resultados finales reproducibles y fases de autenticacion, serializacion y disco en `P143-before-results.json`, `P143-after-results.json`, `P143-volume-before-results.json` y `P143-volume-after-results.json`.
-- Repeticion final: base ficticia 219-283 ms de API, pantalla 351/317 ms; copia grande 1,95-2,43 s, mediana 2,20 s (25% menos que los 2,94 s anteriores). Las 14 verificaciones de publicacion pasaron.
+- Las 14 verificaciones de publicacion pasaron. La repeticion HTTP/interfaz final tambien paso sobre el codigo del commit publicado.
 
 ## Pruebas
 
@@ -55,7 +57,23 @@ Paquete: correccion de Clientes + tres accesos de Stock autorizados expresamente
 
 Antes del despliegue se verifico en vivo: version 8790-189, commit b19b5c1, servicio activo, sin mantenimiento, licencia e integridad correctas (28 archivos). P141/P142 estaban publicados; los tres accesos visuales no. Estos ultimos se incluyen ahora con autorizacion expresa y sus pruebas de regresion.
 
+## Despliegue y preservacion de datos
+
+- Commit publicado: `9345c3734e9fe39269caa95f02d7e45f6be2023e`.
+- Respaldo: `/opt/distribuidora-lopez/backups/emergency-20261025-002033` (nombre UTC; noche del 24/10 en Argentina).
+- Reinicio controlado solamente del ERP. PID posterior `3680778`, servicio activo, `NRestarts=0` y memoria aproximada de 154 MiB en reposo. Cero sesiones activas al verificar: no representa una prueba de carga productiva.
+- Salud local y publica correctas; mantenimiento desactivado; licencia valida; integridad de 29 archivos sin diferencias ni faltantes.
+- SHA256 de `demo-state.json` identico antes/despues: `e336e077ca41d189afda27a73ff4f0ec577d1ac6cbb09ba7500c0392138bc6a6`.
+- SHA256 de `users.json` identico antes/despues: `93033881d6193e2cdfe634afb302a07eedbdd187cf734c26e15b874c71e68162`.
+- Pedidos del dia: cero faltantes, agregados o modificados por el despliegue. Se conservaron 2031 pedidos, 730 productos y 78 rutas; version de datos `1792883540272`.
+- Archivos publicos `index.html`, `app.js`, `styles.css`, `sw.js` y `client-edit.js` coinciden con la fuente probada; configuracion generada por el servidor coincide con la version y conexion de salud.
+- El verificador inicial confundia la marca BOM eliminada por `Response.text()` y comparaba la configuracion dinamica con el archivo local. Se corrigio solo el verificador: lectura de bytes para archivos y comparacion estructurada de configuracion. No se requirio otro despliegue ni reinicio.
+- Registro del servicio desde el arranque: inicio normal, sin errores registrados al revisar. No se realizaron guardados de clientes reales como prueba ni limpiezas historicas.
+- Evidencia publica reproducible: `P143-production-validation.json`, mediante `node scripts/verify-release-190.js`; log local del despliegue: `P143-production-deploy.log`.
+
 ## Checklist del cliente
+
+Realizar sobre cambios reales aprobados, o repetir las pruebas ficticias en la copia aislada; no crear ni alterar clientes productivos solo para probar.
 
 1. Clientes: editar solo telefono y confirmar con la clave administrativa en el modal separado.
 2. Reabrir: comprobar telefono nuevo, email igual y GPS/saldo/vendedor/ruta sin cambios.

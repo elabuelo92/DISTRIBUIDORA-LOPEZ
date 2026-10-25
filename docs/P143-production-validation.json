@@ -1,0 +1,57 @@
+{
+  "at": "2026-10-25T00:24:15.114Z",
+  "version": "8790-190",
+  "healthMs": 309,
+  "maintenance": false,
+  "integrity": {
+    "ok": true,
+    "code": "INTEGRITY_OK",
+    "message": "Integridad verificada.",
+    "checked": 29,
+    "changed": 0,
+    "missing": 0,
+    "generatedAt": "2026-10-25T00:21:31.680Z"
+  },
+  "licenseOk": true,
+  "orders": 2031,
+  "products": 730,
+  "routes": 78,
+  "latestOrder": "PED-4391",
+  "stateVersion": 1792883540272,
+  "activeSessions": 0,
+  "assets": [
+    {
+      "file": "index.html",
+      "matchesTestedSource": true,
+      "sha256": "5bdedaf6f8b6a6237f9829e160485c1ba43696fd863b250775e21e90f9040146"
+    },
+    {
+      "file": "app.js",
+      "matchesTestedSource": true,
+      "sha256": "65a96077e14b9c6213d0e271dc3144a748142ad39b33d33dc5f0cf44df99b018"
+    },
+    {
+      "file": "styles.css",
+      "matchesTestedSource": true,
+      "sha256": "7c738b9edf930a3d67452739546795b5f49d39ea0343ef21d7edc9edb2cb428e"
+    },
+    {
+      "file": "sw.js",
+      "matchesTestedSource": true,
+      "sha256": "d370b4093a882688c75fdf12135dc06eb25467f2714b03ca97eabaa125462a52"
+    },
+    {
+      "file": "client-edit.js",
+      "matchesTestedSource": true,
+      "sha256": "a7066c4a8ce16ca19564b1ebb9abddfa137172be50203efdaeda145e26b6ed59"
+    }
+  ],
+  "runtimeConfig": {
+    "matchesHealth": true,
+    "version": "8790-190",
+    "apiBaseUrl": "",
+    "port": 8790
+  },
+  "ok": true,
+  "scope": "Read-only health and published assets. No customer saves or session changes."
+}
