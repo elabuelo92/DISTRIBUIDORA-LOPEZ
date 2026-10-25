@@ -1,0 +1,118 @@
+{
+  "ok": true,
+  "baseline": false,
+  "fixtureBytes": 8227056,
+  "clients": 2500,
+  "orders": 3000,
+  "snapshotSourceUnchanged": null,
+  "sqlQueries": 0,
+  "metrics": [
+    {
+      "apiMs": 235.64750000000004,
+      "listMs": 0,
+      "totalMs": 235.64750000000004,
+      "responseBytes": 3228,
+      "phases": [
+        {
+          "phase": "pbkdf2Sync",
+          "ms": 86.09940004348755
+        },
+        {
+          "phase": "writeCountState",
+          "ms": 123.95069992542267,
+          "diskMs": 49.72629976272583,
+          "serializationMs": 74.19390022754669,
+          "bytes": 8152093
+        }
+      ]
+    },
+    {
+      "apiMs": 201.72740000000022,
+      "listMs": 0,
+      "totalMs": 201.72740000000022,
+      "responseBytes": 3572,
+      "phases": [
+        {
+          "phase": "pbkdf2Sync",
+          "ms": 69.32949995994568
+        },
+        {
+          "phase": "writeCountState",
+          "ms": 112.85889995098114,
+          "diskMs": 41.76270043849945,
+          "serializationMs": 70.99329960346222,
+          "bytes": 8155397
+        }
+      ]
+    },
+    {
+      "apiMs": 208.42259999999987,
+      "listMs": 0,
+      "totalMs": 208.42259999999987,
+      "responseBytes": 3920,
+      "phases": [
+        {
+          "phase": "pbkdf2Sync",
+          "ms": 78.07669997215271
+        },
+        {
+          "phase": "writeCountState",
+          "ms": 108.16729998588562,
+          "diskMs": 41.35789966583252,
+          "serializationMs": 66.79200041294098,
+          "bytes": 8158701
+        }
+      ]
+    },
+    {
+      "apiMs": 209.2489999999998,
+      "listMs": 0,
+      "totalMs": 209.2489999999998,
+      "responseBytes": 4264,
+      "phases": [
+        {
+          "phase": "pbkdf2Sync",
+          "ms": 77.98110008239746
+        },
+        {
+          "phase": "writeCountState",
+          "ms": 111.11219990253448,
+          "diskMs": 40.34949970245361,
+          "serializationMs": 70.74330031871796,
+          "bytes": 8162005
+        }
+      ]
+    },
+    {
+      "apiMs": 235.89289999999983,
+      "listMs": 0,
+      "totalMs": 235.89289999999983,
+      "responseBytes": 4611,
+      "phases": [
+        {
+          "phase": "pbkdf2Sync",
+          "ms": 85.40240001678467
+        },
+        {
+          "phase": "writeCountState",
+          "ms": 131.15590000152588,
+          "diskMs": 63.62439966201782,
+          "serializationMs": 67.51660025119781,
+          "bytes": 8165309
+        }
+      ]
+    }
+  ],
+  "checks": [
+    "business sections and every other customer unchanged across five saves",
+    "empty/valid email, phone/address/zone/route/seller/notes/credit edits preserve every unedited field and GPS",
+    "legacy invalid email is retained, new invalid email and protected fields rejected without writes",
+    "retry after lost response is idempotent; changed operation reuse rejected",
+    "two administrators: conflicting edit rejected, independent changes preserved",
+    "administrator password and role still required",
+    "fsync/rename failure leaves disk and cached customer unchanged; retry persists exactly once",
+    "orders, stock, reservations, movements, balances and 2498 other clients unchanged",
+    "Desktop Chromium: isolated auth form, invalid autofill rejected, retry preserves data, phone-only PATCH, no list reload, 293ms UI save",
+    "Android viewport emulation: isolated auth form, invalid autofill rejected, retry preserves data, phone-only PATCH, no list reload, 394ms UI save"
+  ]
+}

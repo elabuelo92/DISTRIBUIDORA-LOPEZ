@@ -588,6 +588,10 @@ let orderLabelTargetCode = "";
 let orderLabelPendingOperationId = "";
 let orderScanTargetCode = "";
 let clientEditTargetId = "";
+let clientEditBaseline = null;
+let clientEditExpected = null;
+let clientEditOperation = null;
+let clientEditPendingVersion = 0;
 let supplierRemitItems = [];
 let supplierNewProductPhotoDataUrl = "";
 let supplierRemitValidationCurrent = null;
@@ -2402,6 +2406,7 @@ function applyPresenceToState() {
 
 function applyServerStatePayload(payload) {
   if (!payload) return;
+  if (payload.state && Number(payload.version) < clientEditPendingVersion) return;
   if (!(payload.refreshRequired && !payload.state)) {
     syncVersion = payload.version || syncVersion;
   }
@@ -2411,6 +2416,7 @@ function applyServerStatePayload(payload) {
   const nextState = normalizeState(payload.state);
   trackIncomingNotifications(nextState);
   state = nextState;
+  if (Number(payload.version) >= clientEditPendingVersion) clientEditPendingVersion = 0;
   applyPresenceToState();
   syncReady = true;
   persistLocalMeta("server-payload");
@@ -2433,6 +2439,10 @@ function applyOrderPatches(orders, version) {
 
 function applyOperationalPatches(payload) {
   if (!payload || payload.state) return;
+  if (payload.clientEditPatch) {
+    applyClientEditPatch(payload);
+    return;
+  }
   if (payload.stockCountPatch) {
     for (const [key, record] of [["physicalStockCuts", payload.cut], ["physicalStockCounts", payload.count], ["physicalStockAdjustments", payload.adjustment], ["stockMovements", payload.stockMovement]]) {
       if (!record?.id) continue;
@@ -2527,7 +2537,7 @@ async function postOperationalAction(path, body, options = {}) {
   const driverStopPatch = currentUser?.role === "driver"
     && /^api\/delivery\/orders\/[^/]+\/(?:status|collect|exception)$/.test(path)
     && payload.route && payload.order;
-  if (payload.refreshRequired && !payload.state && !driverStopPatch) {
+  if (payload.refreshRequired && !payload.state && !driverStopPatch && !payload.clientEditPatch) {
     window.setTimeout(pullStateFromServer, 150);
   }
   return payload;
@@ -9103,12 +9113,13 @@ function openOperationalTool(moduleId, toolId = "", focus = false) {
   workspace.select.value = workspace.selected;
   workspace.panels.forEach((panel, id) => { panel.hidden = id !== workspace.selected; });
   workspace.root.dataset.operationalTool = workspace.selected || "home";
+  if (moduleId === "stock" || moduleId === "control-stock") renderStockSectionNavigation(moduleId, workspace);
   if (moduleId === "dashboard") {
     byId("homeWelcome").hidden = Boolean(tool);
     byId("metricsGrid").hidden = Boolean(tool);
   }
   if (focus) {
-    (tool ? workspace.title : workspace.home.querySelector("h2"))?.focus({ preventScroll: true });
+    (tool && !workspace.bar.hidden ? workspace.title : workspace.stockNavigation?.querySelector("h2") || workspace.home.querySelector("h2"))?.focus({ preventScroll: true });
     window.scrollTo({ top: 0, behavior: "instant" });
   }
   if (focus && moduleId === "reparto" && tool?.id === "deliveries" && deliveryMapVisible) {
@@ -9122,6 +9133,52 @@ function openOperationalTool(moduleId, toolId = "", focus = false) {
   if (focus && moduleId === "dashboard") {
     if (tool?.id === "map") dashboardPresenceLastRenderAt = 0;
     renderDashboardView();
+  }
+}
+
+function renderStockSectionNavigation(moduleId, workspace) {
+  const sections = [
+    { id: "products", title: "Existencias", icon: "boxes", view: "stock", tool: "products" },
+    { id: "physical", title: "Control fisico", icon: "clipboard-list", view: "control-stock", tool: "count" },
+    { id: "supply", title: "Abastecimiento", icon: "package", view: "stock", tool: "supply" }
+  ];
+  if (!workspace.stockNavigation?.isConnected) {
+    const navigation = document.createElement("nav");
+    navigation.className = "stock-section-navigation";
+    navigation.setAttribute("aria-label", "Stock e Inventario");
+    navigation.innerHTML = '<h2 tabindex="-1">Stock e Inventario</h2><div class="stock-section-grid"></div>';
+    for (const section of sections) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "stock-section-button";
+      button.dataset.stockSection = section.id;
+      button.innerHTML = `<span class="hub-icon"><img src="icons/tools/${section.icon}.svg" alt="" width="26" height="26"></span><strong>${section.title}</strong>`;
+      button.addEventListener("click", () => {
+        if (!canUseView(section.view)) return;
+        if (activeViewId() !== section.view) {
+          // Select before rendering the destination so its previous report is not computed.
+          const target = operationalWorkspaces.get(section.view);
+          if (target) target.selected = section.tool;
+          switchView(section.view, { skipRender: true });
+          renderInventoryFinanceWorkspace(section.view);
+        }
+        openOperationalTool(section.view, section.tool, true);
+      });
+      navigation.querySelector(".stock-section-grid").append(button);
+    }
+    workspace.home.before(navigation);
+    workspace.stockNavigation = navigation;
+  }
+  const selected = moduleId === "control-stock" ? "physical"
+    : workspace.selected === "supply" ? "supply" : workspace.selected ? "products" : "";
+  for (const section of sections) {
+    const button = workspace.stockNavigation.querySelector(`[data-stock-section="${section.id}"]`);
+    button.hidden = !canUseView(section.view);
+    button.setAttribute("aria-pressed", String(section.id === selected));
+  }
+  if (moduleId === "stock") {
+    workspace.home.hidden = true;
+    if (workspace.selected === "supply") workspace.bar.hidden = true;
   }
 }
 
@@ -9199,7 +9256,7 @@ function renderInventoryFinanceWorkspace(moduleId) {
       ["bank", "Conciliacion bancaria", "coins", ["bankList"]]
     ],
     stock: [
-      ["products", "Inventario de productos", "boxes", ["stockTable"]],
+      ["products", "Existencias", "boxes", ["stockTable"]],
       ["overview", "Resumen de stock", "chart-column", ["stockKpis"], admin],
       ["supply", "Abastecimiento / Compras pendientes", "package", ["supplyPlannerTable"]],
       ["ledger", "Movimientos de stock", "history", ["stockLedgerTable"], admin]
@@ -11419,18 +11476,11 @@ function renderClientsPager(payload, renderMs, fromCache) {
     </div>`;
 }
 
-function renderClientPage(payload, fromCache = false) {
-  const startedAt = performance.now();
-  updateClientFilterOptions(payload);
-  clientPage = Number(payload.page || clientPage || 1);
-  const clients = Array.isArray(payload.records) ? payload.records : [];
-  currentClientPageRecords = clients;
-  populateClientBulkSellerOptions();
-  byId("clientsTable").innerHTML = clients.length ? clients.map((client) => {
+function renderClientRow(client) {
     const account = client.account || { currentBalance: 0, creditLimit: 0, totalDebt: 0, status: "Al dia" };
     const mixedEntityKeyValue = client.mixedEntityKey || "";
     return `
-    <tr data-account-entity-type="client" data-account-entity-id="${escapeHtml(client.codigo_cliente || client.name)}" title="Doble clic para abrir el estado de cuenta">
+    <tr data-account-entity-type="client" data-account-entity-id="${escapeHtml(clientIdentity(client))}" title="Doble clic para abrir el estado de cuenta">
       <td><input type="checkbox" data-client-select="${escapeHtml(clientIdentity(client))}" aria-label="Seleccionar ${escapeHtml(client.name)}" ${selectedClientIds.has(clientIdentity(client)) ? "checked" : ""}></td>
       <td>
         <strong>${escapeHtml(client.name)}</strong>
@@ -11467,17 +11517,50 @@ function renderClientPage(payload, fromCache = false) {
         <small>${escapeHtml(client.frecuencia_visita || "Sin frecuencia")}</small>
       </td>
       <td>
-        <button class="mini-btn" type="button" data-client-edit="${escapeHtml(client.codigo_cliente || client.name)}">Editar</button>
+        <button class="mini-btn" type="button" data-client-edit="${escapeHtml(clientIdentity(client))}">Editar</button>
         ${client.gpsReviewStatus === "pending_validation"
-          ? `<button class="mini-btn primary-mini" type="button" data-client-gps-action="approve" data-client-gps-id="${escapeHtml(client.codigo_cliente || client.name)}">Aprobar GPS</button><button class="mini-btn" type="button" data-client-gps-action="reject" data-client-gps-id="${escapeHtml(client.codigo_cliente || client.name)}">Rechazar</button>`
-          : `<button class="mini-btn" type="button" data-client-gps-action="mark" data-client-gps-id="${escapeHtml(client.codigo_cliente || client.name)}">GPS a corregir</button>`}
-        ${["needs_correction", "pending_validation", "rejected"].includes(client.gpsReviewStatus) ? `<button class="mini-btn" type="button" data-client-gps-action="cancel" data-client-gps-id="${escapeHtml(client.codigo_cliente || client.name)}">Cancelar correccion</button>` : ""}
-        <button class="mini-btn primary-mini" type="button" data-account-open="client" data-account-id="${escapeHtml(client.codigo_cliente || client.name)}">Cuenta</button>
+          ? `<button class="mini-btn primary-mini" type="button" data-client-gps-action="approve" data-client-gps-id="${escapeHtml(clientIdentity(client))}">Aprobar GPS</button><button class="mini-btn" type="button" data-client-gps-action="reject" data-client-gps-id="${escapeHtml(clientIdentity(client))}">Rechazar</button>`
+          : `<button class="mini-btn" type="button" data-client-gps-action="mark" data-client-gps-id="${escapeHtml(clientIdentity(client))}">GPS a corregir</button>`}
+        ${["needs_correction", "pending_validation", "rejected"].includes(client.gpsReviewStatus) ? `<button class="mini-btn" type="button" data-client-gps-action="cancel" data-client-gps-id="${escapeHtml(clientIdentity(client))}">Cancelar correccion</button>` : ""}
+        <button class="mini-btn primary-mini" type="button" data-account-open="client" data-account-id="${escapeHtml(clientIdentity(client))}">Cuenta</button>
         ${mixedEntityKeyValue ? `<button class="mini-btn primary-mini" type="button" data-mixed-entity="${escapeHtml(mixedEntityKeyValue)}">Ficha mixta</button>` : ""}
       </td>
     </tr>
   `;
-  }).join("") : '<tr><td class="stock-empty" colspan="9">No hay clientes para los filtros seleccionados.</td></tr>';
+}
+
+function applyClientEditPatch(payload) {
+  const client = payload.client;
+  const record = payload.clientRecord;
+  if (!client || !record) return;
+  clientEditPendingVersion = Math.max(clientEditPendingVersion, Number(payload.version) || 0);
+  const identity = clientIdentity(client);
+  const matches = item => clientIdentity(item) === identity;
+  const index = (state.clients || []).findIndex(matches);
+  if (index >= 0) state.clients[index] = client;
+  // Discard an older list request; normal background sync retains its own cursor.
+  clientLoadRequest?.controller?.abort();
+  clientLoadSequence++;
+  clientLoadRequest = null;
+  for (const cache of clientPageCache.values()) {
+    cache.payload.records = (cache.payload.records || []).map(item => matches(item) ? record : item);
+  }
+  currentClientPageRecords = currentClientPageRecords.map(item => matches(item) ? record : item);
+  portfolioDiagnosticData = null;
+  if (activeViewId() === "clientes") {
+    const row = Array.from(byId("clientsTable").rows).find(item => item.querySelector("[data-client-edit]")?.dataset.clientEdit === identity);
+    if (row) row.outerHTML = renderClientRow(record);
+  }
+}
+
+function renderClientPage(payload, fromCache = false) {
+  const startedAt = performance.now();
+  updateClientFilterOptions(payload);
+  clientPage = Number(payload.page || clientPage || 1);
+  const clients = Array.isArray(payload.records) ? payload.records : [];
+  currentClientPageRecords = clients;
+  populateClientBulkSellerOptions();
+  byId("clientsTable").innerHTML = clients.length ? clients.map(renderClientRow).join("") : '<tr><td class="stock-empty" colspan="9">No hay clientes para los filtros seleccionados.</td></tr>';
   updateClientBulkUi();
   const renderMs = Math.round((performance.now() - startedAt) * 10) / 10;
   renderClientsPager(payload, renderMs, fromCache);
@@ -19124,6 +19207,10 @@ function setClientDialogMode(mode, client) {
     clientForm.elements[name].required = !isEdit;
   }
   clientEditTargetId = isEdit && client ? clientIdentity(client) : "";
+  clientForm.elements.codigo_cliente.readOnly = isEdit;
+  clientEditBaseline = null;
+  clientEditExpected = null;
+  clientEditOperation = null;
   byId("clientDialogTitle").textContent = isEdit ? `Editar cliente - ${client.name}` : "Nuevo cliente";
   byId("clientSubmitBtn").textContent = isEdit ? "Guardar modificacion" : "Guardar cliente";
   const motive = byId("clientChangeMotive");
@@ -19131,11 +19218,8 @@ function setClientDialogMode(mode, client) {
     motive.required = isEdit;
     motive.value = "";
   }
-  const passwordField = byId("clientAdminPasswordField");
   const password = byId("clientAdminPassword");
-  if (passwordField) passwordField.hidden = !isEdit;
   if (password) {
-    password.required = isEdit;
     password.value = "";
   }
   const limit = byId("clientCreditLimitInput");
@@ -19242,7 +19326,7 @@ function openClientEditDialog(id) {
   setFormValue(form, "referencia", client.referencia);
   setFormValue(form, "localidad", client.localidad);
   setFormValue(form, "telefono", client.telefono);
-  setFormValue(form, "email", client.email);
+  setFormValue(form, "customer_contact_email", client.email);
   setFormValue(form, "horario_atencion", client.horario_atencion);
   setFormValue(form, "horario_observacion", client.horario_observacion);
   renderClientHoursGrid(byId("adminClientHoursGrid"), client.horarios_atencion);
@@ -19262,6 +19346,8 @@ function openClientEditDialog(id) {
   setFormValue(form, "estado", client.status);
   setFormValue(form, "observaciones", client.observaciones);
   setClientDialogMode("edit", client);
+  clientEditBaseline = clientFormPayload(new FormData(form));
+  clientEditExpected = JSON.parse(JSON.stringify(client.editBase || ClientEdit.snapshot(client)));
   byId("clientDialog").showModal();
 }
 
@@ -19278,7 +19364,7 @@ function clientFormPayload(form) {
     referencia: String(form.get("referencia") || "").trim(),
     localidad: String(form.get("localidad") || "").trim(),
     telefono: String(form.get("telefono") || "").trim(),
-    email: String(form.get("email") || "").trim(),
+    email: String(form.get("customer_contact_email") || "").trim(),
     horarios_atencion: hours,
     horario_atencion: ClientHours ? ClientHours.summary(hours, form.get("horario_atencion")) : String(form.get("horario_atencion") || "").trim(),
     horario_observacion: String(form.get("horario_observacion") || "").trim(),
@@ -19303,7 +19389,7 @@ function clientFormPayload(form) {
   };
 }
 
-async function submitClientEdit(formElement, formData) {
+async function submitClientEdit(formElement, formData, authorized = false) {
   if (formElement.dataset.saving === "true") return false;
   let payload;
   try {
@@ -19321,37 +19407,77 @@ async function submitClientEdit(formElement, formData) {
     byId("clientChangeMotive").focus();
     return false;
   }
-  const adminPassword = String(formData.get("admin_password") || "").trim();
+  const patch = {};
+  const expected = {};
+  for (const key of ClientEdit.fields) {
+    if (!ClientEdit.same(payload[key], clientEditBaseline?.[key])) {
+      patch[key] = payload[key];
+      expected[key] = clientEditExpected?.[key] ?? null;
+    }
+  }
+  if (!Object.keys(patch).length) {
+    showCompactNotice("No hay cambios para guardar.", "info");
+    return false;
+  }
+  if (Object.hasOwn(patch, "email") && !ClientEdit.validEmail(patch.email)) {
+    window.alert("Ingresar un email valido o dejarlo vacio. No usar el usuario administrador.");
+    byId("clientContactEmail").focus();
+    return false;
+  }
+  if (!authorized) {
+    byId("clientAuthorizationUsername").value = currentUser?.username || "";
+    byId("clientAuthorizationName").textContent = payload.nombre_comercial;
+    byId("clientAuthorizationError").textContent = "";
+    byId("clientAdminPassword").value = "";
+    byId("clientAuthorizationDialog").showModal();
+    byId("clientAdminPassword").focus();
+    return false;
+  }
+  const adminPassword = byId("clientAdminPassword").value;
   if (!adminPassword) {
     window.alert("Para editar un cliente se debe reingresar la clave de administrador.");
     byId("clientAdminPassword").focus();
     return false;
   }
-  payload.admin_password = adminPassword;
+  const fingerprint = JSON.stringify({ patch, expected, motivo: payload.motivo });
+  if (!clientEditOperation || clientEditOperation.fingerprint !== fingerprint) {
+    const token = globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
+      ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    clientEditOperation = { fingerprint, id: `CLIENT-EDIT-${token}` };
+  }
+  payload = { patch, expected, motivo: payload.motivo, operationId: clientEditOperation.id, admin_password: adminPassword };
   const scrollPosition = { left: window.scrollX, top: window.scrollY };
   formElement.dataset.saving = "true";
   byId("clientSubmitBtn").disabled = true;
+  byId("clientAuthorizeSubmit").disabled = true;
+  byId("clientAuthorizationForm").dataset.saving = "true";
+  byId("clientAuthorizationError").textContent = "Guardando...";
   try {
     await postOperationalAction(`api/clients/${encodeURIComponent(clientEditTargetId)}/edit`, payload);
-    clientPageCache.clear();
-    portfolioDiagnosticData = null;
     clientEditTargetId = "";
-    if (activeViewId() === "clientes") await loadClientsPage({ force: true });
+    byId("clientAuthorizationDialog").close();
+    byId("clientAdminPassword").value = "";
     formElement.reset();
     byId("clientDialog").close("default");
     window.requestAnimationFrame(() => window.scrollTo(scrollPosition));
     showCompactNotice("Cliente actualizado correctamente.", "ok");
     return true;
   } catch (error) {
-    window.alert(error.message || "No se pudo editar el cliente.");
+    byId("clientAuthorizationError").textContent = error.message || "No se pudo editar el cliente.";
     return false;
   } finally {
     delete formElement.dataset.saving;
     byId("clientSubmitBtn").disabled = false;
+    byId("clientAuthorizeSubmit").disabled = false;
+    delete byId("clientAuthorizationForm").dataset.saving;
   }
 }
 
 function addClientFromForm(form) {
+  if (!ClientEdit.validEmail(String(form.get("customer_contact_email") || "").trim())) {
+    window.alert("Ingresar un email valido o dejarlo vacio.");
+    return false;
+  }
   const name = String(form.get("nombre_comercial") || "").trim();
   if (!name) return false;
   const reference = String(form.get("referencia") || "").trim();
@@ -19381,7 +19507,7 @@ function addClientFromForm(form) {
     referencia: reference,
     localidad: String(form.get("localidad") || "").trim(),
     telefono: String(form.get("telefono") || "").trim(),
-    email: String(form.get("email") || "").trim(),
+    email: String(form.get("customer_contact_email") || "").trim(),
     forma_pago: String(form.get("forma_pago") || "Contado"),
     condicion_comercial: String(form.get("condicion_comercial") || "").trim(),
     dias_credito: Math.max(0, Number(form.get("dias_credito") || 0)),
@@ -20560,7 +20686,7 @@ if (byId("assistantToggleBtn")) {
 }
 byId("stockProductSearch").addEventListener("input", (event) => {
   stockSearchTerm = event.target.value;
-  debouncedRenderStock();
+  debouncedRenderStock("products");
 });
 byId("stockStatusFilter").addEventListener("change", (event) => {
   stockStatusFilter = event.target.value;
@@ -20600,7 +20726,7 @@ byId("clearInitialStockBtn").addEventListener("click", () => {
 byId("initialStockForm").addEventListener("submit", applyInitialStockImport);
 byId("stockLedgerSearch").addEventListener("input", (event) => {
   stockLedgerSearchTerm = event.target.value;
-  debouncedRenderStock();
+  debouncedRenderStock("ledger");
 });
 byId("stockLedgerTypeFilter").addEventListener("change", (event) => {
   stockLedgerTypeFilter = event.target.value;
@@ -20957,7 +21083,9 @@ const debouncedRenderClients = debounce(() => {
   renderClients({ force: true });
 }, 400);
 const debouncedRenderAccounts = debounce(renderAccounts, 180);
-const debouncedRenderStock = debounce(renderStock, 600);
+const debouncedRenderStock = debounce((tool) => {
+  if (activeViewId() === "stock" && operationalWorkspaces.get("stock")?.selected === tool) renderStock();
+}, 600);
 const debouncedRenderPriceLists = debounce(renderPriceLists, 600);
 const debouncedRenderPhysicalStockControl = debounce(renderPhysicalStockControl, 180);
 const debouncedRenderSuppliers = debounce(renderSuppliers, 180);
@@ -21970,6 +22098,16 @@ byId("orderForm").addEventListener("submit", async (event) => {
   }
 });
 
+byId("clientAuthorizationForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  await submitClientEdit(byId("clientForm"), new FormData(byId("clientForm")), true);
+});
+byId("clientAuthorizationDialog").addEventListener("cancel", event => {
+  if (byId("clientForm").dataset.saving === "true") event.preventDefault();
+});
+byId("clientAuthorizationDialog").addEventListener("close", () => {
+  byId("clientAdminPassword").value = "";
+});
 byId("clientForm").addEventListener("submit", async (event) => {
   if (event.currentTarget.dataset.saving === "true") {
     event.preventDefault();
@@ -22142,6 +22280,7 @@ document.addEventListener("click", (event) => {
   const closeButton = event.target.closest("[data-close-dialog]");
   if (!closeButton) return;
   const dialog = closeButton.closest("dialog");
+  if (["clientDialog", "clientAuthorizationDialog"].includes(dialog?.id) && byId("clientForm").dataset.saving === "true") return;
   if (dialog) dialog.close("cancel");
 });
 
@@ -24581,11 +24720,12 @@ async function pullStateFromServer() {
       return;
     }
     // Do not replace a newer local mutation with an older in-flight snapshot.
-    if (payload.state && Number(payload.version) < Number(syncVersion)) return;
+    if (payload.state && Number(payload.version) < Math.max(Number(syncVersion), clientEditPendingVersion)) return;
     if (payload.state && payload.version >= previousSyncVersion) {
       const nextState = normalizeState(payload.state);
       trackIncomingNotifications(nextState);
       state = nextState;
+      if (Number(payload.version) >= clientEditPendingVersion) clientEditPendingVersion = 0;
       applyPresenceToState();
       mergeOwnLocationIntoState();
       syncVersion = payload.version;

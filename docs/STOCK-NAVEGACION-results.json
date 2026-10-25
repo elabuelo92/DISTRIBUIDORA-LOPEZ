@@ -1,0 +1,26 @@
+{
+  "at": "2026-10-25T00:08:34.719Z",
+  "passed": true,
+  "productionAccess": false,
+  "widths": [
+    1440,
+    768,
+    390,
+    320
+  ],
+  "checks": [
+    "three-accesses",
+    "same-physical-module",
+    "keyboard",
+    "preserved-filters",
+    "secondary-reports",
+    "permissions",
+    "single-render",
+    "lazy-supply",
+    "unchanged-data",
+    "no-business-posts",
+    "desktop-mobile-icons-labels",
+    "dark-mode",
+    "other-module-unchanged"
+  ]
+}

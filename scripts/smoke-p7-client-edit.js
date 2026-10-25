@@ -34,12 +34,16 @@ assert.equal(ctx.findClientIndex({ clients: [selected, { ...selected }] }, "123"
 const events = [];
 const button = { disabled: false };
 const form = { dataset: {}, reset: () => events.push("reset") };
+const fields = { clientAdminPassword: { value: "test" }, clientAuthorizationForm: { dataset: {} },
+  clientAuthorizeSubmit: {}, clientAuthorizationError: {}, clientAuthorizationDialog: { close: () => events.push("auth-close") } };
 let finish;
 const ui = vm.createContext({
   clientEditTargetId: "123", clientPageCache: { clear: () => events.push("cache") }, portfolioDiagnosticData: {},
+  clientEditBaseline: { nombre_comercial: "Cliente" }, clientEditExpected: { telefono: null }, clientEditOperation: null,
+  ClientEdit: require("../client-edit"), crypto: require("node:crypto"),
   activeViewId: () => "clientes", loadClientsPage: async options => { assert.equal(options.force, true); events.push("refresh"); },
-  clientFormPayload: () => ({ nombre_comercial: "Cliente", motivo: "Horarios" }),
-  byId: id => id === "clientSubmitBtn" ? button : { close: () => events.push("close"), focus() {} },
+  clientFormPayload: () => ({ nombre_comercial: "Cliente", telefono: "123", motivo: "Horarios" }),
+  byId: id => id === "clientSubmitBtn" ? button : fields[id] || { close: () => events.push("close"), focus() {} },
   window: { scrollX: 0, scrollY: 850, alert: msg => events.push(msg),
     requestAnimationFrame: fn => fn(), scrollTo: pos => events.push(`scroll:${pos.top}`) },
   showCompactNotice: msg => events.push(msg),
@@ -48,7 +52,7 @@ const ui = vm.createContext({
 vm.runInContext("async " + extract(app, "submitClientEdit"), ui);
 async function main() {
   const data = { get: () => "test" };
-  const saving = ui.submitClientEdit(form, data);
+  const saving = ui.submitClientEdit(form, data, true);
   assert.equal(button.disabled, true);
   assert.equal(await ui.submitClientEdit(form, data), false);
   finish({ ok: true });
@@ -56,14 +60,15 @@ async function main() {
   assert.equal(button.disabled, false);
   assert.equal(form.dataset.saving, undefined);
   assert.ok(events.includes("close"));
-  assert.ok(events.indexOf("refresh") < events.indexOf("close"));
+  assert.ok(!events.includes("refresh"));
   assert.ok(events.includes("scroll:850"));
   assert.ok(events.includes("Cliente actualizado correctamente."));
   assert.equal(events.filter(e => e.startsWith("api/")).length, 1);
   events.length = 0;
   ui.clientEditTargetId = "123";
+  fields.clientAdminPassword.value = "test";
   ui.postOperationalAction = async () => { throw new Error("Clave incorrecta"); };
-  assert.equal(await ui.submitClientEdit(form, data), false);
+  assert.equal(await ui.submitClientEdit(form, data, true), false);
   assert.equal(button.disabled, false);
   assert.equal(ui.clientEditTargetId, "123");
   assert.ok(!events.includes("reset") && !events.includes("close"));

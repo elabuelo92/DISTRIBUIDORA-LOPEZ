@@ -1,0 +1,89 @@
+{
+  "at": "2026-10-25T00:08:42.398Z",
+  "results": [
+    {
+      "command": "--check server.js",
+      "ok": true,
+      "ms": 131,
+      "output": ""
+    },
+    {
+      "command": "--check app.js",
+      "ok": true,
+      "ms": 127,
+      "output": ""
+    },
+    {
+      "command": "--check client-edit.js",
+      "ok": true,
+      "ms": 92,
+      "output": ""
+    },
+    {
+      "command": "scripts/smoke-p7-client-edit.js",
+      "ok": true,
+      "ms": 131,
+      "output": "PASS P7: paginated client, exact code/ID, ambiguous names rejected, single submit, success/close/scroll, errors preserve form."
+    },
+    {
+      "command": "scripts/smoke-client-edit-validation.js",
+      "ok": true,
+      "ms": 114,
+      "output": "PASS client address edit preserves cents, negative credit, coordinates, original object and limit permissions; numeric HTML constraints checked. Browser acceptance pending."
+    },
+    {
+      "command": "scripts/smoke-compact-sync-version.js",
+      "ok": true,
+      "ms": 118,
+      "output": "PASS compact sync cursor: admin, seller, driver retain pending refresh and accept subsequent complete sync"
+    },
+    {
+      "command": "scripts/smoke-client-hours-v123.js",
+      "ok": true,
+      "ms": 130,
+      "output": "{\n  \"ok\": true,\n  \"version\": \"8790-127\",\n  \"days\": 2,\n  \"rangesMonday\": 2,\n  \"summary\": \"Lun 08:00-12:30 / 15:30-19:00; Mar 08:00-12:30\",\n  \"legacyCompatible\": true,\n  \"mobileCompactRanges\": true\n}"
+    },
+    {
+      "command": "scripts/smoke-client-feedback-20261021.js",
+      "ok": true,
+      "ms": 162,
+      "output": "PASS feedback: multi-driver filters, optional limit, inclusive date range, collection visibility, no record mutation"
+    },
+    {
+      "command": "scripts/smoke-supply-manual-p142.js",
+      "ok": true,
+      "ms": 204,
+      "output": "PASS P141: engine equivalence; no data mutation; lazy section; all filters; inclusive dates; transit once; escaping; XLSX/PDF/print same rows; numeric types; admin guards; single refresh; failure status; no popups or timers."
+    },
+    {
+      "command": "scripts/smoke-supply-section-p141.js",
+      "ok": true,
+      "ms": 152,
+      "output": "PASS P141: engine equivalence; no data mutation; lazy section; all filters; inclusive dates; transit once; escaping; XLSX/PDF/print same rows; numeric types; admin guards; single refresh; failure status; no popups or timers."
+    },
+    {
+      "command": "scripts/smoke-inventory-finance-workspaces.js",
+      "ok": true,
+      "ms": 8102,
+      "output": "{\n  \"result\": \"OK\",\n  \"lazyBranches\": 14,\n  \"products\": 700,\n  \"orders\": 101,\n  \"traceCalculationBeforeMs\": 1822.5254,\n  \"traceCalculationAfterMs\": 9.646299999999883,\n  \"identical\": true\n}\n{\n  \"accounts\": \"OK\",\n  \"clients\": 1302,\n  \"accountsBeforeMs\": 2957.7077,\n  \"accountsAfterMs\": 26.705700000000434,\n  \"identical\": true\n}"
+    },
+    {
+      "command": "scripts/smoke-client-edit-http.js",
+      "ok": true,
+      "ms": 20558,
+      "output": "{\n  \"ok\": true,\n  \"baseline\": false,\n  \"fixtureBytes\": 8227056,\n  \"clients\": 2500,\n  \"orders\": 3000,\n  \"snapshotSourceUnchanged\": null,\n  \"sqlQueries\": 0,\n  \"metrics\": [\n    {\n      \"apiMs\": 233.68129999999974,\n      \"listMs\": 0,\n      \"totalMs\": 233.68129999999974,\n      \"responseBytes\": 3229,\n      \"phases\": [\n        {\n          \"phase\": \"pbkdf2Sync\",\n          \"ms\": 91.248300075531\n        },\n        {\n          \"phase\": \"writeCountState\",\n          \"ms\": 116.61970007419586,\n          \"diskMs\": 29.855600714683533,\n          \"serializationMs\": 86.73749923706055,\n          \"bytes\": 8152093\n        }\n      ]\n    },\n    {\n      \"apiMs\": 282.6858000000002,\n      \"listMs\": 0,\n      \"totalMs\": 282.6858000000002,\n      \"responseBytes\": 3575,\n      \"phases\": [\n        {\n          \"phase\": \"pbkdf2Sync\",\n          \"ms\": 102.63359999656677\n        },\n        {\n          \"phase\": \"writeCountState\",\n          \"ms\": 157.70680010318756,\n          \"diskMs\": 51.292999625205994,\n          \"serializationMs\": 106.2608003616333,\n          \"bytes\": 8155397\n        }\n      ]\n    },\n    {\n      \"apiMs\": 266.37159999999994,\n      \"listMs\": 0,\n      \"totalMs\": 266.37159999999994,\n      \"responseBytes\": 3919,\n      \"phases\": [\n        {\n          \"phase\": \"pbkdf2Sync\",\n          \"ms\": 90.86189997196198\n        },\n        {\n          \"phase\": \"writeCountState\",\n          \"ms\": 150.5255000591278,\n          \"diskMs\": 57.09070014953613,\n          \"serializationMs\": 93.41079986095428,\n          \"bytes\": 8158701\n        }\n      ]\n    },\n    {\n      \"apiMs\": 228.32780000000002,\n      \"listMs\": 0,\n      \"totalMs\": 228.32780000000002,\n      \"responseBytes\": 4266,\n      \"phases\": [\n        {\n          \"phase\": \"pbkdf2Sync\",\n          \"ms\": 81.33060002326965\n        },\n        {\n          \"phase\": \"writeCountState\",\n          \"ms\": 122.63090002536774,\n          \"diskMs\": 48.92069935798645,\n          \"serializationMs\": 73.65140068531036,\n          \"bytes\": 8162005\n        }\n      ]\n    },\n    {\n      \"apiMs\": 218.97530000000006,\n      \"listMs\": 0,\n      \"totalMs\": 218.97530000000006,\n      \"responseBytes\": 4613,\n      \"phases\": [\n        {\n          \"phase\": \"pbkdf2Sync\",\n          \"ms\": 83.53939998149872\n        },\n        {\n          \"phase\": \"writeCountState\",\n          \"ms\": 111.77540004253387,\n          \"diskMs\": 36.979199171066284,\n          \"serializationMs\": 74.77860081195831,\n          \"bytes\": 8165309\n        }\n      ]\n    }\n  ],\n  \"checks\": [\n    \"business sections and every other customer unchanged across five saves\",\n    \"empty/valid email, phone/address/zone/route/seller/notes/credit edits preserve every unedited field and GPS\",\n    \"legacy invalid email is retained, new invalid email and protected fields rejected without writes\",\n    \"retry after lost response is idempotent; changed operation reuse rejected\",\n    \"two administrators: conflicting edit rejected, independent changes preserved\",\n    \"administrator password and role still required\",\n    \"fsync/rename failure leaves disk and cached customer unchanged; retry persists exactly once\",\n    \"orders, stock, reservations, movements, balances and 2498 other clients unchanged\",\n    \"Desktop Chromium: isolated auth form, invalid autofill rejected, retry preserves data, phone-only PATCH, no list reload, 351ms UI save\",\n    \"Android viewport emulation: isolated auth form, invalid autofill rejected, retry preserves data, phone-only PATCH, no list reload, 317ms UI save\"\n  ]\n}"
+    },
+    {
+      "command": "scripts/smoke-client-edit-http.js --snapshot",
+      "ok": true,
+      "ms": 39311,
+      "output": "{\n  \"ok\": true,\n  \"baseline\": false,\n  \"fixtureBytes\": 98306150,\n  \"clients\": 1631,\n  \"orders\": 1951,\n  \"snapshotSourceUnchanged\": true,\n  \"sqlQueries\": 0,\n  \"metrics\": [\n    {\n      \"apiMs\": 2431.6821999999993,\n      \"listMs\": 0,\n      \"totalMs\": 2431.6821999999993,\n      \"responseBytes\": 3230,\n      \"phases\": [\n        {\n          \"phase\": \"pbkdf2Sync\",\n          \"ms\": 69.56299996376038\n        },\n        {\n          \"phase\": \"writeCountState\",\n          \"ms\": 2328.3630999326706,\n          \"diskMs\": 462.91989946365356,\n          \"serializationMs\": 1865.4146004915237,\n          \"bytes\": 98348894\n        }\n      ]\n    },\n    {\n      \"apiMs\": 2047.4511999999995,\n      \"listMs\": 0,\n      \"totalMs\": 2047.4511999999995,\n      \"responseBytes\": 3576,\n      \"phases\": [\n        {\n          \"phase\": \"pbkdf2Sync\",\n          \"ms\": 74.08660006523132\n        },\n        {\n          \"phase\": \"writeCountState\",\n          \"ms\": 1941.4148000478745,\n          \"diskMs\": 438.6621972322464,\n          \"serializationMs\": 1490.9342027902603,\n          \"bytes\": 98342445\n        }\n      ]\n    },\n    {\n      \"apiMs\": 2196.949700000001,\n      \"listMs\": 0,\n      \"totalMs\": 2196.949700000001,\n      \"responseBytes\": 3922,\n      \"phases\": [\n        {\n          \"phase\": \"pbkdf2Sync\",\n          \"ms\": 96.22759997844696\n        },\n        {\n          \"phase\": \"writeCountState\",\n          \"ms\": 2071.0641000270844,\n          \"diskMs\": 428.45779967308044,\n          \"serializationMs\": 1619.1450003385544,\n          \"bytes\": 98330293\n        }\n      ]\n    },\n    {\n      \"apiMs\": 1950.0663999999997,\n      \"listMs\": 0,\n      \"totalMs\": 1950.0663999999997,\n      \"responseBytes\": 4268,\n      \"phases\": [\n        {\n          \"phase\": \"pbkdf2Sync\",\n          \"ms\": 70.84360003471375\n        },\n        {\n          \"phase\": \"writeCountState\",\n          \"ms\": 1846.818099975586,\n          \"diskMs\": 424.3907016515732,\n          \"serializationMs\": 1422.4052983522415,\n          \"bytes\": 98318377\n        }\n      ]\n    },\n    {\n      \"apiMs\": 2305.8660999999993,\n      \"listMs\": 0,\n      \"totalMs\": 2305.8660999999993,\n      \"responseBytes\": 4613,\n      \"phases\": [\n        {\n          \"phase\": \"pbkdf2Sync\",\n          \"ms\": 77.45669996738434\n        },\n        {\n          \"phase\": \"writeCountState\",\n          \"ms\": 2198.077399969101,\n          \"diskMs\": 509.23489940166473,\n          \"serializationMs\": 1688.8135005235672,\n          \"bytes\": 98306150\n        }\n      ]\n    }\n  ],\n  \"checks\": [\n    \"business sections and every other customer unchanged across five saves\"\n  ]\n}"
+    },
+    {
+      "command": "scripts/smoke-stock-count-http.js --supply-visual",
+      "ok": true,
+      "ms": 19478,
+      "output": "PASS stock navigation: {\"at\":\"2026-10-25T00:08:34.719Z\",\"passed\":true,\"productionAccess\":false,\"widths\":[1440,768,390,320],\"checks\":[\"three-accesses\",\"same-physical-module\",\"keyboard\",\"preserved-filters\",\"secondary-reports\",\"permissions\",\"single-render\",\"lazy-supply\",\"unchanged-data\",\"no-business-posts\",\"desktop-mobile-icons-labels\",\"dark-mode\",\"other-module-unchanged\"]}\nPASS P141 browser: permanent manual section, all filters, real XLSX/PDF/print, one refresh, no automatic dialogs, desktop/mobile, unchanged data\n{\"at\":\"2026-10-25T00:08:41.824Z\",\"passed\":true,\"environment\":\"local-isolated\",\"productionAccess\":false,\"apiRequests\":[{\"method\":\"GET\",\"path\":\"/api/session\"},{\"method\":\"GET\",\"path\":\"/api/health\"},{\"method\":\"POST\",\"path\":\"/api/presence/heartbeat\"},{\"method\":\"GET\",\"path\":\"/api/state\"},{\"method\":\"POST\",\"path\":\"/api/admin/reauth\"},{\"method\":\"POST\",\"path\":\"/api/state\"},{\"method\":\"GET\",\"path\":\"/api/state\"},{\"method\":\"POST\",\"path\":\"/api/reports/xlsx\"},{\"method\":\"POST\",\"path\":\"/api/presence/heartbeat\"},{\"method\":\"GET\",\"path\":\"/api/state\"},{\"method\":\"POST\",\"path\":\"/api/reports/xlsx\"},{\"method\":\"GET\",\"path\":\"/api/state\"}],\"supply\":{\"builds\":7},\"errors\":[],\"checks\":[\"stock-entry\",\"search\",\"edit-save\",\"module-navigation\",\"stock-api-refresh\",\"manual-section\",\"no-modal\",\"all-filters\",\"date-range\",\"invalid-date-range\",\"xlsx-numeric-and-identifiers\",\"pdf-download\",\"print-filtered\",\"single-refresh\",\"desktop-mobile\",\"read-only-report\",\"protected-data\",\"lazy-hidden-section\"]}"
+    }
+  ]
+}

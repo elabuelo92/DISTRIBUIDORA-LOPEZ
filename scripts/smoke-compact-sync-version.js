@@ -11,7 +11,7 @@ assert.ok(source.includes("applyOrderPatches([order], payload.refreshRequired ? 
   "mobile order confirmation must also retain the complete-sync cursor");
 for (const role of ["admin", "seller", "driver"]) {
   const context = vm.createContext({
-    syncVersion: 7, sellerCatalogVersion: 7, currentUser: { role },
+    syncVersion: 7, sellerCatalogVersion: 7, clientEditPendingVersion: 0, currentUser: { role },
     state: { orders: [{ code: "PED-1", amount: 100 }], deliveryRoutes: [] },
     OrderEngine: { buildShortageList: () => [] },
     persistLocalMeta() {}, scheduleRenderForCurrentUser() {},
@@ -32,5 +32,12 @@ for (const role of ["admin", "seller", "driver"]) {
   assert.equal(context.state.orders.length, 2, "next full sync includes concurrent operations");
   context.applyOperationalPatches({ version: 9, order: { code: "PED-1", amount: 75 } });
   assert.equal(context.syncVersion, 9, "legacy non-refresh patches remain compatible");
+  context.clientEditPendingVersion = 11;
+  context.applyServerStatePayload({ version: 10, state: { clients: [{ telefono: "old" }] } });
+  assert.equal(context.syncVersion, 9, "in-flight snapshot older than a saved client must not apply");
+  assert.equal(context.state.clients, undefined);
+  context.applyServerStatePayload({ version: 11, state: { clients: [{ telefono: "new" }], orders: [] } });
+  assert.equal(context.syncVersion, 11);
+  assert.equal(context.clientEditPendingVersion, 0);
 }
 console.log("PASS compact sync cursor: admin, seller, driver retain pending refresh and accept subsequent complete sync");

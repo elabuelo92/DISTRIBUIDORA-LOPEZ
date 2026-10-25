@@ -1,0 +1,109 @@
+{
+  "ok": true,
+  "baseline": false,
+  "fixtureBytes": 98306150,
+  "clients": 1631,
+  "orders": 1951,
+  "snapshotSourceUnchanged": true,
+  "sqlQueries": 0,
+  "metrics": [
+    {
+      "apiMs": 2431.6821999999993,
+      "listMs": 0,
+      "totalMs": 2431.6821999999993,
+      "responseBytes": 3230,
+      "phases": [
+        {
+          "phase": "pbkdf2Sync",
+          "ms": 69.56299996376038
+        },
+        {
+          "phase": "writeCountState",
+          "ms": 2328.3630999326706,
+          "diskMs": 462.91989946365356,
+          "serializationMs": 1865.4146004915237,
+          "bytes": 98348894
+        }
+      ]
+    },
+    {
+      "apiMs": 2047.4511999999995,
+      "listMs": 0,
+      "totalMs": 2047.4511999999995,
+      "responseBytes": 3576,
+      "phases": [
+        {
+          "phase": "pbkdf2Sync",
+          "ms": 74.08660006523132
+        },
+        {
+          "phase": "writeCountState",
+          "ms": 1941.4148000478745,
+          "diskMs": 438.6621972322464,
+          "serializationMs": 1490.9342027902603,
+          "bytes": 98342445
+        }
+      ]
+    },
+    {
+      "apiMs": 2196.949700000001,
+      "listMs": 0,
+      "totalMs": 2196.949700000001,
+      "responseBytes": 3922,
+      "phases": [
+        {
+          "phase": "pbkdf2Sync",
+          "ms": 96.22759997844696
+        },
+        {
+          "phase": "writeCountState",
+          "ms": 2071.0641000270844,
+          "diskMs": 428.45779967308044,
+          "serializationMs": 1619.1450003385544,
+          "bytes": 98330293
+        }
+      ]
+    },
+    {
+      "apiMs": 1950.0663999999997,
+      "listMs": 0,
+      "totalMs": 1950.0663999999997,
+      "responseBytes": 4268,
+      "phases": [
+        {
+          "phase": "pbkdf2Sync",
+          "ms": 70.84360003471375
+        },
+        {
+          "phase": "writeCountState",
+          "ms": 1846.818099975586,
+          "diskMs": 424.3907016515732,
+          "serializationMs": 1422.4052983522415,
+          "bytes": 98318377
+        }
+      ]
+    },
+    {
+      "apiMs": 2305.8660999999993,
+      "listMs": 0,
+      "totalMs": 2305.8660999999993,
+      "responseBytes": 4613,
+      "phases": [
+        {
+          "phase": "pbkdf2Sync",
+          "ms": 77.45669996738434
+        },
+        {
+          "phase": "writeCountState",
+          "ms": 2198.077399969101,
+          "diskMs": 509.23489940166473,
+          "serializationMs": 1688.8135005235672,
+          "bytes": 98306150
+        }
+      ]
+    }
+  ],
+  "checks": [
+    "business sections and every other customer unchanged across five saves"
+  ]
+}

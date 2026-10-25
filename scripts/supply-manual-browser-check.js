@@ -19,7 +19,8 @@ async function check(base, cookie, password, read) {
     page.on("dialog", dialog => { console.log(`BROWSER DIALOG: ${dialog.message()}`); return dialog.accept(); });
     await page.goto(`${base}/#stock`);
     await page.locator("#stock.active").waitFor({ timeout: 30000 });
-    await page.locator('#stock [data-tool-id="products"]').click();
+    await require("./stock-navigation-browser-check").check(page, read, requests);
+    await page.locator('#stock [data-stock-section="products"]').click();
     await page.locator('[data-edit-product="Test B"]').waitFor();
     await page.evaluate(() => {
       window.supplyProbe = { builds: 0 };
@@ -156,11 +157,11 @@ async function check(base, cookie, password, read) {
     await page.waitForFunction(() => !supplyPlannerRefreshing);
     assert.match(await page.locator("#supplyPlannerUpdated").innerText(), /Actualizado/);
     assert.equal(requests.filter(item => item.path === "/api/state" && item.method === "GET").length, beforeRefresh + 1);
-    await page.locator('#stock select[aria-label="Cambiar herramienta"]').selectOption("products");
+    await page.locator('#stock [data-stock-section="products"]').click();
     const beforeHidden = await page.evaluate(() => window.supplyProbe.builds);
     await page.locator("#stockProductSearch").fill("Test");
     assert.equal(await page.evaluate(() => window.supplyProbe.builds), beforeHidden);
-    await page.locator('#stock select[aria-label="Cambiar herramienta"]').selectOption("supply");
+    await page.locator('#stock [data-stock-section="supply"]').click();
     assert.equal(await page.locator("dialog[open]").count(), 0, "tool changes do not open any popup");
     assert.deepEqual(requests.slice(callsBefore).filter(item => item.method === "POST" && item.path !== "/api/reports/xlsx" && item.path !== "/api/presence/heartbeat"), [], "consultation/export never writes business data");
     assert.equal(JSON.stringify(read()), snapshot, "consult/close report is read-only");

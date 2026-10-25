@@ -9,7 +9,7 @@ const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
 const start = server.indexOf("function editedClientFromInput(");
 const end = server.indexOf("\nfunction ", start + 1);
 assert.ok(start >= 0 && end > start);
-const ctx = vm.createContext({ numeric: (v, d) => Number.isFinite(Number(v)) ? Number(v) : d,
+const ctx = vm.createContext({ clientEditEngine: require("../client-edit"), numeric: (v, d) => Number.isFinite(Number(v)) ? Number(v) : d,
   normalizedClientVisitDays: () => [], normalizedVisitOrders: () => ({}),
   clientHoursEngine: { normalize: () => [], assertValid: x => x, summary: () => "" } });
 vm.runInContext(server.slice(start, end), ctx);

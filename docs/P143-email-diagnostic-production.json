@@ -1,0 +1,12 @@
+{
+  "totalClients": 1645,
+  "nonEmptyEmails": 0,
+  "adminMatches": 0,
+  "findings": [],
+  "at": "2026-10-24T23:28:08.165Z",
+  "stateVersion": 1792883540272,
+  "sha256": "e336e077ca41d189afda27a73ff4f0ec577d1ac6cbb09ba7500c0392138bc6a6",
+  "stableDuringRead": true,
+  "elapsedMs": 1614,
+  "mode": "read-only; no database or file writes"
+}

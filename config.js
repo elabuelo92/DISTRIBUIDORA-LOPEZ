@@ -5,9 +5,9 @@
     SOCKET_URL: "",
     SERVER_NAME: "SERVIDOR_UNICO_8790",
     MAGIC_DNS_HOST: "desktop-c2c0q4v.tail6f19de.ts.net",
-    VERSION: "8790-189",
-    BUILD_LABEL: "24/10/2026 - Abastecimiento permanente con filtros e informes",
-    BUILD_AT: "2026-10-24T19:25:00-03:00",
+    VERSION: "8790-190",
+    BUILD_LABEL: "24/10/2026 - Edicion segura de clientes y accesos de Stock",
+    BUILD_AT: "2026-10-24T21:20:00-03:00",
     RELEASE_CHANNEL: "Produccion",
     TIMEOUTS: {
       server: 7000,

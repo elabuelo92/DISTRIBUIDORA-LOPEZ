@@ -1,0 +1,127 @@
+{
+  "ok": true,
+  "baseline": true,
+  "fixtureBytes": 98369149,
+  "clients": 1631,
+  "orders": 1951,
+  "snapshotSourceUnchanged": true,
+  "sqlQueries": 0,
+  "metrics": [
+    {
+      "apiMs": 3022.408300000001,
+      "listMs": 387.5586000000003,
+      "totalMs": 3409.9669000000013,
+      "responseBytes": 48953,
+      "phases": [
+        {
+          "phase": "pbkdf2Sync",
+          "ms": 120.28920006752014
+        },
+        {
+          "phase": "migrateState",
+          "ms": 170.11319994926453
+        },
+        {
+          "phase": "writeCountState",
+          "ms": 2690.157600045204,
+          "diskMs": 522.7537997961044,
+          "serializationMs": 2167.369100213051,
+          "bytes": 98355729
+        }
+      ]
+    },
+    {
+      "apiMs": 2226.7781000000014,
+      "listMs": 208.70980000000054,
+      "totalMs": 2435.487900000002,
+      "responseBytes": 49532,
+      "phases": [
+        {
+          "phase": "pbkdf2Sync",
+          "ms": 133.01660001277924
+        },
+        {
+          "phase": "migrateState",
+          "ms": 115.14260005950928
+        },
+        {
+          "phase": "writeCountState",
+          "ms": 1950.6018999814987,
+          "diskMs": 416.61060094833374,
+          "serializationMs": 1508.3961989879608,
+          "bytes": 98359835
+        }
+      ]
+    },
+    {
+      "apiMs": 2734.7370999999985,
+      "listMs": 201.32400000000052,
+      "totalMs": 2936.061099999999,
+      "responseBytes": 50115,
+      "phases": [
+        {
+          "phase": "pbkdf2Sync",
+          "ms": 126.37629997730255
+        },
+        {
+          "phase": "migrateState",
+          "ms": 92.43119990825653
+        },
+        {
+          "phase": "writeCountState",
+          "ms": 2482.92460000515,
+          "diskMs": 481.27790117263794,
+          "serializationMs": 1961.9543988704681,
+          "bytes": 98360562
+        }
+      ]
+    },
+    {
+      "apiMs": 2137.672599999998,
+      "listMs": 406.40729999999894,
+      "totalMs": 2544.079899999997,
+      "responseBytes": 50694,
+      "phases": [
+        {
+          "phase": "pbkdf2Sync",
+          "ms": 134.17549991607666
+        },
+        {
+          "phase": "migrateState",
+          "ms": 62.66770005226135
+        },
+        {
+          "phase": "writeCountState",
+          "ms": 1900.243399977684,
+          "diskMs": 468.74800086021423,
+          "serializationMs": 1431.472899198532,
+          "bytes": 98363849
+        }
+      ]
+    },
+    {
+      "apiMs": 2806.9278000000013,
+      "listMs": 203.71159999999873,
+      "totalMs": 3010.6394,
+      "responseBytes": 51277,
+      "phases": [
+        {
+          "phase": "pbkdf2Sync",
+          "ms": 146.30309998989105
+        },
+        {
+          "phase": "migrateState",
+          "ms": 75.64019989967346
+        },
+        {
+          "phase": "writeCountState",
+          "ms": 2550.430000066757,
+          "diskMs": 465.86329913139343,
+          "serializationMs": 2084.5360008478165,
+          "bytes": 98369149
+        }
+      ]
+    }
+  ],
+  "checks": []
+}

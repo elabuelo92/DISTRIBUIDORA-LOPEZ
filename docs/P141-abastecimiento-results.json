@@ -1,5 +1,5 @@
 {
-  "at": "2026-10-24T22:27:16.885Z",
+  "at": "2026-10-25T00:08:41.824Z",
   "passed": true,
   "environment": "local-isolated",
   "productionAccess": false,
@@ -35,6 +35,14 @@
     {
       "method": "POST",
       "path": "/api/reports/xlsx"
+    },
+    {
+      "method": "POST",
+      "path": "/api/presence/heartbeat"
+    },
+    {
+      "method": "GET",
+      "path": "/api/state"
     },
     {
       "method": "POST",

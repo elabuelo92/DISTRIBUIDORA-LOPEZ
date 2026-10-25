@@ -83,6 +83,24 @@
   .ops-tool-panel .delivery-planner-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+.stock-section-navigation { padding: 16px 0 22px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+.stock-section-navigation h2 { margin: 0 0 18px; font-size: 20px; letter-spacing: 0; }
+.stock-section-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; max-width: 840px; }
+.stock-section-button { display: grid; place-items: center; align-content: center; gap: 10px; min-width: 0; min-height: 112px; padding: 14px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); cursor: pointer; }
+.stock-section-button strong { font-size: 16px; line-height: 1.35; letter-spacing: 0; white-space: nowrap; }
+.stock-section-button:nth-child(2) .hub-icon { background: #e3edf9; }
+.stock-section-button:nth-child(3) .hub-icon { background: #fff0d7; }
+.stock-section-button:hover { background: var(--surface-2); }
+.stock-section-button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--surface-2); }
+.stock-section-button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 600px) {
+  .stock-section-grid { gap: 8px; }
+  .stock-section-button { padding: 12px 4px; min-height: 104px; }
+  .stock-section-button strong { font-size: 12px; }
+  .stock-section-navigation h2 { font-size: 18px; }
+}
+@media (max-width: 380px) { .stock-section-button strong { font-size: 11px; } }
+
 :root {
   --bg: #f6f7f9;
   --surface: #ffffff;

@@ -10,6 +10,7 @@ const { spawn } = require("child_process");
 const orderEngine = require("./order-engine");
 const deliveryEngine = require("./delivery-engine");
 const accountEngine = require("./account-engine");
+const clientEditEngine = require("./client-edit");
 const collectionVisitEngine = require("./collection-visit-engine");
 const collectionCorrectionEngine = require("./collection-correction-engine");
 const supplierRemitCancellation = require("./supplier-remit-cancellation");
@@ -32,7 +33,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-189";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-190";
 const stateBootstrapCache = require("./state-bootstrap-cache").createCache();
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
@@ -58,7 +59,7 @@ const PUBLIC_DEMO_FILES = new Set([
   "/index.html", "/maintenance.html", "/styles.css", "/manifest.json", "/sw.js",
   "/config.js", "/maps-config.js", "/order-engine.js", "/account-engine.js",
   "/delivery-engine.js", "/route-optimizer.js", "/sales-commission-report.js", "/legal-engine.js", "/client-portfolio-engine.js",
-  "/client-hours.js", "/share-engine.js", "/portfolio-export-engine.js",
+  "/client-hours.js", "/client-edit.js", "/share-engine.js", "/portfolio-export-engine.js",
   "/progressive-list.js", "/state-record-sync.js", "/app.js"
 ]);
 const MANAGED_USER_ROLES = ["admin", "seller", "driver", "receiver", "depot"];
@@ -3362,6 +3363,12 @@ function clientListRecord(state, client, supplierKeys) {
   const account = accountEngine.accountSummary(state, client, 0);
   const entityKey = clientListEntityKey(client);
   return {
+    editBase: clientEditEngine.snapshot(client),
+    id: client.id,
+    dias_credito: client.dias_credito,
+    limite_credito: client.limite_credito ?? client.limit,
+    balance: client.balance ?? client.saldo_actual ?? client.saldo_inicial,
+    observaciones: client.observaciones,
     codigo_cliente: client.codigo_cliente || client.code || "",
     name: client.name || client.nombre_comercial || client.razon_social || "Cliente",
     razon_social: client.razon_social || "",
@@ -3710,7 +3717,68 @@ function applyClientNameReferences(state, previousName, nextName) {
   });
 }
 
+function saveClientPatch(req, res, payload, index, input, user, motive, timing) {
+  const current = payload.state;
+  const previous = current.clients[index];
+  const operationId = String(input.operationId || "");
+  if (!/^[A-Za-z0-9._:-]{12,128}$/.test(operationId)) throw new Error("Falta identificador seguro del cambio.");
+  const fingerprint = crypto.createHash("sha256").update(JSON.stringify({ patch: input.patch, expected: input.expected, motive })).digest("hex");
+  const receipt = (previous.editHistory || []).find(item => item.operationId === operationId);
+  const clientResponse = (client, responseState = current) => ({ client, clientRecord: clientListRecord(responseState, client,
+    new Set((responseState.suppliers || []).map(clientListEntityKey).filter(Boolean))), clientEditPatch: true, refreshRequired: true });
+  if (receipt) {
+    if (receipt.fingerprint !== fingerprint || receipt.username !== user.username) throw Object.assign(new Error("Identificador de cambio ya utilizado."), { status: 409 });
+    sendJson(res, 200, { ok: true, compact: true, version: payload.version, duplicate: true, ...clientResponse(previous) });
+    return;
+  }
+  const { next, changedFields } = clientEditEngine.apply(previous, input.patch, input.expected, clientHoursEngine);
+  if (!changedFields.length) {
+    sendJson(res, 200, { ok: true, compact: true, version: payload.version, unchanged: true, ...clientResponse(previous) });
+    return;
+  }
+  if (changedFields.includes("name") && current.clients.some((client, i) => i !== index && sameText(client.name || client.nombre_comercial, next.name))) {
+    throw Object.assign(new Error("Ya existe otro cliente con ese nombre comercial."), { status: 409 });
+  }
+  const values = record => Object.fromEntries(changedFields.map(key => [key, record[key] ?? null]));
+  const at = new Date().toISOString();
+  next.updatedAt = at;
+  next.editHistory = [...(previous.editHistory || []), { at, user: user.name, username: user.username, role: user.role,
+    ip: clientIp(req), motive, operationId, fingerprint, changedFields, previousValue: values(previous), newValue: values(next) }];
+  // Work on a draft: a failed fsync/rename must not leak uncommitted edits to other sessions.
+  const draft = { ...current, clients: [...current.clients], globalAudit: [...(current.globalAudit || [])],
+    activity: [...(current.activity || [])] };
+  draft.clients[index] = next;
+  if (previous.name !== next.name) {
+    for (const key of ["orders", "accounts", "bankReconciliation", "collectionVisits"]) draft[key] = (current[key] || []).map(row => ({ ...row }));
+    draft.deliveryRoutes = (current.deliveryRoutes || []).map(route => ({ ...route, stops: (route.stops || []).map(stop => ({ ...stop })) }));
+    applyClientNameReferences(draft, previous.name || previous.nombre_comercial, next.name);
+    draft.collectionVisits.filter(visit => visit.clientId === String(previous.codigo_cliente || previous.id)).forEach(visit => { visit.client = next.name; });
+  }
+  const action = sensitiveClientChanged(previous, next) ? "CLIENTE_CAMBIO_SENSIBLE" : "CLIENTE_EDITADO";
+  const audit = auditEntry(req, user, {}, { action, entityType: "cliente", entityId: clientRecordId(next), entityLabel: next.name,
+    previousValue: values(previous), newValue: values(next), note: motive });
+  audit.operationId = operationId;
+  audit.changedFields = changedFields;
+  draft.globalAudit.unshift(audit);
+  eventEngine.emitFromAuditEntries(draft, [audit]);
+  const notification = notificationEntry(req, user, {}, { action, category: "Clientes", title: `Cliente modificado: ${next.name}`,
+    text: `${user.name}: ${motive}`, tone: action === "CLIENTE_EDITADO" ? "info" : "warn",
+    entityType: "cliente", entityId: clientRecordId(next), entityLabel: next.name, audience: ["admin"] });
+  appendNotifications(draft, notification);
+  eventEngine.emitFromNotificationEntries(draft, [notification]);
+  draft.activity.unshift({ type: "Clientes", title: `${next.name} modificado`, text: `Cambio administrativo registrado por ${user.name}. Motivo: ${motive}.` });
+  if (normalizedStateObjects.has(current)) normalizedStateObjects.add(draft);
+  const version = writeState(draft);
+  try { appendRuntimeLog(GLOBAL_AUDIT_LOG, `${JSON.stringify(audit)}\n`); } catch { /* The durable state retains the audit. */ }
+  sendJson(res, 200, { ok: true, compact: true, version, ...clientResponse(next, draft), changedFields,
+    performance: { authenticationMs: Math.round(timing.authenticationMs * 10) / 10,
+      persistenceMs: stateWritePerformance.lastMs, serializationMs: stateWritePerformance.lastSerializationMs,
+      diskMs: stateWritePerformance.lastDiskMs, totalMs: Math.round((performance.now() - timing.editStartedAt) * 10) / 10 } });
+}
+
 function editedClientFromInput(previous, input, user) {
+  if (input.email !== undefined && String(input.email).trim() !== String(previous.email || "").trim()
+    && !clientEditEngine.validEmail(String(input.email).trim())) throw new Error("Ingresar un email valido o dejarlo vacio.");
   const name = String(input.nombre_comercial || input.name || previous.name || previous.nombre_comercial || "").trim();
   if (!name) throw new Error("El cliente debe tener nombre comercial.");
   const currentLimit = numeric(previous.limite_credito ?? previous.limit, 0);
@@ -7240,6 +7308,7 @@ const server = http.createServer(async (req, res) => {
 
     const clientEditMatch = requestUrl.pathname.match(/^\/api\/clients\/([^/]+)\/edit$/);
     if (clientEditMatch && req.method === "POST") {
+      const editStartedAt = performance.now();
       const sessionUser = requireUser(req, res);
       if (!sessionUser) return;
       if (sessionUser.role !== "admin") {
@@ -7249,6 +7318,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const input = JSON.parse(body || "{}");
       const adminPassword = String(input.admin_password || input.adminPassword || "").trim();
+      const authStartedAt = performance.now();
       const users = readUsers();
       const adminUser = users.find((item) => item.username.toLowerCase() === sessionUser.username.toLowerCase() && item.active !== false);
       if (!adminUser || !verifyPassword(adminPassword, adminUser)) {
@@ -7264,6 +7334,12 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 401, { ok: false, error: "Clave de administrador incorrecta." });
         return;
       }
+      const authenticationMs = performance.now() - authStartedAt;
+      const requestedEmail = input.patch ? input.patch.email : input.email;
+      if (requestedEmail && users.some(item => item.role === "admin" && sameText(item.username, requestedEmail))) {
+        sendJson(res, 400, { ok: false, error: "El email del cliente no puede ser el usuario de acceso administrativo." });
+        return;
+      }
       const motive = String(input.motivo || input.motive || input.motivo_cambio || "").trim();
       if (!motive) {
         sendJson(res, 400, { ok: false, error: "Para editar un cliente se debe indicar motivo del cambio." });
@@ -7276,6 +7352,15 @@ const server = http.createServer(async (req, res) => {
       const index = findClientIndex(currentState, id);
       if (index < 0) {
         sendJson(res, 404, { ok: false, error: "Cliente no encontrado." });
+        return;
+      }
+      if (input.patch) {
+        try {
+          saveClientPatch(req, res, currentPayload, index, input, sessionUser, motive, { editStartedAt, authenticationMs });
+        } catch (error) {
+          sendJson(res, error.status || (error.code ? 503 : 400), { ok: false, error: error.code
+            ? "No se pudo persistir el cambio. Reintentar la misma operacion." : error.message });
+        }
         return;
       }
       try {

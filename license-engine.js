@@ -31,6 +31,7 @@ const CRITICAL_FILES = [
   "sw.js",
   "order-engine.js",
   "stock-count-storage.js",
+  "client-edit.js",
   "state-record-sync.js",
   "state-bootstrap-cache.js",
   "http-connection-policy.js",
