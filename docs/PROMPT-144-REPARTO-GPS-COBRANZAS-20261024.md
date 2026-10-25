@@ -1,6 +1,6 @@
 # P144 - Reparto, GPS y correcciones de cobranza
 
-Estado: **Implementado localmente, pendiente de despliegue**. Paquete preparado: 8790-191.
+Estado: **Desplegado en produccion y validado** tecnicamente, version **8790-191**, 2026-10-24 22:00 ART. Pruebas funcionales en copia aislada; pendiente recorrido autenticado en produccion y GPS fisico de Android.
 
 ## Alcance y respaldo previo
 
@@ -77,3 +77,16 @@ Diagnostico de solo lectura sobre 1168 cobros de rutas cerradas: antes, 1123 pre
 6. Revisar Original / Corregido / Diferencia, indicar motivo y autorizar con clave.
 7. Revisar ajuste vinculado, cuenta corriente, efectivo de ruta y conciliacion. El cierre historico debe seguir igual.
 8. Si informa saldo a favor generado por el cobro, deuda insuficiente o trazabilidad ambigua, registrar pedido y mensaje para revision puntual; no forzar importes.
+
+## Despliegue y verificacion productiva
+
+- Commit publicado: `0c84b4c05d05617b12871ce57ccd9e09cdda359d`.
+- Respaldo: `/opt/distribuidora-lopez/backups/emergency-20261025-005830`, archivos `app.tar.gz`, `data.tar.gz`, entorno y manifiesto. Ambos archivos comprimidos verificados antes de continuar.
+- Reinicio controlado unicamente de `distribuidora-lopez.service`. PID final `3700389`, activo, `NRestarts=0`; sin errores en el registro consultado desde el arranque. Sin sesiones activas durante la comprobacion.
+- Salud local y publica correcta, version 191, licencia valida, integridad de 29 archivos correcta, mantenimiento desactivado. Concurrencia de respuestas completas conservada en 1.
+- `demo-state.json` identico byte por byte: SHA256 `e336e077ca41d189afda27a73ff4f0ec577d1ac6cbb09ba7500c0392138bc6a6`.
+- `users.json` identico byte por byte: SHA256 `93033881d6193e2cdfe634afb302a07eedbdd187cf734c26e15b874c71e68162`.
+- Version de datos conservada `1792883540272`: 2031 pedidos, 730 productos, 78 rutas. Comparacion de pedidos del dia: ninguno agregado, eliminado ni cambiado.
+- Seis archivos publicos comparados con la fuente probada, incluyendo `app.js`, estilos y correccion de cobranzas; configuracion dinamica y cache 191 verificadas. Evidencia: `P144-production-validation.json`.
+- La pestana publica abre el formulario de ingreso. No se ingreso con credenciales ajenas ni se realizaron capturas GPS o correcciones contables productivas de prueba.
+- No se aplicaron migraciones, ajustes de saldos, modificaciones de rutas ni correcciones masivas. Los 17 casos protegidos siguen requiriendo revision contable especifica. El pedido exacto del reclamo sigue sin identificar.

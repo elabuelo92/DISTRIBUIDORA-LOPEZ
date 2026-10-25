@@ -1,0 +1,54 @@
+{
+  "at": "2026-10-25T01:00:23.656Z",
+  "version": "8790-191",
+  "maintenance": false,
+  "integrity": {
+    "ok": true,
+    "code": "INTEGRITY_OK",
+    "message": "Integridad verificada.",
+    "checked": 29,
+    "changed": 0,
+    "missing": 0,
+    "generatedAt": "2026-10-25T00:59:28.067Z"
+  },
+  "orders": 2031,
+  "products": 730,
+  "routes": 78,
+  "stateVersion": 1792883540272,
+  "activeSessions": 0,
+  "assets": [
+    {
+      "file": "index.html",
+      "matchesTestedSource": true,
+      "sha256": "9a1183c2e2318f3bf4c99909d8c0191f741e9623500f53362f0350a9f49334eb"
+    },
+    {
+      "file": "app.js",
+      "matchesTestedSource": true,
+      "sha256": "0b848c8c80db4287d5eb701b57066d93cd15229f720ff740bb6f026967d3a4d1"
+    },
+    {
+      "file": "styles.css",
+      "matchesTestedSource": true,
+      "sha256": "1b751edb29c4b2c2b4d08054bc5d322c4e1b768939f85c82f1619f1843e71e22"
+    },
+    {
+      "file": "sw.js",
+      "matchesTestedSource": true,
+      "sha256": "5e507f108e65874e880482e5bc174cf59b4b99fc5af7b3032f561eda6fddd632"
+    },
+    {
+      "file": "client-edit.js",
+      "matchesTestedSource": true,
+      "sha256": "a7066c4a8ce16ca19564b1ebb9abddfa137172be50203efdaeda145e26b6ed59"
+    },
+    {
+      "file": "collection-corrections-ui.js",
+      "matchesTestedSource": true,
+      "sha256": "a6af1fb893e0cf032899eeb4bc46833437e10e619c7ad55865f0c22f0e247872"
+    }
+  ],
+  "runtimeConfigMatches": true,
+  "ok": true,
+  "scope": "Read-only health/assets. No login, customer or financial operations."
+}
