@@ -9219,7 +9219,7 @@ function renderOperationalWorkspace(moduleId, root, title, tools) {
       button.className = "ops-tool-card";
       button.dataset.toolId = tool.id;
       button.setAttribute("aria-controls", panel.id);
-      button.innerHTML = `${tool.icon ? `<span class="hub-icon"><img src="icons/tools/${escapeHtml(tool.icon)}.svg" alt="" width="26" height="26"></span>` : `<span class="ops-tool-number" aria-hidden="true">${String(visibleIndex).padStart(2, "0")}</span>`}<strong>${escapeHtml(tool.title)}</strong><span class="ops-tool-count"></span><span class="ops-tool-arrow" aria-hidden="true">\u2192</span>`;
+      button.innerHTML = `${tool.icon ? `<span class="hub-icon"><img src="icons/tools/${escapeHtml(tool.icon)}.svg" alt="" width="26" height="26"></span>` : `<span class="ops-tool-number" aria-hidden="true">${String(tool.number || visibleIndex).padStart(2, "0")}</span>`}<strong>${escapeHtml(tool.title)}</strong><span class="ops-tool-count"></span><span class="ops-tool-arrow" aria-hidden="true">\u2192</span>`;
       button.addEventListener("click", () => openOperationalTool(moduleId, tool.id, true));
       grid.append(button);
       select.add(new Option(tool.title, tool.id));
@@ -10444,13 +10444,13 @@ function renderDelivery() {
   renderOperationalWorkspace("reparto", byId("reparto"), "Herramientas de reparto", [
     { id: "collection-corrections", title: "Corregir cobranzas cerradas", summary: "Ajustes administrativos auditados", allowed: isAdminUser(), selectors: [".collection-corrections-panel"] },
     { id: "collection-visits", title: "Ordenes de cobro", summary: "Visitas de cobranza", allowed: ["admin", "driver"].includes(currentUser?.role), selectors: [".collection-visits-panel"] },
-    { id: "gps-corrections", title: "Corregir ubicaciones", summary: `${deliveryGpsCorrectionClients().length} solicitudes GPS`, allowed: currentUser?.role === "driver", selectors: [".delivery-gps-corrections-panel"] },
     { id: "planning", title: "Planificar rutas", summary: `${routes.filter((route) => route.status === "Planificada").length} rutas por publicar`, allowed: canPlanDeliveryRoutes(), selectors: [".delivery-planner-panel"] },
     { id: "deliveries", title: "Entregar y cobrar", summary: `${allStops.length - delivered} paradas pendientes`, selectors: [".delivery-active-panel", "#deliveryKpis", ".delivery-stops-panel"] },
     { id: "routes", title: "Hojas de ruta y rendición", summary: `${routes.length} ${routes.length === 1 ? "ruta disponible" : "rutas disponibles"}`, selectors: [".delivery-routes-panel"] },
     { id: "collections", title: "Cierres y cobros", summary: "Rendiciones y manifiestos", allowed: isAdminUser(), selectors: [".delivery-closures-panel"] },
     { id: "audit", title: "Auditoría de reparto", summary: "Entregas, GPS y movimientos", allowed: isAdminUser(), selectors: [".delivery-audit-panel"] },
-    { id: "settings", title: isAdminUser() ? "Configuración y equipo" : "Mi equipo", summary: deliveryDevice.label || "Dispositivo operativo", selectors: [".delivery-settings-panel", ".delivery-device-bar"] }
+    { id: "settings", title: isAdminUser() ? "Configuración y equipo" : "Mi equipo", summary: deliveryDevice.label || "Dispositivo operativo", selectors: [".delivery-settings-panel", ".delivery-device-bar"] },
+    { id: "gps-corrections", number: 9, title: "Corregir ubicacion de cliente", summary: `${deliveryGpsCorrectionClients().length} solicitudes GPS`, allowed: ["admin", "driver"].includes(currentUser?.role), selectors: [".delivery-gps-corrections-panel"] }
   ]);
   byId("reparto").querySelector(".delivery-layout").hidden = true;
 }
@@ -10458,6 +10458,7 @@ function renderDelivery() {
 let deliveryGpsCorrectionBusy = false;
 let deliveryGpsCorrectionClientId = "";
 let deliveryGpsCorrectionError = "";
+let deliveryGpsCorrectionDraft = null;
 
 function deliveryGpsCorrectionClients() {
   return (state.clients || []).filter(client => ["needs_correction", "rejected", "pending_validation"].includes(client.gpsReview?.status));
@@ -10466,14 +10467,31 @@ function deliveryGpsCorrectionClients() {
 function renderDeliveryGpsCorrections() {
   const panel = byId("deliveryGpsCorrections");
   if (!panel) return;
-  const clients = currentUser?.role === "driver" ? deliveryGpsCorrectionClients() : [];
-  panel.innerHTML = clients.length ? clients.map(client => `<article class="delivery-route-card">
-    <strong>${escapeHtml(client.name || client.nombre_comercial || "Cliente")}</strong>
-    <p>${escapeHtml(client.direccion || client.address || "Sin direccion")}</p>
-    <span class="tag warn">${client.gpsReview.status === "pending_validation" ? "Pendiente de validacion administrativa" : "Correccion solicitada por Administracion"}</span>
-    ${client.gpsReview.status !== "pending_validation" ? `<button class="primary-btn" type="button" data-delivery-gps-client="${escapeHtml(client.codigo_cliente || client.name)}" ${deliveryGpsCorrectionBusy ? "disabled" : ""} aria-busy="${deliveryGpsCorrectionBusy && deliveryGpsCorrectionClientId === (client.codigo_cliente || client.name)}">${deliveryGpsCorrectionBusy && deliveryGpsCorrectionClientId === (client.codigo_cliente || client.name) ? "Tomando GPS..." : "Registrar ubicacion actual"}</button>` : ""}
-    ${deliveryGpsCorrectionError && deliveryGpsCorrectionClientId === (client.codigo_cliente || client.name) ? `<p role="alert">${escapeHtml(deliveryGpsCorrectionError)}</p>` : ""}
-  </article>`).join("") : '<div class="empty-note">Sin correcciones GPS solicitadas para sus clientes.</div>';
+  if (!["admin", "driver"].includes(currentUser?.role)) { panel.replaceChildren(); return; }
+  const query = normalizeSearchText(byId("deliveryGpsSearch")?.value || "");
+  const orderClients = new Set((state.orders || []).filter(order => query && normalizeSearchText(order.code).includes(query)).map(order => normalizeSearchText(order.client)));
+  const clients = (state.clients || []).filter(client => !query || orderClients.has(normalizeSearchText(client.name))
+    || normalizeSearchText([client.name, client.codigo_cliente, client.direccion, client.domicilio, client.address].join(" ")).includes(query))
+    .sort((a, b) => Number(!a.gpsReview?.status || ["approved", "cancelled"].includes(a.gpsReview.status)) - Number(!b.gpsReview?.status || ["approved", "cancelled"].includes(b.gpsReview.status)));
+  const selected = (state.clients || []).find(client => clientIdentity(client) === deliveryGpsCorrectionClientId);
+  const displayed = clients.slice(0, 50);
+  if (selected && !displayed.includes(selected)) displayed.unshift(selected);
+  const pointHtml = (point, title) => {
+    const valid = point && Number.isFinite(Number(point.lat)) && Number.isFinite(Number(point.lng)) && Math.abs(Number(point.lat)) <= 90 && Math.abs(Number(point.lng)) <= 180;
+    return `<div><h4>${title}</h4>${valid ? `<p>Latitud: ${escapeHtml(String(point.lat))}<br>Longitud: ${escapeHtml(String(point.lng))}${point.accuracy ? `<br>Precision: ${escapeHtml(String(point.accuracy))} m` : ""}</p><a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${point.lat},${point.lng}`)}" target="_blank" rel="noopener noreferrer">Ver en mapa</a>` : "<p>Sin coordenadas registradas</p>"}</div>`;
+  };
+  const review = selected?.gpsReview || {};
+  const draft = deliveryGpsCorrectionDraft?.clientId === deliveryGpsCorrectionClientId ? deliveryGpsCorrectionDraft : null;
+  const canCapture = selected && ["needs_correction", "rejected"].includes(review.status);
+  panel.innerHTML = `<label>Cliente (${clients.length})<select id="deliveryGpsClientSelect" ${deliveryGpsCorrectionBusy ? "disabled" : ""}><option value="">Seleccionar cliente</option>${displayed.map(client => `<option value="${escapeHtml(clientIdentity(client))}" ${clientIdentity(client) === deliveryGpsCorrectionClientId ? "selected" : ""}>${escapeHtml(`${client.codigo_cliente || "S/C"} - ${client.name}`)}</option>`).join("")}</select></label>
+    ${selected ? `<h3>${escapeHtml(selected.name)}</h3><p>${escapeHtml(selected.direccion || selected.domicilio || selected.address || "Sin direccion")}</p>
+    <p class="tag ${review.status === "pending_validation" ? "warn" : ""}">${escapeHtml(({ needs_correction: "Correccion solicitada por Administracion", rejected: "Ubicacion rechazada; capturar nuevamente", pending_validation: "Pendiente de validacion administrativa", approved: "Ubicacion aprobada", cancelled: "Correccion cancelada" })[review.status] || "Sin solicitud administrativa de correccion")}</p>
+    <div class="delivery-gps-comparison">${pointHtml(DeliveryEngine.clientCoordinates(selected), "Ubicacion oficial")}${pointHtml(draft?.gps || review.proposal, draft ? "Nueva captura, sin enviar" : "Ubicacion propuesta")}</div>
+    <div class="delivery-gps-actions">${canCapture ? `<button class="secondary-btn" type="button" data-delivery-gps-client="${escapeHtml(deliveryGpsCorrectionClientId)}" ${deliveryGpsCorrectionBusy ? "disabled" : ""}>${deliveryGpsCorrectionBusy ? "Procesando GPS..." : "Capturar GPS actual"}</button>` : ""}
+    ${draft ? `<button class="primary-btn" type="button" data-delivery-gps-send ${deliveryGpsCorrectionBusy ? "disabled" : ""}>Enviar a validacion</button>` : ""}
+    ${isAdminUser() && !["needs_correction", "pending_validation", "rejected"].includes(review.status) ? '<button class="secondary-btn" type="button" data-delivery-gps-review="mark">Solicitar correccion</button>' : ""}
+    ${isAdminUser() && review.status === "pending_validation" ? '<button class="primary-btn" type="button" data-delivery-gps-review="approve">Aprobar ubicacion</button><button class="secondary-btn" type="button" data-delivery-gps-review="reject">Rechazar ubicacion</button>' : ""}</div>` : '<p class="empty-note">Seleccionar un cliente para consultar su ubicacion.</p>'}
+    ${deliveryGpsCorrectionError ? `<p role="alert">${escapeHtml(deliveryGpsCorrectionError)}</p>` : ""}`;
 }
 
 async function captureDeliveryClientGps() {
@@ -10507,21 +10525,19 @@ async function captureDeliveryClientGps() {
 }
 
 async function submitDeliveryClientGpsCorrection(id) {
-  if (deliveryGpsCorrectionBusy || currentUser?.role !== "driver") return;
-  const client = deliveryGpsCorrectionClients().find(item => (item.codigo_cliente || item.name) === id);
+  if (deliveryGpsCorrectionBusy || !["driver", "admin"].includes(currentUser?.role)) return;
+  const client = deliveryGpsCorrectionClients().find(item => clientIdentity(item) === id);
   if (!client || !["needs_correction", "rejected"].includes(client.gpsReview.status)) return;
   if (!window.confirm(`Registrar ubicacion actual para ${client.name}? Debe estar frente al comercio. Administracion validara el cambio.`)) return;
   const expectedUpdatedAt = String(client.updatedAt || client.createdAt || "");
   deliveryGpsCorrectionClientId = id;
+  deliveryGpsCorrectionDraft = null;
   deliveryGpsCorrectionError = "";
   deliveryGpsCorrectionBusy = true;
   renderDeliveryGpsCorrections();
   try {
     const gps = await captureDeliveryClientGps();
-    await postOperationalAction(`api/clients/${encodeURIComponent(id)}/gps-review`, {
-      action: "submit", gps, expectedUpdatedAt, deviceId: deliveryDevice.id, deviceLabel: deliveryDevice.label
-    });
-    showCompactNotice("Ubicacion enviada a Administracion. La anterior se conserva hasta aprobarla.", "ok");
+    deliveryGpsCorrectionDraft = { clientId: id, gps, expectedUpdatedAt };
   } catch (error) {
     deliveryGpsCorrectionError = error.message || "No se pudo enviar la ubicacion.";
     showCompactNotice(deliveryGpsCorrectionError, "danger");
@@ -10529,6 +10545,29 @@ async function submitDeliveryClientGpsCorrection(id) {
     deliveryGpsCorrectionBusy = false;
     renderDeliveryGpsCorrections();
   }
+}
+
+async function sendDeliveryGpsReview(action) {
+  if (deliveryGpsCorrectionBusy) return;
+  const client = (state.clients || []).find(item => clientIdentity(item) === deliveryGpsCorrectionClientId);
+  if (!client) return;
+  const draft = deliveryGpsCorrectionDraft;
+  if (action === "submit" && (!draft || draft.clientId !== deliveryGpsCorrectionClientId)) return;
+  const reason = action === "reject" ? window.prompt("Motivo del rechazo") : "";
+  if (action === "reject" && !String(reason || "").trim()) return;
+  if (action === "approve" && !window.confirm(`Aprobar la ubicacion propuesta para ${client.name}? Los pedidos historicos no se modifican.`)) return;
+  deliveryGpsCorrectionBusy = true;
+  deliveryGpsCorrectionError = "";
+  renderDeliveryGpsCorrections();
+  try {
+    await postOperationalAction(`api/clients/${encodeURIComponent(deliveryGpsCorrectionClientId)}/gps-review`, {
+      action, reason, expectedUpdatedAt: action === "submit" ? draft.expectedUpdatedAt : String(client.updatedAt || client.createdAt || ""),
+      ...(action === "submit" ? { gps: draft.gps, deviceId: deliveryDevice.id, deviceLabel: deliveryDevice.label } : {})
+    });
+    deliveryGpsCorrectionDraft = null;
+    showCompactNotice(action === "submit" ? "Ubicacion enviada a validacion. La ubicacion oficial no cambio." : "Revision GPS registrada.", "ok");
+  } catch (error) { deliveryGpsCorrectionError = error.message; }
+  finally { deliveryGpsCorrectionBusy = false; renderDeliveryGpsCorrections(); }
 }
 
 function renderDeliveryStops(route) {
@@ -22418,6 +22457,17 @@ byId("mobileGpsCorrectionCaptureBtn").addEventListener("click", submitClientGpsC
 byId("deliveryGpsCorrections").addEventListener("click", event => {
   const button = event.target.closest("[data-delivery-gps-client]");
   if (button) submitDeliveryClientGpsCorrection(button.dataset.deliveryGpsClient);
+  if (event.target.closest("[data-delivery-gps-send]")) sendDeliveryGpsReview("submit");
+  const review = event.target.closest("[data-delivery-gps-review]");
+  if (review) sendDeliveryGpsReview(review.dataset.deliveryGpsReview);
+});
+byId("deliveryGpsSearch").addEventListener("input", renderDeliveryGpsCorrections);
+byId("deliveryGpsCorrections").addEventListener("change", event => {
+  if (event.target.id !== "deliveryGpsClientSelect" || deliveryGpsCorrectionBusy) return;
+  deliveryGpsCorrectionClientId = event.target.value;
+  deliveryGpsCorrectionDraft = null;
+  deliveryGpsCorrectionError = "";
+  renderDeliveryGpsCorrections();
 });
 
 document.addEventListener("click", (event) => {

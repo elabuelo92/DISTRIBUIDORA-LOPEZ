@@ -24,13 +24,15 @@ fs.writeFileSync(usersFile, JSON.stringify({ users }), "utf8");
 const state = JSON.parse(JSON.stringify(buildState(1)));
 state.suppliers = [{ name: "Proveedor Fotos", razon_social: "Proveedor Fotos", balance: 0 }];
 state.clients[0].location = { lat: state.clients[0].latitud, lng: state.clients[0].longitud };
+state.archivedOrders = [{ code: "PED-GPS-HISTORICO", client: state.clients[0].name, status: "Entregado", gps: { ...state.clients[0].location } }];
+state.archivedDeliveryRoutes = [{ id: "GPS-HISTORICA", closure: { id: "CLOSE-HIST" }, stops: [{ orderCode: "PED-GPS-HISTORICO", coordinates: { ...state.clients[0].location } }] }];
 state.deliveryRoutes = [{ id: "GPS-REFRESH-ROUTE", driverUser: "reparto1", status: "Planificada", day: "2026-10-12", manualOrder: true,
   stops: [{ orderCode: state.orders[0].code, client: state.clients[0].name, status: Order.STATUS.READY_DISPATCH,
     coordinates: { ...state.clients[0].location }, sequence: 1 }] }];
 Order.migrateState(state);
 fs.writeFileSync(stateFile, JSON.stringify({ version: Date.now(), state }), "utf8");
 const port = 22000 + Math.floor(Math.random() * 1000);
-const child = spawn(process.execPath, [path.join(root, "server.js")], {
+const child = spawn(process.env.DL_TEST_SERVER_NODE || process.execPath, [path.join(root, "server.js")], {
   cwd: root,
   env: { ...process.env, DL_HOST: "127.0.0.1", DL_PORT: String(port), PORT: String(port),
     DATA_DIR: tempDir, STATE_FILE: stateFile, USERS_FILE: usersFile,
@@ -126,7 +128,13 @@ async function post(cookie, endpoint, input) {
     assert.equal((await post(seller, endpoint, {
       action: "submit", gps: { lat: -31.412345678, lng: -64.181234567, accuracy: 8.75, source: "gps" }
     })).status, 200);
-    assert.equal((await post(admin, endpoint, { action: "approve" })).status, 200);
+    const beforeApproval = JSON.parse(fs.readFileSync(stateFile, "utf8")).state;
+    assert.equal((await post(admin, endpoint, { action: "approve", expectedUpdatedAt: "stale" })).status, 409);
+    assert.deepEqual(JSON.parse(fs.readFileSync(stateFile, "utf8")).state.clients[0], beforeApproval.clients[0]);
+    assert.equal((await post(admin, endpoint, { action: "approve", expectedUpdatedAt: beforeApproval.clients[0].updatedAt })).status, 200);
+    for (const key of ["orders", "archivedOrders", "archivedDeliveryRoutes", "deliveryRoutes", "accounts", "products"]) {
+      assert.deepEqual(JSON.parse(fs.readFileSync(stateFile, "utf8")).state[key], beforeApproval[key], `GPS approval preserves ${key}`);
+    }
     saved = JSON.parse(fs.readFileSync(stateFile, "utf8")).state.clients[0];
     assert.equal(saved.latitud, -31.412345678);
     assert.equal(saved.longitud, -64.181234567);
@@ -172,6 +180,7 @@ async function post(cookie, endpoint, input) {
       assert.equal(JSON.stringify(readState().products), protectedProducts);
     }
     console.log("OK: cancellation from all three blocked states, admin-only, stale protection, audit, coordinates and unrelated fields preserved, seller synchronization.");
+    if (process.argv.includes("--visual")) await require("./p144-gps-browser-check").check(base, admin, driver, readState, id, state.orders[0].code);
     const unblocked = await post(seller, "/api/orders", { operationId: "GPS-CANCEL-ORDER-1", client: state.clients[0].name, items: [{ productCode: "P-132", qty: 1 }] });
     assert.ok(unblocked.status >= 200 && unblocked.status < 300, unblocked.body.error || "Sales should resume after cancellation");
     console.log(JSON.stringify({ ok: true, blockedDuringReview: true, originalOrderPreserved: true, precision: saved.gpsReview.proposal.accuracy }));

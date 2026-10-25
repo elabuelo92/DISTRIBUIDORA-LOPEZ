@@ -1,13 +1,14 @@
 "use strict";
 const assert = require("node:assert/strict"), fs = require("node:fs"), vm = require("node:vm");
 const source = fs.readFileSync(require.resolve("../collection-corrections-ui.js"), "utf8");
-const context = vm.createContext({ document: { addEventListener() {} } });
+const context = vm.createContext({ document: { addEventListener() {} }, crypto: {} });
 vm.runInContext(source, context);
 assert.equal(vm.runInContext('accountCollectionNet({credit:800})', context), 800);
 assert.equal(vm.runInContext('accountCollectionNet({credit:0,debit:800,correctionId:"COR1",type:"Reverso administrativo de cobranza"})', context), -800);
 assert.equal(vm.runInContext('accountCollectionNet({credit:500,correctionId:"COR1",type:"Cobro administrativo corregido"})', context), 500);
 assert.equal(vm.runInContext('accountCollectionNet({credit:0,debit:100,type:"Venta"})', context), 0);
-assert.match(source, /correctionPreview = null; correctionRequestId = crypto.randomUUID/);
+assert.match(source, /correctionPreview = null; correctionRequestId = newCorrectionRequestId/);
+assert.match(vm.runInContext("newCorrectionRequestId()", context), /^COR-/);
 assert.match(source, /if \(correctionBusy\) return/);
 assert.match(source, /token: result.token/);
 console.log("PASS P9 UI: net collections subtract reversals, ordinary debits unchanged, preview invalidation, duplicate-click guard.");

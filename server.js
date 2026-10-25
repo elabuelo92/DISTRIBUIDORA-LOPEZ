@@ -33,7 +33,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-190";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-191";
 const stateBootstrapCache = require("./state-bootstrap-cache").createCache();
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
@@ -6904,7 +6904,9 @@ const server = http.createServer(async (req, res) => {
           const sources = routeId ? collectionCorrectionEngine.sources(current, routeId).sources.map(s => ({
             id: s.id, client: s.client, cash: s.original.cashAmount ?? s.original.cash ?? 0,
             transfer: s.original.transferAmount ?? s.original.transfer ?? 0,
-            pendingTransfer: s.original.transferPendingAmount || 0
+            pendingTransfer: s.original.transferPendingAmount || 0,
+            bank: s.original.bank || "", reference: s.original.reference || s.original.operationNumber || "",
+            customerCredit: s.original.customerCreditAmount || 0
           })) : [];
           return sendJson(res, 200, { ok: true, routes: (current.deliveryRoutes || []).filter(r => r.closure).map(r => ({ id: r.id, label: deliveryEngine.routeDisplayName(r) })),
             sources, corrections: (current.collectionCorrections || []).filter(c => c.routeId === routeId) });
@@ -6918,12 +6920,15 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 200, { ok: true, token: preview.token, impact: preview.impact });
         }
         if (input.action !== "apply") throw new Error("Accion invalida.");
-        let result = collectionCorrectionEngine.apply(current, { ...safe, attachment: safe.proofHash ? { url: "preflight" } : null }, context);
-        if (!result.repeated && Number(input.transferAmount) > 0) {
-          const attachment = saveDeliveryUpload({ orderCode: `COR-${input.requestId}`, kind: "transfer-proof", dataUrl: input.dataUrl }, user);
-          result = collectionCorrectionEngine.apply(current, { ...safe, attachment }, context);
+        if (!verifyCurrentUserPassword(user, input.adminPassword || "")) {
+          return sendJson(res, 401, { ok: false, error: "Clave administrativa incorrecta. El ajuste no fue aplicado." });
         }
-        if (result.repeated) return sendJson(res, 200, { ok: true, correction: result.correction, repeated: true });
+        const prepared = collectionCorrectionEngine.prepare(current, { ...safe, attachment: safe.proofHash ? { url: "preflight" } : null }, context);
+        if (prepared.repeated) return sendJson(res, 200, { ok: true, correction: prepared.correction, repeated: true });
+        const attachment = input.retainTransfer !== true && Number(input.transferAmount) > 0
+          ? saveDeliveryUpload({ orderCode: `COR-${input.requestId}`, kind: "transfer-proof", dataUrl: input.dataUrl }, user) : null;
+        const result = collectionCorrectionEngine.apply(current, { ...safe, attachment }, context);
+        if (normalizedStateObjects.has(current)) normalizedStateObjects.add(result.state);
         writeCompactStateResponse(res, result.state, { correction: result.correction, refreshRequired: true }, auditEntry(req, user, {}, {
           action: "CORRECCION_COBRANZA_CERRADA", entityType: "cobranza", entityId: result.correction.id,
           entityLabel: result.correction.client, note: result.correction.reason, newValue: result.correction
@@ -7161,10 +7166,13 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 404, { ok: false, error: "Cliente no encontrado." });
         return;
       }
-      const client = currentState.clients[index];
+      const originalClient = currentState.clients[index];
+      const client = { ...originalClient, gpsReviewHistory: [...(originalClient.gpsReviewHistory || [])] };
+      const draftState = { ...currentState, globalAudit: [...(currentState.globalAudit || [])],
+        clients: currentState.clients.map((entry, position) => position === index ? client : entry) };
       if (sessionUser.role === "driver") {
         const visible = stateForUser(currentState, sessionUser).clients || [];
-        if (input.action !== "submit" || !visible.includes(client)) {
+        if (input.action !== "submit" || !visible.includes(originalClient)) {
           sendJson(res, 403, { ok: false, error: "Solo puede registrar GPS solicitado de clientes de sus rutas." });
           return;
         }
@@ -7178,6 +7186,10 @@ const server = http.createServer(async (req, res) => {
           return;
         }
       }
+      if (input.action !== "cancel" && input.expectedUpdatedAt !== undefined && input.expectedUpdatedAt !== String(client.updatedAt || client.createdAt || "")) {
+        sendJson(res, 409, { ok: false, error: "La solicitud cambio. Actualice el cliente antes de continuar." });
+        return;
+      }
       const before = cloneAuditValue({ latitud: client.latitud, longitud: client.longitud, gpsReview: client.gpsReview || null });
       try {
         const action = String(input.action || "").trim();
@@ -7186,7 +7198,7 @@ const server = http.createServer(async (req, res) => {
         if (action === "mark") {
           if (sessionUser.role !== "admin") throw new Error("Solo Administracion puede marcar GPS a corregir.");
           client.gpsReview = { ...review, status: "needs_correction", markedAt: at, markedBy: sessionUser.name,
-            previous: { lat: client.latitud ?? null, lng: client.longitud ?? null }, proposal: null };
+            previous: deliveryEngine.clientCoordinates(client) || { lat: null, lng: null }, proposal: null };
         } else if (action === "cancel") {
           if (sessionUser.role !== "admin") throw new Error("Solo Administracion puede cancelar la correccion GPS.");
           if (!["needs_correction", "pending_validation", "rejected"].includes(review.status)) throw new Error("No hay una correccion GPS abierta para cancelar.");
@@ -7210,6 +7222,7 @@ const server = http.createServer(async (req, res) => {
             role: sessionUser.role,
             device: String(input.deviceLabel || input.deviceId || ""),
             deviceId: String(input.deviceId || ""),
+            capturedAt: input.gps.deviceAt || at,
             at
           } };
         } else if (action === "approve" || action === "reject") {
@@ -7220,19 +7233,24 @@ const server = http.createServer(async (req, res) => {
             client.longitud = review.proposal.lng;
           }
           client.gpsReview = { ...review, status: action === "approve" ? "approved" : "rejected",
-            resolvedAt: at, resolvedBy: sessionUser.name, resolutionNote: String(input.reason || "").trim() };
+            resolvedAt: at, resolvedBy: sessionUser.name, resolvedByUsername: sessionUser.username, resolutionNote: String(input.reason || "").trim() };
         } else {
           throw new Error("Accion GPS invalida.");
         }
         client.gpsReviewHistory = Array.isArray(client.gpsReviewHistory) ? client.gpsReviewHistory : [];
-        client.gpsReviewHistory.unshift({ at, action, user: sessionUser.name,
+        client.gpsReviewHistory.unshift({ at, action, user: sessionUser.name, username: sessionUser.username, role: sessionUser.role,
+          deviceId: String(input.deviceId || ""), deviceLabel: String(input.deviceLabel || ""),
           before, after: { latitud: client.latitud ?? null, longitud: client.longitud ?? null, gpsReview: cloneAuditValue(client.gpsReview) } });
         client.gpsReviewHistory = client.gpsReviewHistory.slice(0, 30);
         client.updatedAt = at;
         const visibleClient = sessionUser.role === "admin" ? client : {
-          ...client, gpsReview: { status: client.gpsReview.status }, gpsReviewHistory: []
+          ...client, gpsReview: { status: client.gpsReview.status, proposal: client.gpsReview.proposal ? {
+            lat: client.gpsReview.proposal.lat, lng: client.gpsReview.proposal.lng,
+            accuracy: client.gpsReview.proposal.accuracy, at: client.gpsReview.proposal.at
+          } : null }, gpsReviewHistory: []
         };
-        writeCompactStateResponse(res, currentState, { client: visibleClient }, auditEntry(req, sessionUser, input, {
+        if (normalizedStateObjects.has(currentState)) normalizedStateObjects.add(draftState);
+        writeCompactStateResponse(res, draftState, { client: visibleClient }, auditEntry(req, sessionUser, input, {
           action: `CLIENTE_GPS_${action.toUpperCase()}`,
           entityType: "cliente", entityId: client.codigo_cliente || client.name, entityLabel: client.name,
           previousValue: before, newValue: { latitud: client.latitud, longitud: client.longitud, gpsReview: client.gpsReview },

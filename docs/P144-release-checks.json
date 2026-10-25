@@ -1,0 +1,103 @@
+{
+  "at": "2026-10-25T00:55:39.304Z",
+  "ok": true,
+  "complete": true,
+  "results": [
+    {
+      "name": "syntax app",
+      "ok": true,
+      "ms": 170,
+      "output": ""
+    },
+    {
+      "name": "syntax server",
+      "ok": true,
+      "ms": 116,
+      "output": ""
+    },
+    {
+      "name": "syntax collections UI",
+      "ok": true,
+      "ms": 96,
+      "output": ""
+    },
+    {
+      "name": "GPS single capture / native Android timestamp",
+      "ok": true,
+      "ms": 130,
+      "output": "PASS delivery GPS UI: fresh precise capture, single request, expected version, pending button removed, approved hidden, role restriction.\nPASS Android native milliseconds and ISO timestamps normalized; capture timers released."
+    },
+    {
+      "name": "GPS refresh history",
+      "ok": true,
+      "ms": 188,
+      "output": "OK: approved GPS precedence, legacy pairs, pending approval, pending stop refresh, historical stops, closed routes, navigation, unchanged orders\nOK: map signature responds to GPS changes without changing order IDs"
+    },
+    {
+      "name": "GPS cancellation UI",
+      "ok": true,
+      "ms": 124,
+      "output": "OK: cancel button, reason, confirmation, version guard and notice"
+    },
+    {
+      "name": "collection accounting",
+      "ok": true,
+      "ms": 156,
+      "output": "PASS P9: immutable closures/orders/stock/settlements, reversal+replacement, partial, cash/transfer, bank validation once, replay, stale preview, roles and ambiguous cases blocked."
+    },
+    {
+      "name": "pending collections",
+      "ok": true,
+      "ms": 141,
+      "output": "PASS pending collection correction: only paid sums reversed, pending superseded, original closures/banks immutable, replay/stale token, all later credit/proof paths blocked"
+    },
+    {
+      "name": "retained bank / credit / token",
+      "ok": true,
+      "ms": 127,
+      "output": "PASS P144 collections: retain pending/validated transfer, no new proof/payment, unrelated credit intact, exact ledger delta, idempotency, financial concurrency and safe ambiguous-credit block."
+    },
+    {
+      "name": "collections UI helpers",
+      "ok": true,
+      "ms": 87,
+      "output": "PASS P9 UI: net collections subtract reversals, ordinary debits unchanged, preview invalidation, duplicate-click guard."
+    },
+    {
+      "name": "P10 UI compatibility",
+      "ok": true,
+      "ms": 142,
+      "output": "PASS P10: preview, reversal once, replay, stale/roles, stock reservations, original ledger/attachments/costs, pending remits, duplicate lines."
+    },
+    {
+      "name": "delivery cash reports",
+      "ok": true,
+      "ms": 139,
+      "output": "PASS cash overview: cash only, visit/route deduplication, expenses, linked corrections, ART day boundaries, no mutations."
+    },
+    {
+      "name": "P143 client validation",
+      "ok": true,
+      "ms": 98,
+      "output": "PASS client address edit preserves cents, negative credit, coordinates, original object and limit permissions; numeric HTML constraints checked. Browser acceptance pending."
+    },
+    {
+      "name": "GPS HTTP and real browser emulation",
+      "ok": true,
+      "ms": 9788,
+      "output": "OK: cancellation from all three blocked states, admin-only, stale protection, audit, coordinates and unrelated fields preserved, seller synchronization.\nPASS P144 GPS browser: admin and driver access 09, search by order/code, one capture, compare/map, explicit submit, admin approval, historical data intact, mobile screenshot.\n{\"ok\":true,\"blockedDuringReview\":true,\"originalOrderPreserved\":true,\"precision\":8.75}\nPASS remitos: multiple files, deduplication, concurrent duplicate blocked, separate numbers, limits, legacy and downloads; stock/debt unchanged pending validation."
+    },
+    {
+      "name": "collections HTTP and real browser emulation",
+      "ok": true,
+      "ms": 14972,
+      "output": "PASS browser: cash route report, product costs/profit, downloaded numeric XLSX, pending correction preview AND apply, desktop/mobile renders, no uncaught errors\nPASS pending correction HTTP: promised transfer to partial cash, one ledger impact, replaced bank blocked, state reload and history invariant\nPASS P9 HTTP: admin only, readonly preview, stale token, concurrent replay exactly once, persisted audit and unchanged closed routes/orders/commissions."
+    },
+    {
+      "name": "full local snapshot integrity",
+      "ok": true,
+      "ms": 6796,
+      "output": "{\n  \"ok\": true,\n  \"at\": \"2026-10-25T00:55:39.057Z\",\n  \"bytes\": 104288864,\n  \"sourceId\": \"pedido:PED-4266\",\n  \"snapshotHash\": \"e336e077ca41d189afda27a73ff4f0ec577d1ac6cbb09ba7500c0392138bc6a6\",\n  \"snapshotUnchanged\": true,\n  \"historicalCollectionsUnchanged\": [\n    \"orders\",\n    \"bankTransfers\",\n    \"suppliers\",\n    \"sellers\",\n    \"stockMovements\",\n    \"activity\",\n    \"requirements\",\n    \"products\",\n    \"shortages\",\n    \"deliverySettings\",\n    \"deliveryRoutes\",\n    \"deliveryAudit\",\n    \"rejectedGps\",\n    \"globalAudit\",\n    \"domainEvents\",\n    \"integrationOutbox\",\n    \"notifications\",\n    \"deliveryClosures\",\n    \"bankReconciliation\",\n    \"supplierMovements\",\n    \"routeLearning\",\n    \"entityRelations\",\n    \"noPurchaseVisits\",\n    \"physicalStockCounts\",\n    \"physicalStockAdjustments\",\n    \"commissionSettings\",\n    \"commissionAudit\",\n    \"legalSettings\",\n    \"legalAcceptances\",\n    \"legalAudit\",\n    \"helpCenter\",\n    \"aboutSystem\",\n    \"priceLists\",\n    \"priceListAudit\",\n    \"printSettings\",\n    \"printAudit\",\n    \"priceListAssignments\",\n    \"productPortfolioAudit\",\n    \"maintenanceBackups\",\n    \"archivedOrders\",\n    \"archivedDeliveryRoutes\",\n    \"archivedBankReconciliation\",\n    \"preventaConsultations\",\n    \"orderAudit\",\n    \"whatsappContacts\",\n    \"commissionSettlements\",\n    \"salesPolicy\",\n    \"maintenanceArchiveRuns\",\n    \"maintenanceRestoreRuns\",\n    \"costHistory\",\n    \"collectionVisits\",\n    \"physicalStockCuts\"\n  ],\n  \"otherClientsUnchanged\": true,\n  \"unrelatedCustomerCreditUnchanged\": true,\n  \"exactlyOneCorrection\": true,\n  \"elapsedMs\": 3375,\n  \"rssMiB\": 551,\n  \"scope\": \"Engine test on local snapshot; no server requests or production mutation.\"\n}"
+    }
+  ]
+}

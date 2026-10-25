@@ -1,0 +1,27 @@
+{
+  "at": "2026-10-25T00:44:42.945Z",
+  "accepted": 1151,
+  "counts": {
+    "El cobro genero saldo a favor; requiere conciliacion especifica.": 16,
+    "El nuevo cobro supera la deuda luego del reverso. Revisar efectivo y transferencias pendientes antes de confirmar.": 1
+  },
+  "examples": {
+    "El cobro genero saldo a favor; requiere conciliacion especifica.": {
+      "routeId": "RUTA-20261022-MARTES-NICO-R1",
+      "sourceId": "pedido:PED-4227",
+      "cash": 22350,
+      "transfer": 70000,
+      "pending": 70000
+    },
+    "El nuevo cobro supera la deuda luego del reverso. Revisar efectivo y transferencias pendientes antes de confirmar.": {
+      "routeId": "RUTA-20261013-MIERCOLES-R2-EDUARDO-Y-NICO",
+      "sourceId": "pedido:PED-3774",
+      "cash": 0,
+      "transfer": 0,
+      "pending": 59906.31
+    }
+  },
+  "snapshotSha256": "e336e077ca41d189afda27a73ff4f0ec577d1ac6cbb09ba7500c0392138bc6a6",
+  "snapshotUnchanged": true,
+  "scope": "Read-only local preview. No apply, no server request, no historical data rewrite."
+}

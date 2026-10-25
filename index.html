@@ -19,7 +19,7 @@
     <link rel="manifest" href="manifest.json?v=8790-169-r20261012">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-190">
+    <link rel="stylesheet" href="styles.css?v=8790-191">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -159,7 +159,7 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-190</strong>
+              <strong data-version-value>8790-191</strong>
               <small data-version-build>Actualizada 24/10/2026</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
@@ -982,13 +982,24 @@
             </div>
           </section>
           <section class="panel delivery-gps-corrections-panel">
-            <div class="panel-header"><h2>Corregir ubicaciones</h2></div>
+            <div class="panel-header"><h2>Corregir ubicacion de cliente</h2></div>
+            <label>Buscar cliente o pedido<input id="deliveryGpsSearch" type="search" placeholder="Nombre, codigo, direccion o pedido" autocomplete="off"></label>
             <div id="deliveryGpsCorrections" aria-live="polite"></div>
           </section>
           <section class="panel collection-corrections-panel">
             <div class="panel-header"><h2>Correcciones de cobranzas cerradas</h2></div>
             <button type="button" class="secondary-btn" id="loadCollectionCorrections">Consultar cierres</button>
             <div id="collectionCorrectionsContent" aria-live="polite"></div>
+            <dialog id="collectionCorrectionAuthorization">
+              <form id="collectionCorrectionAuthorizationForm" class="form-grid">
+                <h3>Autorizar ajuste de cobranza</h3>
+                <label>Usuario administrador<input name="username" autocomplete="username" readonly></label>
+                <label>Clave administrativa<input name="password" type="password" autocomplete="current-password" required></label>
+                <p id="collectionCorrectionAuthorizationError" role="alert"></p>
+                <button type="button" id="cancelCollectionCorrectionAuthorization" class="secondary-btn">Volver</button>
+                <button type="submit" class="primary-btn">Autorizar ajuste</button>
+              </form>
+            </dialog>
           </section>
           <section class="panel collection-visits-panel">
             <div class="panel-header"><h2>Ordenes de cobro</h2></div>
@@ -4700,24 +4711,24 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-190"></script>
+    <script src="config.js?v=8790-191"></script>
     <script src="maps-config.js?v=8790-169-r20261012"></script>
-    <script src="order-engine.js?v=8790-190"></script>
-    <script src="account-engine.js?v=8790-190"></script>
+    <script src="order-engine.js?v=8790-191"></script>
+    <script src="account-engine.js?v=8790-191"></script>
     <script src="route-optimizer.js?v=8790-169-r20261012"></script>
-    <script src="delivery-engine.js?v=8790-190"></script>
-    <script src="sales-commission-report.js?v=8790-190"></script>
+    <script src="delivery-engine.js?v=8790-191"></script>
+    <script src="sales-commission-report.js?v=8790-191"></script>
     <script src="legal-engine.js?v=8790-169-r20261012"></script>
     <script src="client-portfolio-engine.js?v=8790-169-r20261012"></script>
     <script src="client-hours.js?v=8790-169-r20261012"></script>
-    <script src="client-edit.js?v=8790-190"></script>
+    <script src="client-edit.js?v=8790-191"></script>
     <script src="share-engine.js?v=8790-169-r20261012"></script>
     <script src="portfolio-export-engine.js?v=8790-169-r20261012"></script>
     <script src="progressive-list.js?v=8790-169-r20261012"></script>
     <script src="collection-visits-ui.js?v=8790-183"></script>
-    <script src="collection-corrections-ui.js?v=8790-190"></script>
+    <script src="collection-corrections-ui.js?v=8790-191"></script>
     <script src="supplier-remit-ui.js?v=8790-183"></script>
-    <script src="state-record-sync.js?v=8790-190"></script>
-    <script src="app.js?v=8790-190"></script>
+    <script src="state-record-sync.js?v=8790-191"></script>
+    <script src="app.js?v=8790-191"></script>
   </body>
 </html>

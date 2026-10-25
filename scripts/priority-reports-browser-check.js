@@ -50,6 +50,9 @@ async function check(base, cookie, readState) {
     await page.locator('#collectionCorrectionForm [name="sourceId"]').selectOption("pedido:PED-PENDING");
     assert.equal(await page.locator('#collectionCorrectionForm [name="cashAmount"]').inputValue(), "0");
     assert.equal(await page.locator('#collectionCorrectionForm [name="transferAmount"]').inputValue(), "1000");
+    assert.equal(await page.locator('#collectionCorrectionForm [name="retainTransfer"]').isChecked(), true);
+    assert.equal(await page.locator('#collectionCorrectionForm [name="transferAmount"]').isDisabled(), true);
+    await page.locator('#collectionCorrectionForm [name="retainTransfer"]').uncheck();
     await page.locator('#collectionCorrectionForm [name="cashAmount"]').fill("900");
     await page.locator('#collectionCorrectionForm [name="transferAmount"]').fill("0");
     await page.locator('#collectionCorrectionForm [name="reason"]').fill("Correccion de efectivo en copia aislada");
@@ -59,8 +62,16 @@ async function check(base, cookie, readState) {
     await shot("cobranza-preview");
     // Compare the correction itself after the browser's legacy-data initialization.
     const historyBaseline = readState();
-    const saved = page.waitForResponse(response => response.url().endsWith("/api/collection-corrections") && response.request().postDataJSON()?.action === "apply");
     await page.locator("#applyCollectionCorrection").click();
+    const rejected = page.waitForResponse(response => response.url().endsWith("/api/collection-corrections") && response.request().postDataJSON()?.action === "apply");
+    await page.locator('#collectionCorrectionAuthorizationForm [name="password"]').fill("wrong-test-password");
+    await page.locator('#collectionCorrectionAuthorizationForm [type="submit"]').click();
+    assert.equal((await rejected).status(), 401);
+    await page.locator("#collectionCorrectionAuthorizationError").getByText(/Clave administrativa incorrecta/).waitFor();
+    assert.equal(readState().clients.find(c => c.codigo_cliente === "C2").balance, historyBaseline.clients.find(c => c.codigo_cliente === "C2").balance);
+    const saved = page.waitForResponse(response => response.url().endsWith("/api/collection-corrections") && response.request().postDataJSON()?.action === "apply");
+    await page.locator('#collectionCorrectionAuthorizationForm [name="password"]').fill("SmokeTest2026!");
+    await page.locator('#collectionCorrectionAuthorizationForm [type="submit"]').click();
     const savedResponse = await saved;
     assert.equal(savedResponse.status(), 200, JSON.stringify(await savedResponse.json()));
     await page.waitForFunction(() => document.querySelector("#collectionCorrectionsContent")?.textContent.includes("Correccion de efectivo en copia aislada"));

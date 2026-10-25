@@ -68,7 +68,8 @@ def deploy(client, version, allow_operational_archive=False, recover_price_incid
     release_bases = {"8790-187": "ed19fb0c21793b5d2562e85b0748ecf520998a71",
                      "8790-188": "297df1dcc2312556405f79b3b58cae750faec723",
                      "8790-189": "5c1083d85af976fc7531768e8c769732f08c66b3",
-                     "8790-190": "b19b5c1b5d7a4191421c0f859731ca195c65551c"}
+                     "8790-190": "b19b5c1b5d7a4191421c0f859731ca195c65551c",
+                     "8790-191": "9345c3734e9fe39269caa95f02d7e45f6be2023e"}
     guarded_release = "1" if version in release_bases else "0"
     if version in release_bases:
         if not expected_commit or len(expected_commit) != 40 or any(c not in "0123456789abcdef" for c in expected_commit):

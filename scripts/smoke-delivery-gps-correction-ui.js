@@ -18,7 +18,9 @@ let request;
 let options;
 const ctx = vm.createContext({
   state: { clients: [client, other] }, currentUser: { role: "driver" }, deliveryDevice: { id: "D1", label: "Telefono" },
-  byId: () => panel, escapeHtml: String, window: { confirm: () => true },
+  byId: id => id === "deliveryGpsSearch" ? { value: "" } : panel, escapeHtml: String, window: { confirm: () => true },
+  normalizeSearchText: value => String(value || "").toLowerCase(), clientIdentity: client => client.codigo_cliente,
+  DeliveryEngine: { clientCoordinates: () => ({ lat: -31.5, lng: -64.3 }) }, isAdminUser: () => ctx.currentUser.role === "admin",
   canUseBrowserGeolocation: () => true,
   navigator: { geolocation: { getCurrentPosition: (ok, fail, opt) => { captures++; options = opt; resolveGps = ok; rejectGps = fail; } } },
   makeLocationPayload: (lat, lng, accuracy, source) => ({ lat, lng, accuracy, source, deviceAt: new Date().toISOString() }),
@@ -28,17 +30,20 @@ const ctx = vm.createContext({
 vm.runInContext(app.slice(start, end), ctx);
 (async () => {
   ctx.renderDeliveryGpsCorrections();
-  assert.match(panel.innerHTML, /Registrar ubicacion actual/);
+  assert.match(panel.innerHTML, /Seleccionar cliente/);
   const first = ctx.submitDeliveryClientGpsCorrection("C1");
   await ctx.submitDeliveryClientGpsCorrection("C2");
   await ctx.submitDeliveryClientGpsCorrection("C1");
   ctx.renderDeliveryGpsCorrections();
   assert.equal(captures, 1);
-  assert.equal((panel.innerHTML.match(/Tomando GPS/g) || []).length, 1);
-  assert.match(panel.innerHTML, /data-delivery-gps-client="C1" disabled aria-busy="true"/);
-  assert.match(panel.innerHTML, /data-delivery-gps-client="C2" disabled aria-busy="false"/);
+  assert.equal((panel.innerHTML.match(/Procesando GPS/g) || []).length, 1);
+  assert.match(panel.innerHTML, /data-delivery-gps-client="C1" disabled/);
+  assert.doesNotMatch(panel.innerHTML, /data-delivery-gps-client="C2"/);
   resolveGps({ coords: { latitude: -31.4, longitude: -64.2, accuracy: 8.75 } });
   await first;
+  assert.equal(calls, 0, "capture only, no server mutation before explicit send");
+  assert.match(panel.innerHTML, /Nueva captura, sin enviar/);
+  await ctx.sendDeliveryGpsReview("submit");
   assert.equal(request.url, "api/clients/C1/gps-review");
   assert.equal(other.gpsReview.status, "needs_correction");
   assert.equal(calls, 1);

@@ -8538,3 +8538,21 @@ menu {
 #supplierRemitsDetail form label { flex: 1 1 240px; }
 #supplierRemitsDetail input { width: 100%; }
 #supplierRemitCancelConfirm button { margin: 8px 8px 0 0; }
+.delivery-gps-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 12px 0; }
+.delivery-gps-comparison > div { min-width: 0; overflow-wrap: anywhere; }
+.delivery-gps-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.delivery-gps-corrections-panel label { display: grid; gap: 6px; margin-bottom: 12px; min-width: 0; color: var(--muted); font-size: 14px; }
+.delivery-gps-corrections-panel input, .delivery-gps-corrections-panel select { box-sizing: border-box; width: 100%; min-width: 0; min-height: 42px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; }
+.delivery-gps-comparison h4 { font-size: 15px; margin: 0 0 8px; }
+.delivery-gps-comparison p { line-height: 1.6; margin: 0 0 8px; }
+.delivery-gps-comparison a { color: var(--accent); }
+#collectionCorrectionImpact { grid-column: 1 / -1; overflow-x: auto; }
+#collectionCorrectionAuthorization { width: min(440px, calc(100vw - 32px)); }
+#collectionCorrectionSource, #collectionCorrectionError { grid-column: 1 / -1; }
+#collectionCorrectionForm label, #collectionCorrectionAuthorizationForm label { display: grid; gap: 6px; min-width: 0; }
+#collectionCorrectionForm input:not([type="checkbox"]), #collectionCorrectionForm select, #collectionCorrectionForm textarea,
+#collectionCorrectionAuthorizationForm input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 42px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; }
+#collectionCorrectionForm .correction-retain { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
+#collectionCorrectionForm .correction-retain input { width: 18px; height: 18px; flex: 0 0 18px; }
+#collectionCorrectionAuthorizationForm { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+@media (max-width: 480px) { .delivery-gps-comparison { grid-template-columns: 1fr; } }

@@ -37,10 +37,11 @@ function inspect(state, input, actor) {
   const client = clients[0];
   const oldCash = amount(original.cashAmount ?? original.cash ?? 0), oldTransfer = amount(original.transferAmount ?? original.transfer ?? 0);
   const declaredTransfer = Math.max(oldTransfer, amount(Number(original.transferPendingAmount || 0)));
+  const retainTransfer = input.retainTransfer === true;
   if (Number(original.customerCreditAmount || 0) > 0) throw new Error("El cobro genero saldo a favor; requiere conciliacion especifica.");
   const banks = (state.bankReconciliation || []).filter(b => source.id.startsWith("visita:") ? b.id === original.transferId : b.orderCode === source.orderCode && b.routeId === route.id);
   // Historical bank records must remain untouched and cannot later credit a reversed payment.
-  if (banks.some(b => b.supplierPaymentId || b.targetSupplier)) throw new Error("Regularizar transferencias trianguladas antes de corregir.");
+  if (!retainTransfer && banks.some(b => b.supplierPaymentId || b.targetSupplier)) throw new Error("Regularizar transferencias trianguladas antes de corregir. Puede conservarlas sin modificar sus datos.");
   if (banks.some(b => Accounts.correctionForTransfer(state, b.id))) throw new Error("La transferencia ya fue reemplazada por una correccion.");
   if (new Set(banks.map(b => b.id)).size !== banks.length || banks.some(b => !b.id)) throw new Error("Identidad bancaria ambigua.");
   if (Math.abs(round(banks.reduce((s, b) => s + amount(Number(b.amount)), 0)) - declaredTransfer) > 0.001) throw new Error("No coincide la trazabilidad bancaria del cobro original. Revisar los comprobantes vinculados.");
@@ -50,29 +51,36 @@ function inspect(state, input, actor) {
   if (appliedBanks.some(b => Math.abs(round(Number(b.previousBalance) - Number(b.newBalance)) - Number(b.amount)) > 0.001 || b.previousBalance == null || b.newBalance == null || !Number.isFinite(Number(b.previousBalance)) || !Number.isFinite(Number(b.newBalance)))) throw new Error("La transferencia tiene un impacto historico ambiguo; revisar conciliacion.");
   if ((state.collectionCorrections || []).some(c => c.routeId === route.id && c.sourceId === source.id)) throw new Error("Este cobro ya tiene una correccion administrativa.");
   const cash = amount(input.cashAmount), transfer = amount(input.transferAmount);
+  if (retainTransfer && Math.abs(transfer - declaredTransfer) > 0.001) throw new Error("Conservar transferencia requiere mantener el importe original.");
   const reason = String(input.reason || "").trim();
   if (reason.length < 5 || reason.length > 1000) throw new Error("Indicar un motivo de entre 5 y 1000 caracteres.");
-  if (transfer > 0 && (!String(input.reference || "").trim() || !String(input.bank || "").trim() || !input.proofHash)) throw new Error("Transferencia: indicar banco, operacion y comprobante.");
+  if (!retainTransfer && transfer > 0 && (!String(input.reference || "").trim() || !String(input.bank || "").trim() || !input.proofHash)) throw new Error("Nueva transferencia: indicar banco, operacion y comprobante, o conservar la transferencia original.");
   const appliedTransfer = round(appliedBanks.reduce((sum, b) => sum + Number(b.amount), 0));
   const pendingCancelled = round(pendingBanks.reduce((sum, b) => sum + Number(b.amount), 0));
-  const oldApplied = round(oldCash + appliedTransfer), balance = amount(Number(client.balance ?? client.saldo_actual ?? 0));
+  const oldApplied = round(oldCash + (retainTransfer ? 0 : appliedTransfer)), balance = amount(Number(client.balance ?? client.saldo_actual ?? 0));
   const credit = amount(Number(client.saldo_a_favor || 0));
-  if (credit > 0) throw new Error("Cliente con saldo a favor: requiere conciliacion especifica antes de corregir.");
   const afterReversal = round(balance + oldApplied);
-  if (cash + transfer > afterReversal + 0.001) throw new Error("El nuevo cobro supera la deuda luego del reverso.");
+  const pendingValidation = retainTransfer ? pendingCancelled : transfer;
+  if (cash + pendingValidation > afterReversal + 0.001) throw new Error("El nuevo cobro supera la deuda luego del reverso. Revisar efectivo y transferencias pendientes antes de confirmar.");
   const impact = { balanceBefore: balance, reversal: oldApplied, balanceAfterReversal: afterReversal,
-    balanceAfter: round(afterReversal - cash), pendingValidation: transfer,
-    balanceAfterValidation: round(afterReversal - cash - transfer), cashDelta: round(cash - oldCash), transferDelta: round(transfer - declaredTransfer),
-    appliedTransferReversed: appliedTransfer, pendingTransferCancelled: pendingCancelled };
-  const token = hash({ route, original, client, banks, input: { routeId: route.id, sourceId: source.id, cash, transfer, reason,
+    balanceAfter: round(afterReversal - cash), pendingValidation: retainTransfer ? 0 : transfer,
+    retainedPendingValidation: retainTransfer ? pendingCancelled : 0,
+    balanceAfterValidation: round(afterReversal - cash - pendingValidation), cashDelta: round(cash - oldCash), transferDelta: round(transfer - declaredTransfer),
+    appliedTransferReversed: retainTransfer ? 0 : appliedTransfer, pendingTransferCancelled: retainTransfer ? 0 : pendingCancelled,
+    originalCash: oldCash, originalTransfer: declaredTransfer, correctedCash: cash, correctedTransfer: transfer,
+    retainTransfer, customerCreditUnchanged: credit };
+  const token = hash({ routeId: route.id, closure: route.closure, original,
+    client: { id: client.codigo_cliente || client.id, name: client.name, balance, credit }, banks,
+    input: { routeId: route.id, sourceId: source.id, cash, transfer, reason, retainTransfer,
     bank: input.bank || "", reference: input.reference || "", proofHash: input.proofHash || "" } });
-  return { route, source, client, oldCash, oldTransfer, appliedTransfer, banks, cash, transfer, reason, impact, token };
+  return { route, source, client, oldCash, oldTransfer, appliedTransfer, banks, cash, transfer, retainTransfer, reason, impact, token };
 }
-function apply(state, input, actor) {
+function prepare(state, input, actor) {
   admin(actor);
   if (!/^[a-zA-Z0-9-]{10,100}$/.test(String(input.requestId || ""))) throw new Error("Identificador de operacion invalido.");
   const signature = hash({ routeId: input.routeId, sourceId: input.sourceId, cashAmount: input.cashAmount, transferAmount: input.transferAmount,
-    reason: input.reason, bank: input.bank || "", reference: input.reference || "", proofHash: input.proofHash || "" });
+    reason: input.reason, bank: input.bank || "", reference: input.reference || "", proofHash: input.proofHash || "",
+    ...(input.retainTransfer === true ? { retainTransfer: true } : {}) });
   const previous = (state.collectionCorrections || []).find(c => c.id === input.requestId);
   if (previous) {
     if (previous.signature !== signature) throw new Error("El identificador ya fue utilizado con otros datos.");
@@ -80,16 +88,24 @@ function apply(state, input, actor) {
   }
   const p = inspect(state, input, actor);
   if (input.token !== p.token) throw new Error("Los datos cambiaron. Volver a previsualizar antes de confirmar.");
-  if (p.transfer > 0 && !input.attachment?.url) throw new Error("Falta el comprobante de la nueva transferencia.");
+  if (!p.retainTransfer && p.transfer > 0 && !input.attachment?.url) throw new Error("Falta el comprobante de la nueva transferencia.");
+  return { plan: p, signature, repeated: false };
+}
+function apply(state, input, actor) {
+  const prepared = prepare(state, input, actor);
+  if (prepared.repeated) return prepared;
+  const { plan: p, signature } = prepared;
   const next = clone(state), at = new Date().toISOString();
   const client = next.clients.find(c => String(c.codigo_cliente || c.id) === String(p.client.codigo_cliente || p.client.id));
   const correction = { id: input.requestId, signature, routeId: p.route.id, closureId: p.route.closure.id, sourceId: p.source.id,
     clientId: client.codigo_cliente || client.id, client: client.name, orderCode: p.source.orderCode,
     at, user: actor.user || actor.username, username: actor.username, reason: p.reason,
     original: clone(p.source.original), impact: p.impact,
-    supersededTransferIds: p.banks.map(b => b.id), bankSnapshot: clone(p.banks),
-    reversal: { id: `${input.requestId}-REV`, cashAmount: -p.oldCash, transferAmount: -p.appliedTransfer, accountDebit: p.impact.reversal },
-    replacement: { id: `${input.requestId}-NEW`, cashAmount: p.cash, transferAmount: p.transfer, reference: input.reference || "", bank: input.bank || "" } };
+    supersededTransferIds: p.retainTransfer ? [] : p.banks.map(b => b.id), bankSnapshot: clone(p.banks),
+    retainedTransferIds: p.retainTransfer ? p.banks.map(b => b.id) : [],
+    reversal: { id: `${input.requestId}-REV`, cashAmount: -p.oldCash, transferAmount: -p.impact.appliedTransferReversed, accountDebit: p.impact.reversal },
+    replacement: { id: `${input.requestId}-NEW`, cashAmount: p.cash, transferAmount: p.transfer, retainedTransfer: p.retainTransfer,
+      reference: input.reference || "", bank: input.bank || "" } };
   next.accounts = next.accounts || [];
   const entry = (id, type, debit, credit, balance) => ({ id, type, createdAt: at, date: at.slice(0, 10), account: client.name,
     debit, credit, balance, user: correction.user, correctionId: correction.id, reference: p.source.id,
@@ -97,7 +113,7 @@ function apply(state, input, actor) {
   next.accounts.unshift(entry(correction.reversal.id, "Reverso administrativo de cobranza", p.impact.reversal, 0, p.impact.balanceAfterReversal));
   if (p.cash > 0) next.accounts.unshift({ ...entry(correction.replacement.id, "Cobro administrativo corregido", 0, p.cash, p.impact.balanceAfter), method: "Efectivo" });
   client.balance = client.saldo_actual = client.saldo_inicial = p.impact.balanceAfter;
-  if (p.transfer > 0) {
+  if (!p.retainTransfer && p.transfer > 0) {
     // Build only the new reconciliation record: legacy normalization must not rewrite the source.
     const pending = { orders: [], clients: [], accounts: [], bankReconciliation: [] };
     const bank = Accounts.registerPendingTransfer(pending, { code: `COR-${correction.id}`, client: client.name }, {
@@ -105,10 +121,11 @@ function apply(state, input, actor) {
       observations: `${p.reason}. Correccion ${p.source.id}; cierre ${p.route.closure.id}`, source: "correccion_administrativa"
     }, actor);
     bank.correctionId = correction.id;
+    bank.operationNumber = String(input.reference || "").trim();
     next.bankReconciliation = [bank, ...(next.bankReconciliation || [])];
     correction.replacement.transferId = bank.id;
   }
   next.collectionCorrections = [...(next.collectionCorrections || []), correction];
   return { state: next, correction, repeated: false };
 }
-module.exports = { sources, inspect, apply };
+module.exports = { sources, inspect, prepare, apply };
