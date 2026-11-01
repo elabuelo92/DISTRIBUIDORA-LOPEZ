@@ -18505,9 +18505,19 @@ function managedUserPriceListNumber(user) {
   return priceListNumberFromValue(user && (user.defaultPriceListId || user.defaultPriceListName || user.priceListId || user.priceListName));
 }
 
-function resetManagedUserForm(user = null) {
+function setManagedUserFormOpen(open) {
+  const panel = byId("managedUserFormPanel");
+  if (!panel) return;
+  panel.hidden = !open;
+  panel.setAttribute("aria-hidden", String(!open));
+  if (open) panel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function resetManagedUserForm(user = null, options = {}) {
   const form = byId("userAdminForm");
   if (!form) return;
+  const open = options.open !== false;
+  setManagedUserFormOpen(open);
   form.reset();
   byId("userAdminTargetUsername").value = user ? user.username || "" : "";
   byId("userAdminUsername").value = user ? user.username || "" : "";
@@ -18522,6 +18532,9 @@ function resetManagedUserForm(user = null) {
   byId("userAdminActive").checked = user ? user.active !== false : true;
   byId("userAdminMustChangePassword").checked = user ? user.mustChangePassword === true : true;
   byId("userAdminPriceLocked").checked = user ? user.priceListLocked === true : true;
+  byId("managedUserFormTitle").textContent = user
+    ? `Editar usuario: ${user.name || user.username}`
+    : "Crear usuario";
   updateManagedUserSubmitLabel();
   setUserAdminMessage(user ? `Editando ${user.username}. La clave queda igual si no se informa nueva clave.` : "Nuevo usuario listo para cargar.", "info");
 }
@@ -18583,6 +18596,11 @@ function renderManagedUsers() {
   const tbody = byId("managedUsersTable");
   if (!tbody) return;
   const rows = filteredManagedUsers();
+  const summary = byId("managedUsersCountSummary");
+  if (summary) {
+    const activeCount = managedUsers.filter((user) => user.active !== false).length;
+    summary.textContent = `${rows.length} visibles de ${managedUsers.length} · ${activeCount} activos · ${managedUsers.length - activeCount} dados de baja`;
+  }
   tbody.innerHTML = rows.length ? rows.map((user) => {
     const priceList = user.defaultPriceListName || (managedUserPriceListNumber(user) ? priceListNameForNumber(managedUserPriceListNumber(user)) : "Predeterminada");
     const statusTone = user.active === false ? "danger" : "ok";
@@ -18626,10 +18644,11 @@ async function refreshManagedUsers() {
     if (!response.ok || payload.ok === false) throw new Error(payload.error || "No se pudo cargar usuarios.");
     managedUsers = Array.isArray(payload.users) ? payload.users : [];
     renderManagedUsers();
-    if (!byId("userAdminTargetUsername").value && !byId("userAdminUsername").value) resetManagedUserForm();
+    if (!byId("userAdminTargetUsername").value && !byId("userAdminUsername").value) resetManagedUserForm(null, { open: false });
   } catch (error) {
     if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="empty-note">${escapeHtml(error.message || "No se pudo cargar usuarios.")}</td></tr>`;
-    setUserAdminMessage(error.message || "No se pudo cargar usuarios.", "info");
+    const summary = byId("managedUsersCountSummary");
+    if (summary) summary.textContent = error.message || "No se pudo cargar usuarios.";
   }
 }
 
@@ -21305,6 +21324,12 @@ document.addEventListener("click", (event) => {
 byId("userAdminForm").addEventListener("submit", submitManagedUserForm);
 byId("newManagedUserBtn").addEventListener("click", () => resetManagedUserForm());
 byId("clearManagedUserFormBtn").addEventListener("click", () => resetManagedUserForm());
+byId("closeManagedUserFormBtn").addEventListener("click", () => {
+  setManagedUserFormOpen(false);
+  byId("userAdminPassword").value = "";
+  byId("userAdminPasswordConfirm").value = "";
+  byId("newManagedUserBtn").focus();
+});
 byId("refreshManagedUsersBtn").addEventListener("click", refreshManagedUsers);
 byId("managedUsersSearch").addEventListener("input", debounce((event) => {
   managedUsersSearchTerm = event.target.value;

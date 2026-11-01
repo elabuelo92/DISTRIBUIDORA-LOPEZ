@@ -11,8 +11,21 @@ const { once } = require("node:events");
 const root = path.resolve(__dirname, "..");
 const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
 const htmlSource = fs.readFileSync(path.join(root, "index.html"), "utf8");
+const styleSource = fs.readFileSync(path.join(root, "styles.css"), "utf8");
 assert.ok(htmlSource.includes('id="managedUsersStatusFilter"'), "filtro por estado visible");
+assert.ok(htmlSource.indexOf('class="panel users-directory-panel"') < htmlSource.indexOf('id="managedUserFormPanel" hidden'),
+  "el directorio aparece antes que el formulario y ocupa el flujo principal");
+assert.ok(htmlSource.includes('id="newManagedUserBtn"'), "alta accesible desde el directorio");
+assert.ok(htmlSource.includes('id="closeManagedUserFormBtn"'), "el formulario tiene una salida clara");
+assert.ok(htmlSource.includes('data-view="usuarios"><span class="icon" aria-hidden="true"><img src="icons/tools/users.svg"'), "la navegacion usa el icono de usuarios");
+for (const [, asset] of htmlSource.matchAll(/<span class="icon"[^>]*><img src="([^"]+)"/g)) {
+  assert.ok(fs.existsSync(path.join(root, asset)), `existe el icono ${asset}`);
+}
+assert.ok(styleSource.includes("@media (prefers-reduced-motion: reduce)"), "los efectos respetan movimiento reducido");
+assert.ok(styleSource.includes("--depth-hover"), "la elevacion utiliza una sombra CSS liviana");
 assert.ok(appSource.includes("function prepareManagedUserStatusChange("), "accion directa para baja/reactivacion");
+assert.ok(appSource.includes("function setManagedUserFormOpen(open)"), "el editor se abre bajo demanda");
+assert.ok(appSource.includes("resetManagedUserForm(null, { open: false })"), "la carga inicial mantiene el editor cerrado");
 assert.ok(appSource.includes("data-managed-user-active="), "la accion expresa el estado destino");
 assert.ok(appSource.includes("No se borraran datos."), "la confirmacion aclara que no hay borrado fisico");
 assert.ok(appSource.includes("historial conservado."), "la confirmacion de exito informa conservacion del historial");
