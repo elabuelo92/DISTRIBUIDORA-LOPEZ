@@ -84,7 +84,11 @@ def deploy(client, version, allow_operational_archive=False, recover_price_incid
 set -euo pipefail
 cd {APP_DIR}
 if [ "{guarded_release}" = "1" ]; then
-  test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-10-24"
+  if [ "{version}" = "8790-192" ]; then
+    test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-11-01"
+  else
+    test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-10-24"
+  fi
   test "$(git rev-parse HEAD)" = "{release_bases.get(version, '')}"
   test "$(sudo sed -n 's/^DL_MAX_FULL_STATE_RESPONSES=//p' /etc/distribuidora-lopez.env)" = "1"
 fi
