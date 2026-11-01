@@ -14,7 +14,7 @@ Fecha: 2026-11-01
 
 - `node --check app.js`: aprobado.
 - `node --check server.js`: aprobado.
-- `npm run test:user-status`: aprobado en fixture aislada.
+- `node scripts/smoke-managed-user-status.js`: aprobado en fixture aislada.
 - La prueba verifica baja/reactivacion, motivo, clave administrativa, respaldo, cierre/bloqueo de sesion, proteccion contra autobaja e integridad de pedidos, cartera, comisiones, liquidaciones y movimientos de stock.
 - No se modificaron usuarios ni datos de negocio en produccion durante la preparacion.
 
