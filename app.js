@@ -10490,15 +10490,15 @@ function renderDelivery() {
   renderDeliveryGpsCorrections();
   renderCollectionVisits();
   renderOperationalWorkspace("reparto", byId("reparto"), "Herramientas de reparto", [
+    { id: "planning", title: "Planificar rutas", summary: `${routes.filter((route) => route.status === "Planificada").length} rutas por publicar`, allowed: canPlanDeliveryRoutes(), selectors: [".delivery-planner-panel"] },
+    { id: "routes", title: "Hojas de ruta y rendición", summary: `${routes.length} ${routes.length === 1 ? "ruta disponible" : "rutas disponibles"}`, selectors: [".delivery-routes-panel"] },
+    { id: "deliveries", title: "Entregar y cobrar", summary: `${allStops.length - delivered} paradas pendientes`, selectors: [".delivery-active-panel", "#deliveryKpis", ".delivery-stops-panel"] },
+    { id: "collections", title: "Cierres y cobros", summary: "Rendiciones y manifiestos", allowed: isAdminUser(), selectors: [".delivery-closures-panel"] },
     { id: "collection-corrections", title: "Corregir cobranzas cerradas", summary: "Ajustes administrativos auditados", allowed: isAdminUser(), selectors: [".collection-corrections-panel"] },
     { id: "collection-visits", title: "Ordenes de cobro", summary: "Visitas de cobranza", allowed: ["admin", "driver"].includes(currentUser?.role), selectors: [".collection-visits-panel"] },
-    { id: "planning", title: "Planificar rutas", summary: `${routes.filter((route) => route.status === "Planificada").length} rutas por publicar`, allowed: canPlanDeliveryRoutes(), selectors: [".delivery-planner-panel"] },
-    { id: "deliveries", title: "Entregar y cobrar", summary: `${allStops.length - delivered} paradas pendientes`, selectors: [".delivery-active-panel", "#deliveryKpis", ".delivery-stops-panel"] },
-    { id: "routes", title: "Hojas de ruta y rendición", summary: `${routes.length} ${routes.length === 1 ? "ruta disponible" : "rutas disponibles"}`, selectors: [".delivery-routes-panel"] },
-    { id: "collections", title: "Cierres y cobros", summary: "Rendiciones y manifiestos", allowed: isAdminUser(), selectors: [".delivery-closures-panel"] },
+    { id: "gps-corrections", title: "Corregir ubicacion de cliente", summary: `${deliveryGpsCorrectionClients().length} solicitudes GPS`, allowed: ["admin", "driver"].includes(currentUser?.role), selectors: [".delivery-gps-corrections-panel"] },
     { id: "audit", title: "Auditoría de reparto", summary: "Entregas, GPS y movimientos", allowed: isAdminUser(), selectors: [".delivery-audit-panel"] },
-    { id: "settings", title: isAdminUser() ? "Configuración y equipo" : "Mi equipo", summary: deliveryDevice.label || "Dispositivo operativo", selectors: [".delivery-settings-panel", ".delivery-device-bar"] },
-    { id: "gps-corrections", number: 9, title: "Corregir ubicacion de cliente", summary: `${deliveryGpsCorrectionClients().length} solicitudes GPS`, allowed: ["admin", "driver"].includes(currentUser?.role), selectors: [".delivery-gps-corrections-panel"] }
+    { id: "settings", title: isAdminUser() ? "Configuración y equipo" : "Mi equipo", summary: deliveryDevice.label || "Dispositivo operativo", selectors: [".delivery-settings-panel", ".delivery-device-bar"] }
   ]);
   byId("reparto").querySelector(".delivery-layout").hidden = true;
 }
