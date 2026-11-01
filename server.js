@@ -33,7 +33,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-192";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-193";
 const stateBootstrapCache = require("./state-bootstrap-cache").createCache();
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
@@ -5905,6 +5905,10 @@ const server = http.createServer(async (req, res) => {
       }
       const body = await readBody(req);
       const input = JSON.parse(body || "{}");
+      if (!String(input.motive || input.motivo || "").trim()) {
+        sendJson(res, 400, { ok: false, error: "Indicar un motivo obligatorio para gestionar el usuario." });
+        return;
+      }
       if (!verifyCurrentUserPassword(sessionUser, input.admin_password || input.adminPassword || "")) {
         appendAuditToStateFile(req, sessionUser, input, {
           action: "USUARIO_CLAVE_ADMIN_RECHAZADA",

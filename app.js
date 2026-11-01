@@ -550,6 +550,7 @@ let securityLicenseStatus = null;
 let managedUsers = [];
 let managedUsersSearchTerm = "";
 let managedUsersRoleFilter = "all";
+let managedUsersStatusFilter = "all";
 let priceListProductsExpanded = false;
 let presenceHeartbeatIntervalId = null;
 let presenceLocationIntervalId = null;
@@ -18521,13 +18522,50 @@ function resetManagedUserForm(user = null) {
   byId("userAdminActive").checked = user ? user.active !== false : true;
   byId("userAdminMustChangePassword").checked = user ? user.mustChangePassword === true : true;
   byId("userAdminPriceLocked").checked = user ? user.priceListLocked === true : true;
+  updateManagedUserSubmitLabel();
   setUserAdminMessage(user ? `Editando ${user.username}. La clave queda igual si no se informa nueva clave.` : "Nuevo usuario listo para cargar.", "info");
+}
+
+function updateManagedUserSubmitLabel() {
+  const submit = byId("saveManagedUserBtn");
+  if (!submit) return;
+  const username = String(byId("userAdminTargetUsername")?.value || "").trim().toLowerCase();
+  const existing = managedUsers.find((user) => String(user.username || "").trim().toLowerCase() === username);
+  if (!existing) {
+    submit.textContent = "Crear usuario";
+    return;
+  }
+  const nextActive = byId("userAdminActive")?.checked === true;
+  if (existing.active === false && nextActive) submit.textContent = "Reactivar acceso";
+  else if (existing.active !== false && !nextActive) submit.textContent = "Confirmar baja";
+  else submit.textContent = "Guardar cambios";
+}
+
+function prepareManagedUserStatusChange(username, active) {
+  const user = managedUsers.find((item) => String(item.username || "").trim().toLowerCase() === String(username || "").trim().toLowerCase());
+  if (!user || (user.active !== false) === active) return;
+  const sessionUsername = String(currentUser && currentUser.username || "").trim().toLowerCase();
+  if (!active && user.role === "admin" && String(user.username || "").trim().toLowerCase() === sessionUsername) {
+    setUserAdminMessage("No se puede dar de baja la cuenta administrativa conectada.", "info");
+    return;
+  }
+  resetManagedUserForm(user);
+  byId("userAdminActive").checked = active;
+  byId("userAdminMotive").value = "";
+  updateManagedUserSubmitLabel();
+  setUserAdminMessage(active
+    ? `Reactivar el acceso de ${user.name || user.username}. Ingresar motivo y clave administrativa para confirmar.`
+    : `Dar de baja el acceso de ${user.name || user.username}. Se conservara su usuario e historial; ingresar motivo y clave administrativa para confirmar.`, "info");
+  byId("userAdminForm").scrollIntoView({ behavior: "smooth", block: "start" });
+  byId("userAdminMotive").focus({ preventScroll: true });
 }
 
 function filteredManagedUsers() {
   const terms = normalizeSearchText(managedUsersSearchTerm).split(/\s+/).filter(Boolean);
   return managedUsers.filter((user) => {
     if (managedUsersRoleFilter !== "all" && user.role !== managedUsersRoleFilter) return false;
+    if (managedUsersStatusFilter === "active" && user.active === false) return false;
+    if (managedUsersStatusFilter === "inactive" && user.active !== false) return false;
     if (!terms.length) return true;
     return matchesSearch([
       user.username,
@@ -18548,6 +18586,8 @@ function renderManagedUsers() {
   tbody.innerHTML = rows.length ? rows.map((user) => {
     const priceList = user.defaultPriceListName || (managedUserPriceListNumber(user) ? priceListNameForNumber(managedUserPriceListNumber(user)) : "Predeterminada");
     const statusTone = user.active === false ? "danger" : "ok";
+    const sessionUsername = String(currentUser && currentUser.username || "").trim().toLowerCase();
+    const isCurrentUser = String(user.username || "").trim().toLowerCase() === sessionUsername;
     return `
       <tr>
         <td>
@@ -18568,6 +18608,7 @@ function renderManagedUsers() {
         </td>
         <td>
           <button class="secondary-btn" type="button" data-edit-managed-user="${escapeHtml(user.username)}">Editar</button>
+          ${isCurrentUser ? '<small>Sesion actual</small>' : `<button class="secondary-btn" type="button" data-managed-user-status="${escapeHtml(user.username)}" data-managed-user-active="${user.active === false ? "true" : "false"}">${user.active === false ? "Reactivar" : "Dar de baja"}</button>`}
           ${user.role === "seller" ? `<button class="secondary-btn" type="button" data-generate-seller-pin="${escapeHtml(user.username)}">${user.operationPinConfigured ? "Regenerar PIN" : "Generar PIN"}</button>` : ""}
         </td>
       </tr>
@@ -18619,6 +18660,11 @@ async function submitManagedUserForm(event) {
     setUserAdminMessage("Un usuario nuevo requiere clave inicial.", "info");
     return;
   }
+  const previousUser = managedUsers.find((user) => String(user.username || "").trim().toLowerCase() === payload.targetUsername);
+  const isDeactivation = Boolean(previousUser && previousUser.active !== false && !payload.active);
+  const isReactivation = Boolean(previousUser && previousUser.active === false && payload.active);
+  if (isDeactivation && !window.confirm(`Dar de baja el acceso de ${previousUser.name || previousUser.username}? Se cerraran sus sesiones activas, pero se conservaran el usuario, la cartera y todo el historial. No se borraran datos.`)) return;
+  if (isReactivation && !window.confirm(`Reactivar el acceso de ${previousUser.name || previousUser.username}?`)) return;
   submit.disabled = true;
   setUserAdminMessage("Guardando usuario...", "info");
   try {
@@ -18635,7 +18681,13 @@ async function submitManagedUserForm(event) {
     resetManagedUserForm(result.user || null);
     byId("userAdminPasswordConfirm").value = "";
     byId("userAdminPassword").value = "";
-    setUserAdminMessage(`Usuario ${result.user && result.user.username || payload.username} guardado correctamente. Backup: ${result.backup || "registrado"}.`, "ok");
+    const savedName = result.user && (result.user.name || result.user.username) || payload.username;
+    const statusResult = isDeactivation
+      ? `Acceso de ${savedName} desactivado; historial conservado.`
+      : isReactivation
+        ? `Acceso de ${savedName} reactivado.`
+        : `Usuario ${savedName} guardado correctamente.`;
+    setUserAdminMessage(`${statusResult} Backup: ${result.backup || "registrado"}.`, "ok");
   } catch (error) {
     setUserAdminMessage(error.message || "No se pudo guardar el usuario.", "info");
   } finally {
@@ -21262,6 +21314,11 @@ byId("managedUsersRoleFilter").addEventListener("change", (event) => {
   managedUsersRoleFilter = event.target.value;
   renderManagedUsers();
 });
+byId("managedUsersStatusFilter").addEventListener("change", (event) => {
+  managedUsersStatusFilter = event.target.value;
+  renderManagedUsers();
+});
+byId("userAdminActive").addEventListener("change", updateManagedUserSubmitLabel);
 
 const debouncedRenderAll = debounce(renderAll, 180);
 const debouncedRenderOrders = debounce(renderOrders, 180);
@@ -22497,6 +22554,12 @@ document.addEventListener("click", (event) => {
   if (!button) return;
   const user = managedUsers.find((item) => item.username === button.dataset.editManagedUser);
   if (user) resetManagedUserForm(user);
+});
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-managed-user-status]");
+  if (!button) return;
+  prepareManagedUserStatusChange(button.dataset.managedUserStatus, button.dataset.managedUserActive === "true");
 });
 
 document.addEventListener("click", (event) => {
