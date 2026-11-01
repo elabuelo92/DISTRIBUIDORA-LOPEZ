@@ -986,6 +986,48 @@
     return { rule, previous, audit };
   }
 
+  function saveCommissionRulesBatch(state, inputs, actor = {}) {
+    if (!Array.isArray(inputs) || !inputs.length || inputs.length > 100) {
+      throw new Error("Indicar entre 1 y 100 reglas de comision.");
+    }
+    ensureCommissionSettings(state);
+    const rulesBefore = clone(state.commissionSettings.rules);
+    const auditBefore = clone(state.commissionAudit);
+    const results = [];
+    try {
+      inputs.forEach((source) => {
+        const input = { ...(source || {}) };
+        if (!String(input.motive || input.motivo || input.reason || "").trim()) {
+          throw new Error("Indicar motivo del cambio de comision.");
+        }
+        const candidate = normalizeCommissionRule(input, state.commissionSettings.rules.length);
+        const overlaps = state.commissionSettings.rules
+          .filter((rule) => rule.active !== false && rule.status !== "Inactiva" && rule.status !== "Historica")
+          .filter((rule) => commissionRuleScopeMatches(rule, candidate) && commissionRuleRangesOverlap(rule, candidate));
+        const startsAt = new Date(validIso(input.startsAt || "2026-01-01T00:00:00.000Z")).getTime();
+        const endsAt = input.endsAt ? new Date(validIso(input.endsAt)).getTime() : Number.POSITIVE_INFINITY;
+        const unchanged = overlaps.find((rule) => rule.percent === candidate.percent
+          && new Date(validIso(rule.startsAt || "2026-01-01T00:00:00.000Z")).getTime() === startsAt
+          && (rule.endsAt ? new Date(validIso(rule.endsAt)).getTime() : Number.POSITIVE_INFINITY) === endsAt);
+        if (unchanged) {
+          results.push({ rule: clone(unchanged), previous: null, audit: null, unchanged: true });
+          return;
+        }
+        if (!input.id && overlaps.length) {
+          overlaps.sort((left, right) => new Date(validIso(right.startsAt || "2026-01-01T00:00:00.000Z"))
+            - new Date(validIso(left.startsAt || "2026-01-01T00:00:00.000Z")));
+          input.id = overlaps[0].id;
+        }
+        results.push({ ...saveCommissionRule(state, input, actor), unchanged: false });
+      });
+    } catch (error) {
+      state.commissionSettings.rules = rulesBefore;
+      state.commissionAudit = auditBefore;
+      throw error;
+    }
+    return results;
+  }
+
   function refreshProductInventory(product) {
     const physical = positive(product.stock_fisico ?? product.stock_actual ?? product.stock);
     const reserved = Math.min(physical, positive(product.stock_reservado));
@@ -2912,6 +2954,7 @@
     registerCommissionPayment,
     analyzeCommissionRules,
     saveCommissionRule,
+    saveCommissionRulesBatch,
     authorizedOfferForLine,
     saveAuthorizedOffer,
     nextOrderCode,

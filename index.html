@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-169-r20261012">
+    <link rel="manifest" href="manifest.json?v=8790-192">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-191">
+    <link rel="stylesheet" href="styles.css?v=8790-192">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -77,6 +77,31 @@
         <div class="form-actions">
           <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
           <button class="primary-btn" id="passwordRecoverySubmitBtn" type="submit">Solicitar recupero</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="initialPasswordChangeDialog">
+      <form id="initialPasswordChangeForm" class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">SEGURIDAD DE LA CUENTA</p>
+            <h2>Cambiar clave temporal</h2>
+          </div>
+        </div>
+        <p class="form-help">Antes de continuar, elegi una clave personal de al menos 12 caracteres. La clave temporal dejara de funcionar.</p>
+        <label>
+          Nueva clave
+          <input id="initialNewPassword" name="newPassword" type="password" autocomplete="new-password" minlength="12" required>
+        </label>
+        <label>
+          Repetir nueva clave
+          <input id="initialNewPasswordConfirm" name="newPasswordConfirm" type="password" autocomplete="new-password" minlength="12" required>
+        </label>
+        <p class="login-message" id="initialPasswordChangeMessage"></p>
+        <div class="form-actions">
+          <button class="ghost-btn" id="initialPasswordChangeLogoutBtn" type="button">Cerrar sesion</button>
+          <button class="primary-btn" id="initialPasswordChangeSubmitBtn" type="submit">Guardar clave y continuar</button>
         </div>
       </form>
     </dialog>
@@ -159,7 +184,7 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-191</strong>
+              <strong data-version-value>8790-192</strong>
               <small data-version-build>Actualizada 24/10/2026</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
@@ -1981,6 +2006,8 @@
                   <button class="primary-btn" id="saveCommissionRuleBtn" type="button">Guardar nueva regla</button>
                   <button class="secondary-btn" id="resetCommissionFormBtn" type="button">Limpiar</button>
                 </div>
+                <button class="secondary-btn" id="applyRequestedCommissionSchemeBtn" type="button">Aplicar esquema 10 / 1 / 3 desde 01/11/2026</button>
+                <p class="form-hint">Versiona solo Analgesicos al 10% para Axel, Kevin Guibert, Matias y Ruggero. Cigarrillos 1% y resto 3% se mantienen; no recalcula ventas ni liquidaciones anteriores.</p>
                 <p class="form-hint">Una modificacion cierra la vigencia anterior y crea una nueva version. Las ventas historicas conservan el porcentaje aplicado.</p>
               </form>
             </section>
@@ -2894,6 +2921,10 @@
                 <label class="check-row">
                   <input id="userAdminActive" name="active" type="checkbox" checked>
                   Usuario activo
+                </label>
+                <label class="check-row">
+                  <input id="userAdminMustChangePassword" name="mustChangePassword" type="checkbox" checked>
+                  Exigir cambio de clave al primer ingreso
                 </label>
                 <label class="check-row">
                   <input id="userAdminPriceLocked" name="priceListLocked" type="checkbox" checked>
@@ -4174,7 +4205,7 @@
           </div>
           <button class="icon-btn" value="cancel" type="button" data-close-dialog aria-label="Cerrar">x</button>
         </div>
-        <p class="form-help">Para guardar cambios se debe revalidar la clave del administrador logueado. Esta accion impacta preventa, stock y reposicion.</p>
+        <p class="form-help">Podes guardar solo Rubro/Familia sin cambiar stock, precios ni pedidos, o guardar toda la ficha con sus efectos operativos.</p>
         <input name="original_name" type="hidden">
         <div class="form-grid">
           <label>
@@ -4272,10 +4303,15 @@
             </select>
           </label>
         </div>
+        <label>
+          Motivo de cambio de clasificacion
+          <input name="classification_motive" autocomplete="off" placeholder="Obligatorio al guardar solo Rubro/Familia">
+        </label>
         <p class="login-message" id="stockEditMessage"></p>
         <menu>
           <button class="ghost-btn" value="cancel" type="button" data-close-dialog>Cancelar</button>
-          <button class="primary-btn" id="stockEditSaveBtn" value="default" type="submit">Validar y guardar</button>
+          <button class="primary-btn" id="stockEditSaveBtn" value="default" type="submit">Validar y guardar ficha completa</button>
+          <button class="secondary-btn" id="stockEditClassificationSaveBtn" value="classification" type="submit">Guardar solo Rubro/Familia</button>
         </menu>
       </form>
     </dialog>
@@ -4711,24 +4747,24 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-191"></script>
+    <script src="config.js?v=8790-192"></script>
     <script src="maps-config.js?v=8790-169-r20261012"></script>
-    <script src="order-engine.js?v=8790-191"></script>
-    <script src="account-engine.js?v=8790-191"></script>
+    <script src="order-engine.js?v=8790-192"></script>
+    <script src="account-engine.js?v=8790-192"></script>
     <script src="route-optimizer.js?v=8790-169-r20261012"></script>
-    <script src="delivery-engine.js?v=8790-191"></script>
-    <script src="sales-commission-report.js?v=8790-191"></script>
+    <script src="delivery-engine.js?v=8790-192"></script>
+    <script src="sales-commission-report.js?v=8790-192"></script>
     <script src="legal-engine.js?v=8790-169-r20261012"></script>
     <script src="client-portfolio-engine.js?v=8790-169-r20261012"></script>
     <script src="client-hours.js?v=8790-169-r20261012"></script>
-    <script src="client-edit.js?v=8790-191"></script>
+    <script src="client-edit.js?v=8790-192"></script>
     <script src="share-engine.js?v=8790-169-r20261012"></script>
     <script src="portfolio-export-engine.js?v=8790-169-r20261012"></script>
     <script src="progressive-list.js?v=8790-169-r20261012"></script>
     <script src="collection-visits-ui.js?v=8790-183"></script>
-    <script src="collection-corrections-ui.js?v=8790-191"></script>
+    <script src="collection-corrections-ui.js?v=8790-192"></script>
     <script src="supplier-remit-ui.js?v=8790-183"></script>
-    <script src="state-record-sync.js?v=8790-191"></script>
-    <script src="app.js?v=8790-191"></script>
+    <script src="state-record-sync.js?v=8790-192"></script>
+    <script src="app.js?v=8790-192"></script>
   </body>
 </html>

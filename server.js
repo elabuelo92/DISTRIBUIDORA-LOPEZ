@@ -33,7 +33,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-191";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-192";
 const stateBootstrapCache = require("./state-bootstrap-cache").createCache();
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
@@ -681,6 +681,7 @@ function publicUser(user) {
     username: user.username,
     name: user.name,
     role: user.role,
+    mustChangePassword: user.mustChangePassword === true,
     sellerName: user.sellerName || null,
     defaultPriceListId: user.defaultPriceListId || user.priceListId || "",
     defaultPriceListName: user.defaultPriceListName || user.priceListName || "",
@@ -749,6 +750,11 @@ function normalizeManagedUserInput(input, previous, sessionUser) {
     updatedAt: now,
     updatedBy: sessionUser && sessionUser.username || "admin"
   };
+  if (input.mustChangePassword !== undefined) {
+    next.mustChangePassword = input.mustChangePassword === true || input.mustChangePassword === "true" || input.mustChangePassword === "on";
+  } else if (!previous) {
+    next.mustChangePassword = false;
+  }
   if (!previous) {
     next.createdAt = now;
     next.createdBy = sessionUser && sessionUser.username || "admin";
@@ -1837,9 +1843,15 @@ function getSessionUser(req) {
 }
 
 function requireUser(req, res) {
-  const user = getSessionUser(req);
+  const session = getSession(req);
+  const user = session && session.user;
   if (!user) {
     sendJson(res, 401, { ok: false, error: "SESSION_REQUIRED" });
+    return null;
+  }
+  const pathname = new URL(req.url, "http://localhost").pathname;
+  if (user.mustChangePassword === true && pathname !== "/api/account/change-password") {
+    sendJson(res, 428, { ok: false, code: "PASSWORD_CHANGE_REQUIRED", error: "Cambiar la clave inicial para continuar." });
     return null;
   }
   return user;
@@ -5784,6 +5796,16 @@ const server = http.createServer(async (req, res) => {
 
     const sessionToken = requestUrl.pathname.startsWith("/api/") ? cookieValue(req, "dl_session") : "";
     const depotSession = sessionToken ? sessions.get(sessionToken) : null;
+    const authenticatedSession = sessionToken ? sessions.get(sessionToken) : null;
+    const initialPasswordAllowedPaths = new Set(["/api/session", "/api/logout", "/api/account/change-password"]);
+    if (authenticatedSession
+      && authenticatedSession.expiresAt >= Date.now()
+      && authenticatedSession.user.mustChangePassword === true
+      && requestUrl.pathname.startsWith("/api/")
+      && !initialPasswordAllowedPaths.has(requestUrl.pathname)) {
+      sendJson(res, 428, { ok: false, code: "PASSWORD_CHANGE_REQUIRED", error: "Cambiar la clave inicial para continuar." });
+      return;
+    }
     if (depotSession && depotSession.expiresAt >= Date.now() && depotSession.user.role === "depot") {
       const path = requestUrl.pathname;
       const allowed = (req.method === "GET" && ["/api/session", "/api/state", "/api/presence/status"].includes(path))
@@ -5794,6 +5816,50 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 403, { ok: false, error: "El usuario de deposito solo puede operar Armado." });
         return;
       }
+    }
+
+    if (requestUrl.pathname === "/api/account/change-password" && req.method === "POST") {
+      const session = getSession(req);
+      if (!session) {
+        sendJson(res, 401, { ok: false, error: "SESSION_REQUIRED" });
+        return;
+      }
+      if (session.user.mustChangePassword !== true) {
+        sendJson(res, 409, { ok: false, error: "No hay un cambio inicial de clave pendiente." });
+        return;
+      }
+      const input = JSON.parse(await readBody(req) || "{}");
+      const newPassword = String(input.newPassword || "");
+      if (newPassword.length < 12) {
+        sendJson(res, 400, { ok: false, error: "La nueva clave debe tener al menos 12 caracteres." });
+        return;
+      }
+      const users = readUsers();
+      const index = users.findIndex((item) => String(item.username || "").toLowerCase() === session.user.username.toLowerCase());
+      const previous = index >= 0 ? users[index] : null;
+      if (!previous || previous.active === false) {
+        closeSession(session.token, "user-unavailable", "Sistema");
+        sendJson(res, 401, { ok: false, error: "El usuario ya no esta habilitado." });
+        return;
+      }
+      if (verifyPassword(newPassword, previous)) {
+        sendJson(res, 400, { ok: false, error: "La nueva clave debe ser distinta de la clave temporal." });
+        return;
+      }
+      const now = new Date().toISOString();
+      const next = {
+        ...previous,
+        ...hashPassword(newPassword),
+        mustChangePassword: false,
+        updatedAt: now,
+        updatedBy: previous.username
+      };
+      users[index] = next;
+      const backup = writeUsersWithBackup(users);
+      session.user = publicUser(next);
+      writeSessionAudit("INITIAL_PASSWORD_CHANGED", session, { note: "Cambio obligatorio de clave inicial completado" });
+      sendJson(res, 200, { ok: true, user: publicUser(next), backup: backup ? path.basename(backup) : "" });
+      return;
     }
 
     if (requestUrl.pathname === "/api/admin/reauth" && req.method === "POST") {
@@ -5870,8 +5936,9 @@ const server = http.createServer(async (req, res) => {
         if (index >= 0) users[index] = next;
         else users.push(next);
         const backup = writeUsersWithBackup(users);
-        if (next.active === false) {
-          activeSessionsForUsername(next.username).forEach((item) => closeSession(item.token, "disabled-by-admin", sessionUser.name));
+        if (next.active === false || (next.mustChangePassword === true && (!previous || previous.mustChangePassword !== true))) {
+          const reason = next.active === false ? "disabled-by-admin" : "initial-password-required";
+          activeSessionsForUsername(next.username).forEach((item) => closeSession(item.token, reason, sessionUser.name));
         }
         const userAudit = auditEntry(req, sessionUser, input, {
           action: previous ? "USUARIO_ACTUALIZADO" : "USUARIO_CREADO",
@@ -6992,6 +7059,68 @@ const server = http.createServer(async (req, res) => {
         }), sessionUser);
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo registrar el pago parcial." });
+      }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/commissions/rules/batch" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Comisiones permitidas solo para administradores." });
+        return;
+      }
+      const input = JSON.parse(await readBody(req) || "{}");
+      const motive = String(input.motive || input.motivo || "").trim();
+      if (!motive || !Array.isArray(input.rules) || !input.rules.length || input.rules.length > 100) {
+        sendJson(res, 400, { ok: false, error: "Indicar motivo y entre 1 y 100 reglas." });
+        return;
+      }
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      orderEngine.migrateState(currentState);
+      try {
+        const results = orderEngine.saveCommissionRulesBatch(currentState, input.rules.map((rule) => ({
+          ...rule,
+          motive: String(rule.motive || rule.motivo || motive).trim()
+        })), sessionUser);
+        const changed = results.filter((item) => !item.unchanged);
+        if (!changed.length) {
+          sendJson(res, 200, {
+            ok: true,
+            changedCount: 0,
+            unchangedCount: results.length,
+            rules: results.map((item) => item.rule)
+          });
+          return;
+        }
+        const auditEntries = changed.map((item) => auditEntry(req, sessionUser, input, {
+          action: item.audit.action,
+          entityType: "comision",
+          entityId: item.rule.id,
+          entityLabel: `${item.rule.userLabel || item.rule.username || item.rule.role}: ${item.rule.rubro || item.rule.productName || item.rule.productCode}`,
+          previousValue: item.previous,
+          newValue: item.rule,
+          note: item.rule.note || motive
+        }));
+        const notificationEntries = changed.map((item) => notificationEntry(req, sessionUser, input, {
+          action: "COMISION_REGLA_GUARDADA",
+          category: "Comisiones",
+          title: `Regla de comision ${item.rule.status.toLowerCase()}`,
+          text: `${item.rule.userLabel || item.rule.username || item.rule.role}: ${item.rule.percent}% sobre ${item.rule.productName || item.rule.productCode || item.rule.rubro || "general"}.`,
+          tone: item.rule.active === false ? "warn" : "ok",
+          entityType: "comision",
+          entityId: item.rule.id,
+          entityLabel: item.rule.rubro || item.rule.productName || item.rule.id,
+          audience: ["admin"]
+        }));
+        writeStateResponse(res, currentState, {
+          changedCount: changed.length,
+          unchangedCount: results.length - changed.length,
+          rules: results.map((item) => item.rule)
+        }, auditEntries, notificationEntries, sessionUser);
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message || "No se pudieron guardar las reglas de comision." });
       }
       return;
     }
@@ -8716,6 +8845,63 @@ const server = http.createServer(async (req, res) => {
       } catch (error) {
         sendJson(res, 400, { ok: false, error: error.message || "No se pudo registrar el movimiento de stock." });
       }
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/products/classification" && req.method === "POST") {
+      const sessionUser = requireUser(req, res);
+      if (!sessionUser) return;
+      if (sessionUser.role !== "admin") {
+        sendJson(res, 403, { ok: false, error: "Solo Administracion puede modificar la clasificacion de productos." });
+        return;
+      }
+      const input = JSON.parse(await readBody(req) || "{}");
+      if (!verifyCurrentUserPassword(sessionUser, input.admin_password || input.adminPassword || "")) {
+        sendJson(res, 401, { ok: false, error: "Clave de administrador incorrecta." });
+        return;
+      }
+      const productCode = String(input.productCode || input.codigo_producto || "").trim();
+      const rubro = String(input.rubro || "").trim() || "S/D";
+      const familia = String(input.familia || "").trim() || "S/D";
+      const motive = String(input.motive || input.motivo || "").trim();
+      const expected = input.expected && typeof input.expected === "object" ? input.expected : null;
+      if (!productCode || !motive || !expected || expected.rubro === undefined || expected.familia === undefined) {
+        sendJson(res, 400, { ok: false, error: "Producto, rubro/familia esperados y motivo son obligatorios." });
+        return;
+      }
+      const currentPayload = readStateFileCached();
+      const currentState = currentPayload.state || {};
+      const matches = (currentState.products || []).filter((product) => String(product.codigo_producto || product.code || "").trim() === productCode);
+      if (matches.length !== 1) {
+        sendJson(res, matches.length ? 409 : 404, { ok: false, error: matches.length ? "El codigo de producto no es unico." : "No se encontro el producto." });
+        return;
+      }
+      const product = matches[0];
+      const previous = {
+        rubro: String(product.rubro || "S/D"),
+        familia: String(product.familia || "S/D")
+      };
+      if (previous.rubro !== String(expected.rubro) || previous.familia !== String(expected.familia)) {
+        sendJson(res, 409, { ok: false, error: "La clasificacion cambio desde que se abrio el formulario. Actualizar y volver a intentar." });
+        return;
+      }
+      if (previous.rubro === rubro && previous.familia === familia) {
+        sendJson(res, 200, { ok: true, changed: false, product });
+        return;
+      }
+      product.rubro = rubro;
+      product.familia = familia;
+      product.updatedAt = new Date().toISOString();
+      product.updatedBy = sessionUser.username;
+      writeStateResponse(res, currentState, { changed: true, products: [product] }, auditEntry(req, sessionUser, input, {
+        action: "PRODUCTO_CLASIFICACION_MODIFICADA",
+        entityType: "producto",
+        entityId: productCode,
+        entityLabel: product.name || product.descripcion || productCode,
+        previousValue: previous,
+        newValue: { rubro, familia },
+        note: motive
+      }), [], sessionUser);
       return;
     }
 

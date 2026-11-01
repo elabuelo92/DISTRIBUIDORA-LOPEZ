@@ -3073,6 +3073,53 @@ function showLogin(text, tone = "info") {
   setLoginMessage(text || "", tone);
 }
 
+function setInitialPasswordChangeMessage(text, tone = "danger") {
+  const message = byId("initialPasswordChangeMessage");
+  if (!message) return;
+  message.textContent = text || "";
+  if (text) message.dataset.tone = tone;
+  else delete message.dataset.tone;
+}
+
+async function submitInitialPasswordChange(event) {
+  event.preventDefault();
+  const password = byId("initialNewPassword").value;
+  const confirmation = byId("initialNewPasswordConfirm").value;
+  const button = byId("initialPasswordChangeSubmitBtn");
+  if (password.length < 12) return setInitialPasswordChangeMessage("La nueva clave debe tener al menos 12 caracteres.");
+  if (password !== confirmation) return setInitialPasswordChangeMessage("Las claves no coinciden.");
+  button.disabled = true;
+  setInitialPasswordChangeMessage("Guardando la nueva clave...", "info");
+  try {
+    const response = await fetchWithTimeout(apiUrl("api/account/change-password"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ newPassword: password })
+    }, SERVER_TIMEOUT_MS);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) throw new Error(payload.error || "No se pudo cambiar la clave.");
+    currentUser = payload.user;
+    byId("initialPasswordChangeForm").reset();
+    byId("initialPasswordChangeDialog").close();
+    startAuthenticatedApp();
+  } catch (error) {
+    setInitialPasswordChangeMessage(error.message || "No se pudo cambiar la clave.");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function logoutFromInitialPasswordChange() {
+  try {
+    await fetchWithTimeout(apiUrl("api/logout"), { method: "POST", cache: "no-store" }, HEALTH_TIMEOUT_MS);
+  } catch {}
+  byId("initialPasswordChangeDialog").close();
+  byId("initialPasswordChangeForm").reset();
+  currentUser = null;
+  showLogin("Sesion cerrada. Ingresa nuevamente con tu clave temporal.", "info");
+}
+
 function resetLoginConnectionStatus() {
   loginConnectionStartedAt = 0;
 }
@@ -14272,6 +14319,63 @@ async function saveCommissionRule(extra = {}) {
   }
 }
 
+async function applyRequestedCommissionScheme() {
+  if (!isAdminUser()) return;
+  const button = byId("applyRequestedCommissionSchemeBtn");
+  if (!button || button.disabled) return;
+  const expected = [
+    { username: "david", name: "Axel" },
+    { username: "kevin", name: "Kevin Guibert" },
+    { username: "matias", name: "Matias" },
+    { username: "ruggero david", name: "Ruggero" }
+  ];
+  try {
+    const people = commissionPeople("seller", true);
+    const targets = expected.map((item) => {
+      const byUsername = people.find((person) => String(person.username || "").trim().toLowerCase() === item.username);
+      const byName = people.filter((person) => normalizeSearchText(person.name) === normalizeSearchText(item.name));
+      const person = byUsername || (byName.length === 1 ? byName[0] : null);
+      if (!person || !person.username) throw new Error(`No se pudo identificar de forma unica a ${item.name}.`);
+      return { ...item, person };
+    });
+    if (new Set(targets.map((item) => String(item.person.username).toLowerCase())).size !== expected.length) {
+      throw new Error("Hay vendedores duplicados o ambiguos en la seleccion.");
+    }
+    const rubricMap = new Map();
+    (state.products || []).forEach((product) => {
+      const rubro = String(product.rubro || product.category || product.categoria || product.familia || "").trim();
+      const key = normalizeSearchText(rubro);
+      if (key.includes("analges") && !rubricMap.has(key)) rubricMap.set(key, rubro);
+    });
+    const rubricCandidates = [...rubricMap.values()];
+    if (rubricCandidates.length !== 1) throw new Error("El catalogo no tiene un unico rubro identificable de Analgesicos.");
+    const motive = "Esquema autorizado: analgesicos 10%, cigarrillos 1% y resto 3%; vigencia 01/11/2026.";
+    if (!window.confirm("Se guardaran cuatro reglas de Analgesicos al 10%, vigentes desde el 01/11/2026. No se recalcularan pedidos, comisiones liquidadas ni ventas anteriores. Cigarrillos 1% y resto 3% quedan sin cambios. ¿Confirmas?")) return;
+    button.disabled = true;
+    const result = await postOperationalAction("api/commissions/rules/batch", {
+      motive,
+      rules: targets.map(({ person }) => ({
+        role: "seller",
+        username: String(person.username).trim(),
+        userLabel: person.name,
+        rubro: rubricCandidates[0],
+        percent: 10,
+        priority: 50,
+        startsAt: "2026-11-01T03:00:00.000Z",
+        endsAt: "",
+        status: "Activa",
+        motive
+      }))
+    });
+    renderCommissionsModule();
+    showCompactNotice(`Esquema guardado en una sola escritura: ${result.changedCount || 0} reglas nuevas/versionadas; ${result.unchangedCount || 0} ya estaban vigentes.`, "ok");
+  } catch (error) {
+    showCompactNotice(error.message || "No se pudo aplicar el esquema de comisiones.", "danger");
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function deactivateCommissionRule(ruleId) {
   const rule = commissionRules().find((item) => item.id === ruleId);
   if (!rule || !isAdminUser()) return;
@@ -15711,9 +15815,15 @@ function setStockEditMessage(text, tone = "danger") {
 
 function setStockEditBusy(isBusy) {
   const button = byId("stockEditSaveBtn");
-  if (!button) return;
-  button.disabled = Boolean(isBusy);
-  button.textContent = isBusy ? "Validando..." : "Validar y guardar";
+  const classificationButton = byId("stockEditClassificationSaveBtn");
+  if (button) {
+    button.disabled = Boolean(isBusy);
+    button.textContent = isBusy ? "Validando..." : "Validar y guardar ficha completa";
+  }
+  if (classificationButton) {
+    classificationButton.disabled = Boolean(isBusy);
+    classificationButton.textContent = isBusy ? "Guardando clasificacion..." : "Guardar solo Rubro/Familia";
+  }
 }
 
 function openStockEditDialog(productName) {
@@ -15777,7 +15887,47 @@ async function reauthAdminPassword(password) {
   return payload;
 }
 
+async function submitStockClassificationOnly(event) {
+  event.preventDefault();
+  if (!isAdminUser()) return setStockEditMessage("Operacion permitida solo para administradores.");
+  const form = event.currentTarget;
+  const formData = new FormData(form);
+  const productCode = String(formData.get("codigo_producto") || "").trim();
+  const index = state.products.findIndex((product) => String(product.codigo_producto || product.code || "").trim() === productCode);
+  if (index < 0) return setStockEditMessage("No se encontro el codigo de producto.");
+  const previous = state.products[index];
+  const rubro = String(formData.get("rubro") || "").trim() || "S/D";
+  const familia = String(formData.get("familia") || "").trim() || "S/D";
+  const motive = String(formData.get("classification_motive") || "").trim();
+  if (!motive) return setStockEditMessage("Indicar el motivo del cambio de Rubro/Familia.");
+  if (rubro === String(previous.rubro || "S/D") && familia === String(previous.familia || "S/D")) {
+    return setStockEditMessage("No hay cambios de Rubro/Familia para guardar.", "info");
+  }
+  setStockEditBusy(true);
+  setStockEditMessage("Guardando solo la clasificacion del producto...", "info");
+  try {
+    await postOperationalAction("api/products/classification", {
+      productCode,
+      expected: { rubro: String(previous.rubro || "S/D"), familia: String(previous.familia || "S/D") },
+      rubro,
+      familia,
+      motive,
+      admin_password: String(formData.get("admin_password") || "")
+    });
+    byId("stockEditDialog").close("default");
+    showCompactNotice(`${productCode}: Rubro/Familia actualizados. Stock, precios y pedidos no fueron modificados.`, "ok");
+  } catch (error) {
+    setStockEditMessage(error.message || "No se pudo guardar la clasificacion.");
+  } finally {
+    setStockEditBusy(false);
+  }
+}
+
 async function submitStockEdit(event) {
+  if (event.submitter?.value === "classification") {
+    await submitStockClassificationOnly(event);
+    return;
+  }
   event.preventDefault();
   if (!isAdminUser()) {
     setStockEditMessage("Operacion permitida solo para administradores.");
@@ -18369,6 +18519,7 @@ function resetManagedUserForm(user = null) {
   byId("userAdminPasswordConfirm").value = "";
   byId("userAdminMotive").value = user ? "Actualizacion administrativa" : "Alta de usuario";
   byId("userAdminActive").checked = user ? user.active !== false : true;
+  byId("userAdminMustChangePassword").checked = user ? user.mustChangePassword === true : true;
   byId("userAdminPriceLocked").checked = user ? user.priceListLocked === true : true;
   setUserAdminMessage(user ? `Editando ${user.username}. La clave queda igual si no se informa nueva clave.` : "Nuevo usuario listo para cargar.", "info");
 }
@@ -18403,6 +18554,7 @@ function renderManagedUsers() {
           <strong>${escapeHtml(user.username)}</strong>
           <small>${escapeHtml(user.name || "")}</small>
           ${user.sellerName ? `<small>Vendedor: ${escapeHtml(user.sellerName)}</small>` : ""}
+          ${user.mustChangePassword ? '<small class="text-danger">Cambio de clave pendiente</small>' : ""}
         </td>
         <td>${escapeHtml(roleLabel(user.role))}</td>
         <td>
@@ -18456,6 +18608,7 @@ async function submitManagedUserForm(event) {
     admin_password: byId("userAdminPasswordConfirm").value,
     motive: byId("userAdminMotive").value.trim(),
     active: byId("userAdminActive").checked,
+    mustChangePassword: byId("userAdminMustChangePassword").checked,
     priceListLocked: byId("userAdminPriceLocked").checked
   };
   if (!payload.username || !payload.name || !payload.role || !payload.admin_password || !payload.motive) {
@@ -20657,6 +20810,9 @@ byId("loginForm").addEventListener("submit", submitLogin);
 byId("toggleLoginPasswordBtn").addEventListener("click", toggleLoginPasswordVisibility);
 byId("passwordRecoveryBtn").addEventListener("click", openPasswordRecoveryDialog);
 byId("passwordRecoveryForm").addEventListener("submit", submitPasswordRecovery);
+byId("initialPasswordChangeForm").addEventListener("submit", submitInitialPasswordChange);
+byId("initialPasswordChangeDialog").addEventListener("cancel", (event) => event.preventDefault());
+byId("initialPasswordChangeLogoutBtn").addEventListener("click", logoutFromInitialPasswordChange);
 byId("loginSupportBtn").addEventListener("click", openSupportWhatsApp);
 byId("viewLegalBeforeLoginBtn").addEventListener("click", () => openLegalAcceptanceDialog());
 byId("legalAcceptCheckbox").addEventListener("change", (event) => {
@@ -20936,6 +21092,7 @@ byId("commissionRulesTable").addEventListener("click", (event) => {
 });
 byId("saveCommissionRuleBtn").addEventListener("click", () => saveCommissionRule());
 byId("resetCommissionFormBtn").addEventListener("click", resetCommissionRuleForm);
+byId("applyRequestedCommissionSchemeBtn").addEventListener("click", applyRequestedCommissionScheme);
 byId("commissionScopeType").addEventListener("change", renderCommissionScopeFields);
 byId("commissionRuleForm").elements.role.addEventListener("change", () => {
   renderCommissionOptions();
@@ -24867,6 +25024,12 @@ function scheduleNextStatePull() {
 }
 
 function startAuthenticatedApp() {
+  if (currentUser && currentUser.mustChangePassword === true) {
+    showLogin("Debes cambiar tu clave temporal para continuar.", "info");
+    const dialog = byId("initialPasswordChangeDialog");
+    if (dialog && !dialog.open) dialog.showModal();
+    return;
+  }
   readNotificationIds = loadReadNotificationIds();
   knownNotificationIds = new Set();
   notificationTrackerReady = false;
