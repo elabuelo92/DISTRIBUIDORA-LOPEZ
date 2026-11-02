@@ -73,7 +73,8 @@ def deploy(client, version, allow_operational_archive=False, recover_price_incid
                      "8790-192": "0c84b4c05d05617b12871ce57ccd9e09cdda359d",
                      "8790-193": "77267e5274eeded547bb423f38f136f63eef12b4",
                      "8790-194": "122513acdc2a2de916cffd7c372986539427b2d5",
-                     "8790-195": "5e4e5be45d757cd4a92d952350d70f8b1b0e9c4d"}
+                     "8790-195": "5e4e5be45d757cd4a92d952350d70f8b1b0e9c4d",
+                     "8790-196": "0dd78c7fcf1492d238bf00ddbe6993436a269a49"}
     guarded_release = "1" if version in release_bases else "0"
     if version in release_bases:
         if not expected_commit or len(expected_commit) != 40 or any(c not in "0123456789abcdef" for c in expected_commit):
@@ -87,7 +88,7 @@ def deploy(client, version, allow_operational_archive=False, recover_price_incid
 set -euo pipefail
 cd {APP_DIR}
 if [ "{guarded_release}" = "1" ]; then
-  if [ "{version}" = "8790-192" ] || [ "{version}" = "8790-193" ] || [ "{version}" = "8790-194" ] || [ "{version}" = "8790-195" ]; then
+  if [ "{version}" = "8790-192" ] || [ "{version}" = "8790-193" ] || [ "{version}" = "8790-194" ] || [ "{version}" = "8790-195" ] || [ "{version}" = "8790-196" ]; then
     test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-11-01"
   else
     test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-10-24"
