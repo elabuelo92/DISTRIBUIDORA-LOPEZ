@@ -26,4 +26,12 @@ Fecha: 2026-11-01
 
 ## Despliegue
 
-Pendiente de respaldo fresco, publicación controlada y validación de salud, licencia, integridad y vista Usuarios en producción.
+Desplegado y validado como `8790-195` desde el commit `0dd78c7fcf1492d238bf00ddbe6993436a269a49`.
+
+- Respaldo completo: `/opt/distribuidora-lopez/backups/emergency-20261102-001247`.
+- Servicio activo; mantenimiento desactivado; salud local y pública `ok: true`.
+- Licencia válida e integridad `29/29`, sin archivos cambiados ni faltantes.
+- SHA-256 de `demo-state.json` y `users.json` idénticos antes y después del despliegue.
+- Comparación de pedidos del día: cero faltantes, agregados o modificados.
+- Recursos publicados comparados contra el checkout en `VERIFICACION-PRODUCCION-195-20261102.json`.
+- No se ejecutaron operaciones de negocio ni pruebas de escritura en producción.
