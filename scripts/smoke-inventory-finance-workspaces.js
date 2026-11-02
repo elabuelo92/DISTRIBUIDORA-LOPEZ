@@ -11,6 +11,7 @@ function extract(name) {
   const next = source.slice(start + 1).search(/\n(?:async )?function /);
   return source.slice(start, next < 0 ? undefined : start + 1 + next);
 }
+assert.match(extract("buildOperationalDashboard"), /AccountEngine\.accountSummaries\(state\)/);
 let selected = "";
 let calls = [];
 const context = {

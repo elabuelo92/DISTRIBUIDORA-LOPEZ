@@ -4509,7 +4509,7 @@ function buildOperationalDashboard() {
     ORDER_STATUS.PARTIAL_DELIVERED
   ]);
   const todayOrders = orders.filter(orderHappenedToday);
-  const accountSummaries = (state.clients || []).map((client) => clientAccountSummary(client.name, 0)).filter((summary) => summary.ok);
+  const accountSummaries = AccountEngine.accountSummaries(state).filter((summary) => summary.ok);
   const debtClients = accountSummaries.filter((summary) => numeric(summary.currentBalance, 0) > 0);
   const overLimitClients = accountSummaries.filter((summary) => numeric(summary.overLimitAmount, 0) > 0 || summary.status === "Sobre limite");
   const pendingTransfers = (state.bankReconciliation || []).filter((record) => {
