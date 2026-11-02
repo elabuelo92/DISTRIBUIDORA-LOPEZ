@@ -15827,6 +15827,49 @@ function setStockEditBusy(isBusy) {
   }
 }
 
+function stockClassificationPairKey(rubro, familia) {
+  const clean = (value) => String(value || "S/D").trim() || "S/D";
+  return `${normalizeSearchText(clean(rubro))}\u0000${normalizeSearchText(clean(familia))}`;
+}
+
+function stockClassificationChoices(products, currentProduct) {
+  const choices = new Map();
+  const catalog = [...(Array.isArray(products) ? products : []), ...(currentProduct ? [currentProduct] : [])];
+  for (const product of catalog) {
+    const rubro = String(product.rubro || "S/D").trim() || "S/D";
+    const familia = String(product.familia || "S/D").trim() || "S/D";
+    const key = stockClassificationPairKey(rubro, familia);
+    if (!choices.has(key)) choices.set(key, { rubro, familia });
+  }
+  return [...choices.values()].sort((a, b) =>
+    `${a.rubro} / ${a.familia}`.localeCompare(`${b.rubro} / ${b.familia}`, "es-AR")
+  );
+}
+
+function syncStockClassificationFields() {
+  const form = byId("stockEditForm");
+  const select = byId("stockClassificationSelect");
+  const option = select?.selectedOptions?.[0];
+  if (!form || !option?.hasAttribute("data-rubro")) return false;
+  form.elements.rubro.value = option.dataset.rubro || "S/D";
+  form.elements.familia.value = option.dataset.familia || "S/D";
+  return true;
+}
+
+function populateStockClassificationOptions(product) {
+  const select = byId("stockClassificationSelect");
+  if (!select || !product) return;
+  const choices = stockClassificationChoices(state.products, product);
+  const selectedKey = stockClassificationPairKey(product.rubro, product.familia);
+  select.innerHTML = [
+    '<option value="">Seleccionar rubro / familia</option>',
+    ...choices.map((choice, index) => `<option value="${index}" data-rubro="${escapeHtml(choice.rubro)}" data-familia="${escapeHtml(choice.familia)}">${escapeHtml(choice.rubro)} / ${escapeHtml(choice.familia)}</option>`)
+  ].join("");
+  const selectedIndex = choices.findIndex((choice) => stockClassificationPairKey(choice.rubro, choice.familia) === selectedKey);
+  select.value = selectedIndex >= 0 ? String(selectedIndex) : "";
+  syncStockClassificationFields();
+}
+
 function openStockEditDialog(productName) {
   if (!isAdminUser()) {
     window.alert("Solo administracion puede modificar productos.");
@@ -15843,9 +15886,8 @@ function openStockEditDialog(productName) {
   form.elements.codigo_producto.value = product.codigo_producto || "";
   form.elements.codigo_barras.value = product.codigo_barras || "";
   form.elements.descripcion.value = product.name || "";
-  form.elements.rubro.value = product.rubro || "";
+  populateStockClassificationOptions(product);
   form.elements.marca.value = product.marca || "";
-  form.elements.familia.value = product.familia || "";
   form.elements.segmento.value = product.segmento || "";
   form.elements.stock_actual.value = numeric(product.stock, 0);
   form.elements.stock_minimo.value = numeric(product.min, 0);
@@ -15892,6 +15934,7 @@ async function submitStockClassificationOnly(event) {
   event.preventDefault();
   if (!isAdminUser()) return setStockEditMessage("Operacion permitida solo para administradores.");
   const form = event.currentTarget;
+  if (!syncStockClassificationFields()) return setStockEditMessage("Selecciona un Rubro / Familia del catalogo.");
   const formData = new FormData(form);
   const productCode = String(formData.get("codigo_producto") || "").trim();
   const index = state.products.findIndex((product) => String(product.codigo_producto || product.code || "").trim() === productCode);
@@ -15907,7 +15950,7 @@ async function submitStockClassificationOnly(event) {
   setStockEditBusy(true);
   setStockEditMessage("Guardando solo la clasificacion del producto...", "info");
   try {
-    await postOperationalAction("api/products/classification", {
+    const saved = await postOperationalAction("api/products/classification", {
       productCode,
       expected: { rubro: String(previous.rubro || "S/D"), familia: String(previous.familia || "S/D") },
       rubro,
@@ -15915,8 +15958,13 @@ async function submitStockClassificationOnly(event) {
       motive,
       admin_password: String(formData.get("admin_password") || "")
     });
+    const savedProduct = (saved.products || []).find((product) => String(product.codigo_producto || product.code || "").trim() === productCode);
+    if (saved.changed !== true || !savedProduct || savedProduct.rubro !== rubro || savedProduct.familia !== familia) {
+      throw new Error("El servidor no confirmo la clasificacion seleccionada. No se cerro el formulario.");
+    }
+    scheduleRenderForCurrentUser();
     byId("stockEditDialog").close("default");
-    showCompactNotice(`${productCode}: Rubro/Familia actualizados. Stock, precios y pedidos no fueron modificados.`, "ok");
+    showCompactNotice(`${productCode}: clasificacion confirmada como ${rubro} / ${familia}. Stock, precios y pedidos no fueron modificados.`, "ok");
   } catch (error) {
     setStockEditMessage(error.message || "No se pudo guardar la clasificacion.");
   } finally {
@@ -15935,6 +15983,7 @@ async function submitStockEdit(event) {
     return;
   }
   const form = event.currentTarget;
+  if (!syncStockClassificationFields()) return setStockEditMessage("Selecciona un Rubro / Familia del catalogo.");
   const formData = new FormData(form);
   const originalName = String(formData.get("original_name") || stockEditTargetName);
   const index = state.products.findIndex((product) => product.name === originalName);
@@ -20990,6 +21039,7 @@ byId("clearInitialStockBtn").addEventListener("click", () => {
   renderInitialStockPreview();
 });
 byId("initialStockForm").addEventListener("submit", applyInitialStockImport);
+byId("stockClassificationSelect").addEventListener("change", syncStockClassificationFields);
 byId("stockLedgerSearch").addEventListener("input", (event) => {
   stockLedgerSearchTerm = event.target.value;
   debouncedRenderStock("ledger");

@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-196">
+    <link rel="manifest" href="manifest.json?v=8790-197">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-196">
+    <link rel="stylesheet" href="styles.css?v=8790-197">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -184,8 +184,8 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-196</strong>
-              <small data-version-build>Actualizada 01/11/2026</small>
+              <strong data-version-value>8790-197</strong>
+              <small data-version-build>Actualizada 02/11/2026</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
             <button class="ghost-btn app-back-btn" id="appBackBtn" type="button">Volver</button>
@@ -2990,7 +2990,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-168</span>
+          <span id="appFooterVersion">Version del sistema: 8790-197</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -4243,19 +4243,20 @@
         </label>
         <div class="form-grid">
           <label>
-            Rubro
-            <input name="rubro" required>
+            Rubro / Familia
+            <select id="stockClassificationSelect" name="classification_option" required aria-describedby="stockClassificationHelp">
+              <option value="">Seleccionar rubro / familia</option>
+            </select>
+            <small id="stockClassificationHelp">Opciones existentes en el catalogo. Se guardan ambos valores seleccionados.</small>
           </label>
           <label>
             Marca
             <input name="marca">
           </label>
+          <input name="rubro" type="hidden">
+          <input name="familia" type="hidden">
         </div>
         <div class="form-grid">
-          <label>
-            Familia
-            <input name="familia">
-          </label>
           <label>
             Segmento / version
             <input name="segmento">
@@ -4757,24 +4758,24 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-196"></script>
+    <script src="config.js?v=8790-197"></script>
     <script src="maps-config.js?v=8790-169-r20261012"></script>
-    <script src="order-engine.js?v=8790-196"></script>
-    <script src="account-engine.js?v=8790-196"></script>
+    <script src="order-engine.js?v=8790-197"></script>
+    <script src="account-engine.js?v=8790-197"></script>
     <script src="route-optimizer.js?v=8790-169-r20261012"></script>
-    <script src="delivery-engine.js?v=8790-196"></script>
-    <script src="sales-commission-report.js?v=8790-196"></script>
+    <script src="delivery-engine.js?v=8790-197"></script>
+    <script src="sales-commission-report.js?v=8790-197"></script>
     <script src="legal-engine.js?v=8790-169-r20261012"></script>
     <script src="client-portfolio-engine.js?v=8790-169-r20261012"></script>
     <script src="client-hours.js?v=8790-169-r20261012"></script>
-    <script src="client-edit.js?v=8790-196"></script>
+    <script src="client-edit.js?v=8790-197"></script>
     <script src="share-engine.js?v=8790-169-r20261012"></script>
     <script src="portfolio-export-engine.js?v=8790-169-r20261012"></script>
     <script src="progressive-list.js?v=8790-169-r20261012"></script>
     <script src="collection-visits-ui.js?v=8790-183"></script>
-    <script src="collection-corrections-ui.js?v=8790-196"></script>
+    <script src="collection-corrections-ui.js?v=8790-197"></script>
     <script src="supplier-remit-ui.js?v=8790-183"></script>
-    <script src="state-record-sync.js?v=8790-196"></script>
-    <script src="app.js?v=8790-196"></script>
+    <script src="state-record-sync.js?v=8790-197"></script>
+    <script src="app.js?v=8790-197"></script>
   </body>
 </html>

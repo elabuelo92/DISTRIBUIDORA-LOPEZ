@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const vm = require("node:vm");
 const { spawn } = require("node:child_process");
 const { once } = require("node:events");
 const Engine = require("../order-engine");
@@ -13,9 +14,24 @@ const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
 const htmlSource = fs.readFileSync(path.join(root, "index.html"), "utf8");
 assert.ok(appSource.includes('postOperationalAction("api/products/classification"'));
 assert.ok(htmlSource.includes('id="stockEditClassificationSaveBtn"'));
+assert.match(htmlSource, /Rubro\s*\/\s*Familia[\s\S]*?id="stockClassificationSelect"/);
+assert.match(htmlSource, /<input name="rubro" type="hidden">/);
+assert.match(htmlSource, /<input name="familia" type="hidden">/);
 assert.ok(htmlSource.includes('id="initialPasswordChangeDialog"'));
 const classificationClient = appSource.slice(appSource.indexOf("async function submitStockClassificationOnly("), appSource.indexOf("async function submitStockEdit(", appSource.indexOf("async function submitStockClassificationOnly(")));
 assert.ok(!classificationClient.includes("saveState(") && !classificationClient.includes("allocatePendingOrders"));
+assert.ok(classificationClient.includes("savedProduct.rubro !== rubro || savedProduct.familia !== familia"));
+const classificationHelpersSource = appSource.slice(appSource.indexOf("function stockClassificationPairKey("), appSource.indexOf("function openStockEditDialog("));
+const classificationHelpers = vm.runInNewContext(`(() => { ${classificationHelpersSource}; return stockClassificationChoices; })()`, {
+  normalizeSearchText: (value) => String(value || "").toLowerCase().trim()
+});
+const classificationChoices = classificationHelpers([
+  { rubro: "Limpieza", familia: "Pisos" },
+  { rubro: "Limpieza", familia: "Cocina" },
+  { rubro: "LIMPIEZA", familia: "Pisos" }
+], { rubro: "Bebidas", familia: "S/D" });
+assert.equal(classificationChoices.length, 3, "el selector ofrece pares unicos del catalogo e incluye el par actual");
+assert.ok(classificationChoices.some((choice) => choice.rubro === "Bebidas" && choice.familia === "S/D"));
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dl-commission-batch-"));
 const stateFile = path.join(dir, "demo-state.json");
@@ -33,6 +49,7 @@ const makeUser = (username, name, role, password, extra = {}) => {
 const state = {
   products: [
     { codigo_producto: "A1", name: "Analgesico test", rubro: "ANALGESICOS", stock_fisico: 20, stock_reservado: 3 },
+    { codigo_producto: "A2", name: "Analgesico familia test", rubro: "ANALGESICOS", familia: "FARMACIA", stock_fisico: 10, stock_reservado: 0 },
     { codigo_producto: "C1", name: "Cigarrillos test", rubro: "Cigarrillos", stock_fisico: 30, stock_reservado: 2 },
     { codigo_producto: "R1", name: "Mercaderia test", rubro: "Limpieza", stock_fisico: 40, stock_reservado: 4 }
   ],
@@ -175,6 +192,12 @@ function readState() { return JSON.parse(fs.readFileSync(stateFile, "utf8")); }
     const productProtected = JSON.stringify({ stock: productBefore.stock, physical: productBefore.stock_fisico, reserved: productBefore.stock_reservado,
       available: productBefore.stock_disponible, cost: productBefore.costo, price: productBefore.precio_lista_2 });
     const stateVersion = stored.version;
+    const invalidClassification = await request("/api/products/classification", {
+      productCode: "A1", expected: { rubro: "ANALGESICOS", familia: "S/D" }, rubro: "ANALGESICOS", familia: "FAMILIA INVENTADA",
+      motive: "Prueba de combinacion inexistente", admin_password: adminPassword
+    }, admin, 400);
+    assert.match(invalidClassification.payload.error, /combinacion Rubro \/ Familia existente/i);
+    assert.equal(readState().version, stateVersion, "una combinacion fuera del catalogo no se persiste");
     const classification = await request("/api/products/classification", {
       productCode: "A1", expected: { rubro: "ANALGESICOS", familia: "S/D" }, rubro: "ANALGESICOS", familia: "FARMACIA",
       motive: "Normalizacion de familia", admin_password: adminPassword
@@ -198,7 +221,7 @@ function readState() { return JSON.parse(fs.readFileSync(stateFile, "utf8")); }
       motive: "Dato obsoleto", admin_password: adminPassword
     }, admin, 409);
     assert.notEqual(stateVersion, versionAfterClassification);
-    console.log("PASS: lote de comisiones (vigencia, idempotencia, rollback e historial intacto), cambio obligatorio de clave inicial y edicion aislada de rubro/familia; solo fixture aislada.");
+    console.log("PASS: lote de comisiones (vigencia, idempotencia, rollback e historial intacto), cambio obligatorio de clave inicial y edicion aislada de rubro/familia con selector unico, pares existentes, rechazo sin escritura e integridad de stock; solo fixture aislada.");
   } finally {
     child.kill();
     await exited;

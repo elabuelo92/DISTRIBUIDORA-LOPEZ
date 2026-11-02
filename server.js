@@ -33,7 +33,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-196";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-197";
 const stateBootstrapCache = require("./state-bootstrap-cache").createCache();
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
@@ -8887,6 +8887,16 @@ const server = http.createServer(async (req, res) => {
       };
       if (previous.rubro !== String(expected.rubro) || previous.familia !== String(expected.familia)) {
         sendJson(res, 409, { ok: false, error: "La clasificacion cambio desde que se abrio el formulario. Actualizar y volver a intentar." });
+        return;
+      }
+      const targetRubroKey = normalizeSearchText(rubro);
+      const targetFamiliaKey = normalizeSearchText(familia);
+      const classificationAvailable = (currentState.products || []).some((candidate) =>
+        normalizeSearchText(String(candidate.rubro || "S/D").trim() || "S/D") === targetRubroKey
+        && normalizeSearchText(String(candidate.familia || "S/D").trim() || "S/D") === targetFamiliaKey
+      );
+      if (!classificationAvailable) {
+        sendJson(res, 400, { ok: false, error: "Selecciona una combinacion Rubro / Familia existente en el catalogo." });
         return;
       }
       if (previous.rubro === rubro && previous.familia === familia) {
