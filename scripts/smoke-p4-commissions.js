@@ -20,7 +20,30 @@ const state = {
 const context = vm.createContext({ state, demoUsers: [{ name: "Kevin Guibert", username: "kevin", role: "seller" }],
   normalizeSearchText: (s) => String(s || "").trim().toLowerCase(),
   byId: () => ({}), FormData: class { get(key) { return fields[key]; } } });
-for (const name of ["commissionPeople", "commissionRulePayload", "localTraceParts"]) vm.runInContext(extract(name), context);
+for (const name of ["commissionPeople", "resolveRequestedCommissionTargets", "commissionRulePayload", "localTraceParts"]) vm.runInContext(extract(name), context);
+const expectedTargets = [
+  { username: "david", name: "Axel" }, { username: "kevin", name: "Kevin Guibert" },
+  { username: "matias", name: "Matias" }, { username: "ruggero david", name: "Ruggero" }
+];
+const liveDirectory = expectedTargets.map((target) => ({
+  username: target.username, name: target.name, sellerName: target.name, role: "seller", active: true
+}));
+const resolvedTargets = vm.runInContext(
+  `resolveRequestedCommissionTargets(${JSON.stringify(liveDirectory)}, ${JSON.stringify(expectedTargets)})`, context
+);
+assert.deepEqual(JSON.parse(JSON.stringify(resolvedTargets.map(({ person }) => person.username))),
+  ["david", "kevin", "matias", "ruggero david"]);
+assert.throws(() => vm.runInContext(
+  `resolveRequestedCommissionTargets(${JSON.stringify([
+    { username: "kevin", name: "Kevin Guibert", role: "seller", active: true },
+    { username: "kevin2", name: "Kevin Guibert", role: "seller", active: true }
+  ])}, ${JSON.stringify([{ username: "missing", name: "Kevin Guibert" }])})`, context
+), /padron activo/);
+assert.throws(() => vm.runInContext(
+  `resolveRequestedCommissionTargets(${JSON.stringify([
+    { username: "kevin", name: "Otra persona", role: "seller", active: true }
+  ])}, ${JSON.stringify([{ username: "kevin", name: "Kevin Guibert" }])})`, context
+), /no coincide/);
 const payload = vm.runInContext("commissionRulePayload()", context);
 assert.equal(payload.userLabel, "");
 assert.equal(payload.username, "");

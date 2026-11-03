@@ -14320,6 +14320,23 @@ async function saveCommissionRule(extra = {}) {
   }
 }
 
+function resolveRequestedCommissionTargets(users, expected) {
+  const sellers = (Array.isArray(users) ? users : []).filter((user) => user && user.role === "seller" && user.active !== false);
+  return expected.map((item) => {
+    const expectedUsername = String(item.username || "").trim().toLowerCase();
+    const expectedName = normalizeSearchText(item.name);
+    const byUsername = sellers.filter((user) => String(user.username || "").trim().toLowerCase() === expectedUsername);
+    if (byUsername.length > 1) throw new Error(`El usuario ${item.name} aparece duplicado en el padron de vendedores.`);
+    const byName = sellers.filter((user) => normalizeSearchText(user.sellerName || user.name) === expectedName);
+    const person = byUsername[0] || (byName.length === 1 ? byName[0] : null);
+    if (!person || !person.username) throw new Error(`No se pudo identificar de forma unica a ${item.name} en el padron activo.`);
+    if (normalizeSearchText(person.sellerName || person.name) !== expectedName) {
+      throw new Error(`El usuario ${item.username} no coincide con el vendedor ${item.name}. No se aplico ninguna regla.`);
+    }
+    return { ...item, person };
+  });
+}
+
 async function applyRequestedCommissionScheme() {
   if (!isAdminUser()) return;
   const button = byId("applyRequestedCommissionSchemeBtn");
@@ -14330,15 +14347,14 @@ async function applyRequestedCommissionScheme() {
     { username: "matias", name: "Matias" },
     { username: "ruggero david", name: "Ruggero" }
   ];
+  button.disabled = true;
   try {
-    const people = commissionPeople("seller", true);
-    const targets = expected.map((item) => {
-      const byUsername = people.find((person) => String(person.username || "").trim().toLowerCase() === item.username);
-      const byName = people.filter((person) => normalizeSearchText(person.name) === normalizeSearchText(item.name));
-      const person = byUsername || (byName.length === 1 ? byName[0] : null);
-      if (!person || !person.username) throw new Error(`No se pudo identificar de forma unica a ${item.name}.`);
-      return { ...item, person };
-    });
+    const usersResponse = await fetchWithTimeout(apiUrl("api/admin/users"), { cache: "no-store" }, SERVER_TIMEOUT_MS);
+    const usersPayload = await usersResponse.json().catch(() => ({}));
+    if (!usersResponse.ok || usersPayload.ok === false || !Array.isArray(usersPayload.users)) {
+      throw new Error(usersPayload.error || "No se pudo verificar el padron actualizado de usuarios; no se aplico ninguna regla.");
+    }
+    const targets = resolveRequestedCommissionTargets(usersPayload.users, expected);
     if (new Set(targets.map((item) => String(item.person.username).toLowerCase())).size !== expected.length) {
       throw new Error("Hay vendedores duplicados o ambiguos en la seleccion.");
     }
@@ -14352,7 +14368,6 @@ async function applyRequestedCommissionScheme() {
     if (rubricCandidates.length !== 1) throw new Error("El catalogo no tiene un unico rubro identificable de Analgesicos.");
     const motive = "Esquema autorizado: analgesicos 10%, cigarrillos 1% y resto 3%; vigencia 01/11/2026.";
     if (!window.confirm("Se guardaran cuatro reglas de Analgesicos al 10%, vigentes desde el 01/11/2026. No se recalcularan pedidos, comisiones liquidadas ni ventas anteriores. Cigarrillos 1% y resto 3% quedan sin cambios. ¿Confirmas?")) return;
-    button.disabled = true;
     const result = await postOperationalAction("api/commissions/rules/batch", {
       motive,
       rules: targets.map(({ person }) => ({
