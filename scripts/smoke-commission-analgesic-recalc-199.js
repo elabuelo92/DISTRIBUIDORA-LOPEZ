@@ -7,10 +7,13 @@ const recalc = require("../commission-analgesic-recalc");
 
 const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
 const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+const deploySource = fs.readFileSync(path.join(__dirname, "deploy", "safe-production-deploy.py"), "utf8");
 assert.ok(html.includes('id="recalculateAnalgesicCommissionsBtn"'));
 assert.ok(html.includes('id="downloadAnalgesicCommissionReportBtn"'));
 assert.ok(appSource.includes('byId("recalculateAnalgesicCommissionsBtn").addEventListener'));
 assert.ok(appSource.includes('byId("downloadAnalgesicCommissionReportBtn").addEventListener'));
+assert.ok(deploySource.includes('if allow_before_18 and version != "8790-199"'));
+assert.ok(deploySource.includes("--allow-before-18"));
 
 const sellers = recalc.OPERATION.sellers;
 const products = [

@@ -64,7 +64,7 @@ echo __MEMORY__; free -h
     print(out)
 
 
-def deploy(client, version, allow_operational_archive=False, recover_price_incident=False, expected_commit=None):
+def deploy(client, version, allow_operational_archive=False, recover_price_incident=False, expected_commit=None, allow_before_18=False):
     release_bases = {"8790-187": "ed19fb0c21793b5d2562e85b0748ecf520998a71",
                      "8790-188": "297df1dcc2312556405f79b3b58cae750faec723",
                      "8790-189": "5c1083d85af976fc7531768e8c769732f08c66b3",
@@ -78,6 +78,8 @@ def deploy(client, version, allow_operational_archive=False, recover_price_incid
                      "8790-197": "7f4bcd23715d8ebac21cfad46693614f611dbbf7",
                      "8790-199": "be60b4597e950efaf14bd1cd3657ca823e2d88ac"}
     guarded_release = "1" if version in release_bases else "0"
+    if allow_before_18 and version != "8790-199":
+        raise ValueError("The before-18 exception is restricted to release 8790-199.")
     if version in release_bases:
         if not expected_commit or len(expected_commit) != 40 or any(c not in "0123456789abcdef" for c in expected_commit):
             raise ValueError(f"Release {version} requires the exact reviewed commit")
@@ -86,6 +88,7 @@ def deploy(client, version, allow_operational_archive=False, recover_price_incid
     version_q = shlex.quote(version)
     archive_review = "1" if allow_operational_archive else "0"
     price_recovery = "1" if recover_price_incident else "0"
+    before_18_override = "1" if allow_before_18 else "0"
     command = rf"""
 set -euo pipefail
 cd {APP_DIR}
@@ -97,7 +100,11 @@ if [ "{guarded_release}" = "1" ]; then
     test "$(TZ=America/Argentina/Buenos_Aires date +%H)" -ge 18
   elif [ "{version}" = "8790-199" ]; then
     test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-11-04"
-    test "$(TZ=America/Argentina/Buenos_Aires date +%H)" -ge 18
+    if [ "{before_18_override}" = "1" ]; then
+      echo 'EXPLICIT BEFORE-18 EXCEPTION AUTHORIZED FOR 8790-199'
+    else
+      test "$(TZ=America/Argentina/Buenos_Aires date +%H)" -ge 18
+    fi
   else
     test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-10-24"
   fi
@@ -276,13 +283,14 @@ def main():
     parser.add_argument("--expected-commit")
     parser.add_argument("--allow-operational-archive", action="store_true")
     parser.add_argument("--recover-price-incident", action="store_true", help="Restore reviewed 20260928 incident while ERP is stopped")
+    parser.add_argument("--allow-before-18", action="store_true", help="Use only for an explicitly authorized 8790-199 production exception on 2026-11-04")
     args = parser.parse_args()
     client = connect()
     try:
         if args.action == "inspect":
             inspect(client)
         else:
-            deploy(client, args.version, args.allow_operational_archive, args.recover_price_incident, args.expected_commit)
+            deploy(client, args.version, args.allow_operational_archive, args.recover_price_incident, args.expected_commit, args.allow_before_18)
     finally:
         client.close()
 
