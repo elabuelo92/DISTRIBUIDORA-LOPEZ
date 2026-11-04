@@ -8,6 +8,7 @@ const { performance, monitorEventLoopDelay } = require("perf_hooks");
 const ExcelJS = require("exceljs");
 const { spawn } = require("child_process");
 const orderEngine = require("./order-engine");
+const commissionAnalgesicRecalc = require("./commission-analgesic-recalc");
 const deliveryEngine = require("./delivery-engine");
 const accountEngine = require("./account-engine");
 const clientEditEngine = require("./client-edit");
@@ -33,7 +34,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.DL_PORT || process.env.PORT || 8790);
 const HOST = process.env.DL_HOST || "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
-const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-197";
+const APP_RUNTIME_VERSION = process.env.DL_VERSION || "8790-199";
 const stateBootstrapCache = require("./state-bootstrap-cache").createCache();
 const STATE_FILE = process.env.STATE_FILE || path.join(DATA_DIR, "demo-state.json");
 const USERS_FILE = process.env.USERS_FILE || path.join(DATA_DIR, "users.json");
@@ -7180,6 +7181,41 @@ const server = http.createServer(async (req, res) => {
       const currentPayload = readStateFileCached();
       const currentState = currentPayload.state || {};
       try {
+        if (input.operationId) {
+          if (input.operationId !== commissionAnalgesicRecalc.OPERATION.id) {
+            sendJson(res, 400, { ok: false, error: "Identificador de regularizacion de comisiones invalido." });
+            return;
+          }
+          if (input.previewOnly === true) {
+            sendJson(res, 200, { ok: true, preview: commissionAnalgesicRecalc.preview(currentState, input.operationId) });
+            return;
+          }
+          const result = commissionAnalgesicRecalc.execute(currentState, input, sessionUser);
+          if (result.alreadyExecuted) {
+            sendJson(res, 200, { ok: true, ...result, compact: true });
+            return;
+          }
+          writeStateResponse(res, currentState, result, auditEntry(req, sessionUser, input, {
+            action: "COMISIONES_ANALGESICOS_REGULARIZADAS",
+            entityType: "comision",
+            entityId: result.operationId,
+            entityLabel: `${result.count} pedidos; ${result.report.totals.lines} lineas de analgesicos`,
+            previousValue: { totalComisionesVendedor: result.previousTotal },
+            newValue: { totalComisionesVendedor: result.nextTotal, diferencia: result.difference, analgesicos: result.report.totals.commissionAmount },
+            note: commissionAnalgesicRecalc.OPERATION.motive
+          }), notificationEntry(req, sessionUser, input, {
+            action: "COMISIONES_ANALGESICOS_REGULARIZADAS",
+            category: "Comisiones",
+            title: "Comisiones de Analgesicos regularizadas",
+            text: `${result.count} pedidos revisados; diferencia total de comision ${result.difference}.`,
+            tone: "ok",
+            entityType: "comision",
+            entityId: result.operationId,
+            entityLabel: "Regularizacion desde 01/11/2026",
+            audience: ["admin"]
+          }), sessionUser);
+          return;
+        }
         const result = orderEngine.recalculateCommissions(currentState, input, sessionUser);
         writeStateResponse(res, currentState, result, auditEntry(req, sessionUser, input, {
           action: "COMISIONES_RECALCULADAS",

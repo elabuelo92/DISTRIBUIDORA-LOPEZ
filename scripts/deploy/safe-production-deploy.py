@@ -75,7 +75,8 @@ def deploy(client, version, allow_operational_archive=False, recover_price_incid
                      "8790-194": "122513acdc2a2de916cffd7c372986539427b2d5",
                      "8790-195": "5e4e5be45d757cd4a92d952350d70f8b1b0e9c4d",
                      "8790-196": "0dd78c7fcf1492d238bf00ddbe6993436a269a49",
-                     "8790-197": "7f4bcd23715d8ebac21cfad46693614f611dbbf7"}
+                     "8790-197": "7f4bcd23715d8ebac21cfad46693614f611dbbf7",
+                     "8790-199": "be60b4597e950efaf14bd1cd3657ca823e2d88ac"}
     guarded_release = "1" if version in release_bases else "0"
     if version in release_bases:
         if not expected_commit or len(expected_commit) != 40 or any(c not in "0123456789abcdef" for c in expected_commit):
@@ -93,6 +94,9 @@ if [ "{guarded_release}" = "1" ]; then
     test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-11-01"
   elif [ "{version}" = "8790-197" ]; then
     test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-11-02"
+    test "$(TZ=America/Argentina/Buenos_Aires date +%H)" -ge 18
+  elif [ "{version}" = "8790-199" ]; then
+    test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-11-04"
     test "$(TZ=America/Argentina/Buenos_Aires date +%H)" -ge 18
   else
     test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-10-24"

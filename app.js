@@ -14155,6 +14155,130 @@ function renderCommissionAudit() {
 }
 
 let driverCommissionLimit = 50;
+let analgesicCommissionReportData = null;
+
+const ANALGESIC_COMMISSION_OPERATION_ID = "COM-ANALGESICOS-20261101-20261104-V1";
+
+function renderAnalgesicCommissionReport(report) {
+  const container = byId("analgesicCommissionReport");
+  const downloadButton = byId("downloadAnalgesicCommissionReportBtn");
+  if (!container || !downloadButton) return;
+  analgesicCommissionReportData = report && typeof report === "object" ? report : null;
+  downloadButton.hidden = !analgesicCommissionReportData;
+  if (!analgesicCommissionReportData) {
+    container.innerHTML = "";
+    return;
+  }
+  const summaries = Array.isArray(report.sellers) ? report.sellers : [];
+  const details = Array.isArray(report.details) ? report.details : [];
+  container.innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <caption>Analgesicos · ${escapeHtml(report.period || "01/11/2026 al 04/11/2026")} · Comision devengada</caption>
+        <thead><tr><th>Vendedor</th><th>Pedidos</th><th>Lineas</th><th>Unidades</th><th>Base neta</th><th>Comision</th><th>Protegida</th></tr></thead>
+        <tbody>${summaries.map(row => `<tr><td><strong>${escapeHtml(row.seller)}</strong></td><td>${row.orders}</td><td>${row.lines}</td><td>${row.units}</td><td>${money.format(row.baseAmount)}</td><td><strong>${money.format(row.commissionAmount)}</strong></td><td>${money.format(row.protectedCommissionAmount)}</td></tr>`).join("")}</tbody>
+        <tfoot><tr><th>Total</th><th>${report.totals?.orders || 0}</th><th>${report.totals?.lines || 0}</th><th>${report.totals?.units || 0}</th><th>${money.format(report.totals?.baseAmount || 0)}</th><th>${money.format(report.totals?.commissionAmount || 0)}</th><th>${money.format(report.totals?.protectedCommissionAmount || 0)}</th></tr></tfoot>
+      </table>
+    </div>
+    <details><summary>Detalle por producto y porcentaje</summary><div class="table-wrap"><table>
+      <thead><tr><th>Vendedor</th><th>Codigo</th><th>Producto</th><th>%</th><th>Pedidos</th><th>Unidades</th><th>Base neta</th><th>Comision</th><th>Estado</th></tr></thead>
+      <tbody>${details.map(row => `<tr><td>${escapeHtml(row.seller)}</td><td>${escapeHtml(row.productCode)}</td><td>${escapeHtml(row.product)}</td><td>${row.percent}%</td><td>${row.orders}</td><td>${row.units}</td><td>${money.format(row.baseAmount)}</td><td>${money.format(row.commissionAmount)}</td><td>${row.protected ? "Protegida" : "Regularizada"}</td></tr>`).join("") || '<tr><td colspan="9">Sin lineas de Analgesicos en el periodo.</td></tr>'}</tbody>
+    </table></div></details>
+    <p class="form-hint">${escapeHtml(report.note || "Comision devengada; no equivale a un pago de comisiones.")}</p>`;
+}
+
+function renderAnalgesicCommissionRecalc() {
+  const button = byId("recalculateAnalgesicCommissionsBtn");
+  if (!button) return;
+  const marker = (state.commissionAudit || []).find(entry => entry && entry.operationId === ANALGESIC_COMMISSION_OPERATION_ID && entry.action === "COMISION_RECALCULO_OPERACION");
+  button.hidden = !isAdminUser();
+  button.disabled = Boolean(marker);
+  button.textContent = marker ? "Regularizacion ejecutada · una sola vez" : "Previsualizar y regularizar Analgesicos desde 01/11";
+  renderAnalgesicCommissionReport(marker && marker.report || null);
+}
+
+async function requestAnalgesicCommissionRecalc(body) {
+  const response = await fetchWithTimeout(apiUrl("api/commissions/recalculate"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-ERP-Response": "compact-v1" },
+    cache: "no-store",
+    body: JSON.stringify(body)
+  }, 90000);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) throw new Error(payload.error || "No se pudo consultar la regularizacion.");
+  return payload;
+}
+
+async function recalculateAnalgesicCommissionsOnce() {
+  const button = byId("recalculateAnalgesicCommissionsBtn");
+  if (!isAdminUser() || !button || button.disabled) return;
+  button.disabled = true;
+  let keepCompleted = false;
+  const container = byId("analgesicCommissionReport");
+  if (container) container.textContent = "Calculando vista previa sin guardar cambios...";
+  try {
+    const previewPayload = await requestAnalgesicCommissionRecalc({ operationId: ANALGESIC_COMMISSION_OPERATION_ID, previewOnly: true });
+    if (previewPayload.preview?.alreadyExecuted) {
+      renderAnalgesicCommissionReport(previewPayload.preview.report);
+      button.textContent = "Regularizacion ejecutada · una sola vez";
+      button.disabled = true;
+      keepCompleted = true;
+      showCompactNotice("Esta regularizacion ya se ejecuto. Se muestra el informe guardado en la auditoria.", "ok");
+      return;
+    }
+    const preview = previewPayload.preview;
+    if (!preview || !preview.fingerprint || !preview.report) throw new Error("La vista previa no devolvio un resultado verificable.");
+    renderAnalgesicCommissionReport(preview.report);
+    const rows = preview.report.sellers.map(row => `${row.seller}: ${money.format(row.commissionAmount)} en Analgesicos`).join("\n");
+    const confirmation = [
+      `Periodo: ${preview.report.period} (Argentina).`,
+      `Pedidos que se recalcularan: ${preview.count}. Pedidos pagados/liquidados protegidos: ${preview.protectedCount}.`,
+      `Diferencia en la comision total de esos pedidos: ${money.format(preview.difference)}.`,
+      "Comision de repartidores, liquidaciones y pagos vinculados no se modifican.",
+      "\nComision devengada en Analgesicos despues de la regularizacion:", rows,
+      "\n¿Confirmas la ejecucion unica y auditada?"
+    ].join("\n");
+    if (!window.confirm(confirmation)) {
+      showCompactNotice("Vista previa lista; no se guardaron cambios.", "info");
+      return;
+    }
+    if (container) container.textContent = "Aplicando y auditando la regularizacion...";
+    const result = await postOperationalAction("api/commissions/recalculate", {
+      operationId: ANALGESIC_COMMISSION_OPERATION_ID,
+      fingerprint: preview.fingerprint
+    }, { timeoutMs: 90000 });
+    if (result.alreadyExecuted) {
+      renderAnalgesicCommissionReport(result.report);
+      button.textContent = "Regularizacion ejecutada · una sola vez";
+      button.disabled = true;
+      keepCompleted = true;
+      showCompactNotice("La operacion ya figuraba ejecutada; no se duplico. Informe recuperado de auditoria.", "ok");
+      return;
+    }
+    renderAnalgesicCommissionReport(result.report);
+    button.textContent = "Regularizacion ejecutada · una sola vez";
+    button.disabled = true;
+    keepCompleted = true;
+    showCompactNotice(`Regularizacion auditada: ${result.count} pedidos. Diferencia total ${money.format(result.difference)}.`, "ok");
+  } catch (error) {
+    if (container) container.textContent = error.message || "No se pudo completar la regularizacion.";
+    showCompactNotice(error.message || "No se pudo completar la regularizacion.", "danger");
+  } finally {
+    if (!keepCompleted) {
+      renderAnalgesicCommissionRecalc();
+      button.disabled = false;
+    }
+  }
+}
+
+function downloadAnalgesicCommissionReport() {
+  const report = analgesicCommissionReportData;
+  if (!report) return;
+  const headers = ["Vendedor", "Codigo", "Producto", "Porcentaje", "Pedidos", "Lineas", "Unidades", "Base neta", "Comision devengada", "Estado"];
+  const rows = (report.details || []).map(row => [row.seller, row.productCode, row.product, `${row.percent}%`, row.orders, row.lines, row.units, row.baseAmount, row.commissionAmount, row.protected ? "Protegida (no recalculada)" : "Regularizada"]);
+  const csv = [headers, ...rows].map(row => row.map(csvCell).join(";")).join("\r\n");
+  downloadBlob("comisiones-analgesicos-20261101-a-20261104.csv", new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }));
+}
 
 function driverCommissionData() {
   return DLSalesCommissionReport.buildDriver([...(state.orders || []), ...(state.archivedOrders || [])], {
@@ -14214,6 +14338,7 @@ function renderCommissionsModule() {
   renderCommissionSummary();
   renderCommissionAudit();
   renderCommissionSimulator();
+  renderAnalgesicCommissionRecalc();
 }
 
 function resetCommissionRuleForm() {
@@ -21229,6 +21354,8 @@ byId("commissionRulesTable").addEventListener("click", (event) => {
 byId("saveCommissionRuleBtn").addEventListener("click", () => saveCommissionRule());
 byId("resetCommissionFormBtn").addEventListener("click", resetCommissionRuleForm);
 byId("applyRequestedCommissionSchemeBtn").addEventListener("click", applyRequestedCommissionScheme);
+byId("recalculateAnalgesicCommissionsBtn").addEventListener("click", recalculateAnalgesicCommissionsOnce);
+byId("downloadAnalgesicCommissionReportBtn").addEventListener("click", downloadAnalgesicCommissionReport);
 byId("commissionScopeType").addEventListener("change", renderCommissionScopeFields);
 byId("commissionRuleForm").elements.role.addEventListener("change", () => {
   renderCommissionOptions();

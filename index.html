@@ -184,8 +184,8 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-197</strong>
-              <small data-version-build>Actualizada 02/11/2026</small>
+              <strong data-version-value>8790-199</strong>
+              <small data-version-build>Actualizada 04/11/2026</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
             <button class="ghost-btn app-back-btn" id="appBackBtn" type="button">Volver</button>
@@ -2008,6 +2008,12 @@
                 </div>
                 <button class="secondary-btn" id="applyRequestedCommissionSchemeBtn" type="button">Aplicar esquema 10 / 1 / 3 desde 01/11/2026</button>
                 <p class="form-hint">Versiona solo Analgesicos al 10% para Axel, Kevin Guibert, Matias y Ruggero. Cigarrillos 1% y resto 3% se mantienen; no recalcula ventas ni liquidaciones anteriores.</p>
+                <div class="form-actions">
+                  <button class="secondary-btn" id="recalculateAnalgesicCommissionsBtn" type="button">Previsualizar y regularizar Analgesicos desde 01/11</button>
+                  <button class="secondary-btn" id="downloadAnalgesicCommissionReportBtn" type="button" hidden>Descargar informe CSV</button>
+                </div>
+                <p class="form-hint">La regularizacion afecta solo pedidos de Axel, Kevin Guibert, Matias y Ruggero del 01/11 al 04/11/2026. Pedidos pagados o liquidados quedan intactos; no se modifican las comisiones del reparto.</p>
+                <div id="analgesicCommissionReport" aria-live="polite"></div>
                 <p class="form-hint">Una modificacion cierra la vigencia anterior y crea una nueva version. Las ventas historicas conservan el porcentaje aplicado.</p>
               </form>
             </section>
@@ -2990,7 +2996,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-197</span>
+          <span id="appFooterVersion">Version del sistema: 8790-199</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -4760,7 +4766,7 @@
 
     <script src="config.js?v=8790-197"></script>
     <script src="maps-config.js?v=8790-169-r20261012"></script>
-    <script src="order-engine.js?v=8790-197"></script>
+    <script src="order-engine.js?v=8790-199"></script>
     <script src="account-engine.js?v=8790-197"></script>
     <script src="route-optimizer.js?v=8790-169-r20261012"></script>
     <script src="delivery-engine.js?v=8790-197"></script>
@@ -4776,6 +4782,6 @@
     <script src="collection-corrections-ui.js?v=8790-197"></script>
     <script src="supplier-remit-ui.js?v=8790-183"></script>
     <script src="state-record-sync.js?v=8790-197"></script>
-    <script src="app.js?v=8790-197"></script>
+    <script src="app.js?v=8790-199"></script>
   </body>
 </html>

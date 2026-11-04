@@ -603,7 +603,7 @@
   }
 
   function recalculateCommissions(state, input = {}, actor = {}) {
-    migrateState(state);
+    if (input.skipMigration !== true) migrateState(state);
     const motive = String(input.motive || input.motivo || "").trim();
     if (!motive) throw new Error("Indicar el motivo del recalculo de comisiones.");
     const from = new Date(validIso(input.dateFrom || input.desde || "2026-01-01T00:00:00.000Z"));
@@ -611,6 +611,7 @@
     if (from > to) throw new Error("El rango de fechas de comisiones no es valido.");
     const sellerNames = new Set((Array.isArray(input.sellerNames) ? input.sellerNames : []).map(normalizeText).filter(Boolean));
     const usernames = new Set((Array.isArray(input.usernames) ? input.usernames : []).map(normalizeText).filter(Boolean));
+    const orderCodes = new Set((Array.isArray(input.orderCodes) ? input.orderCodes : []).map(value => String(value || "").trim()).filter(Boolean));
     if (!sellerNames.size && !usernames.size) throw new Error("Seleccionar al menos un vendedor para recalcular.");
 
     const affected = [];
@@ -621,9 +622,26 @@
       if (at < from || at > to) return;
       if (order.commissionLiquidated === true || order.commissionsLiquidated === true) return;
       if (!sellerNames.has(normalizeText(order.seller)) && !usernames.has(normalizeText(order.sellerUsername))) return;
+      if (orderCodes.size && !orderCodes.has(String(order.code || "").trim())) return;
       const before = clone(order.commissions || {});
       const beforeValue = positive(before && before.seller && before.seller.total);
-      refreshOrderCommissions(state, order, { includeDriver: DRIVER_COMMISSION_STATUSES.has(order.status) });
+      if (input.sellerOnly === true) {
+        const calculated = calculateOrderCommissions(state, order, { includeDriver: false });
+        const previous = order.commissions && typeof order.commissions === "object" ? order.commissions : {};
+        const driver = previous.driver && typeof previous.driver === "object" ? previous.driver : calculated.driver;
+        order.commissions = {
+          ...previous,
+          basis: previous.basis || calculated.basis,
+          seller: calculated.seller,
+          driver,
+          cigarettes: calculated.seller.cigarettes + positive(driver.cigarettes),
+          merchandise: calculated.seller.merchandise + positive(driver.merchandise),
+          total: calculated.seller.total + positive(driver.total),
+          calculatedAt: calculated.calculatedAt
+        };
+      } else {
+        refreshOrderCommissions(state, order, { includeDriver: DRIVER_COMMISSION_STATUSES.has(order.status) });
+      }
       const afterValue = positive(order.commissions && order.commissions.seller && order.commissions.seller.total);
       previousTotal += beforeValue;
       nextTotal += afterValue;
@@ -637,7 +655,10 @@
         current: clone(order.commissions)
       });
     });
-    refreshSellerMetrics(state);
+    if (input.skipMetricsRefresh !== true) {
+      if (sellerNames.size) sellerNames.forEach(name => refreshSellerMetrics(state, name));
+      else refreshSellerMetrics(state);
+    }
     const at = nowIso();
     state.commissionAudit = Array.isArray(state.commissionAudit) ? state.commissionAudit : [];
     affected.forEach((entry) => state.commissionAudit.unshift({
@@ -647,6 +668,7 @@
       user: String(actor.name || actor.user || "Administracion"),
       username: String(actor.username || ""),
       motive,
+      operationId: String(input.operationId || ""),
       ...entry
     }));
     return {
