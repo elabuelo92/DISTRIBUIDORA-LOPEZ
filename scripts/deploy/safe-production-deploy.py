@@ -64,7 +64,7 @@ echo __MEMORY__; free -h
     print(out)
 
 
-def deploy(client, version, allow_operational_archive=False, recover_price_incident=False, expected_commit=None, allow_before_18=False):
+def deploy(client, version, allow_operational_archive=False, recover_price_incident=False, expected_commit=None, allow_before_18=False, freeze_superadmin=False):
     release_bases = {"8790-187": "ed19fb0c21793b5d2562e85b0748ecf520998a71",
                      "8790-188": "297df1dcc2312556405f79b3b58cae750faec723",
                      "8790-189": "5c1083d85af976fc7531768e8c769732f08c66b3",
@@ -76,19 +76,29 @@ def deploy(client, version, allow_operational_archive=False, recover_price_incid
                      "8790-195": "5e4e5be45d757cd4a92d952350d70f8b1b0e9c4d",
                      "8790-196": "0dd78c7fcf1492d238bf00ddbe6993436a269a49",
                      "8790-197": "7f4bcd23715d8ebac21cfad46693614f611dbbf7",
-                     "8790-199": "be60b4597e950efaf14bd1cd3657ca823e2d88ac"}
-    guarded_release = "1" if version in release_bases else "0"
+                     "8790-199": "be60b4597e950efaf14bd1cd3657ca823e2d88ac",
+                     "8790-200": "722d958794ec8905d6fbc3c257e3aab13ba17cf1"}
+    guarded_release = "1" if version in release_bases or expected_commit else "0"
     if allow_before_18 and version != "8790-199":
         raise ValueError("The before-18 exception is restricted to release 8790-199.")
+    if expected_commit and (len(expected_commit) != 40 or any(c not in "0123456789abcdef" for c in expected_commit)):
+        raise ValueError("Expected commit must be a full lowercase SHA-1.")
     if version in release_bases:
-        if not expected_commit or len(expected_commit) != 40 or any(c not in "0123456789abcdef" for c in expected_commit):
+        if not expected_commit:
             raise ValueError(f"Release {version} requires the exact reviewed commit")
         if allow_operational_archive or recover_price_incident:
             raise ValueError(f"Release {version} cannot modify business data")
+    if freeze_superadmin and (version != "8790-200" or not expected_commit):
+        raise ValueError("The superadmin inventory freeze requires reviewed release 8790-200 and its exact commit.")
     version_q = shlex.quote(version)
     archive_review = "1" if allow_operational_archive else "0"
     price_recovery = "1" if recover_price_incident else "0"
     before_18_override = "1" if allow_before_18 else "0"
+    expected_commit_q = expected_commit or ""
+    release_base_q = release_bases.get(version, "")
+    allow_superadmin_json = "true" if freeze_superadmin else "false"
+    keep_maintenance = "1" if freeze_superadmin else "0"
+    maintenance_message = "Inventario fisico: solo superadmin" if freeze_superadmin else "Ventana de trabajo programada"
     command = rf"""
 set -euo pipefail
 cd {APP_DIR}
@@ -105,10 +115,12 @@ if [ "{guarded_release}" = "1" ]; then
     else
       test "$(TZ=America/Argentina/Buenos_Aires date +%H)" -ge 18
     fi
+  elif [ "{version}" = "8790-200" ]; then
+    test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-11-07"
   else
     test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-10-24"
   fi
-  test "$(git rev-parse HEAD)" = "{release_bases.get(version, '')}"
+  test "$(git rev-parse HEAD)" = "{release_base_q}"
   test "$(sudo sed -n 's/^DL_MAX_FULL_STATE_RESPONSES=//p' /etc/distribuidora-lopez.env)" = "1"
 fi
 if [ ! -d .git ]; then echo 'ERROR: APP_NOT_GIT'; exit 31; fi
@@ -126,7 +138,7 @@ BACKUP_DIR="{BACKUP_ROOT}/emergency-$STAMP"
 sudo mkdir -p "$BACKUP_DIR"
 
 enable_maintenance() {{
-  printf '%s\n' '{{"active":true,"startedAt":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","message":"Ventana de trabajo programada"}}' | sudo tee {MAINTENANCE_FILE} >/dev/null
+  sudo node -e 'const fs=require("fs");fs.writeFileSync(process.argv[1],JSON.stringify({{active:true,allowSuperadmin:{allow_superadmin_json},startedAt:new Date().toISOString(),message:"{maintenance_message}"}},null,2)+"\n")' {MAINTENANCE_FILE}
   sudo chown {USER}:{USER} {MAINTENANCE_FILE}
   sudo chmod 640 {MAINTENANCE_FILE}
 }}
@@ -263,7 +275,14 @@ if [ "{guarded_release}" = "1" ]; then
     rollback_deploy 45 'RELEASE_HEALTH_FAILED'
   fi
 fi
-disable_maintenance
+if [ "{keep_maintenance}" = "1" ]; then
+  if ! jq -e '.maintenance.active == true and .maintenance.allowSuperadmin == true' /tmp/dl-health.json >/dev/null; then
+    rollback_deploy 48 'INVENTORY_FREEZE_NOT_ACTIVE'
+  fi
+  echo 'INVENTORY_FREEZE=ACTIVE; only admin username superadmin may operate'
+else
+  disable_maintenance
+fi
 trap - ERR
 echo __DEPLOYED_COMMIT__; git rev-parse --short HEAD
 echo __BACKUP__; echo "$BACKUP_DIR"
@@ -284,13 +303,14 @@ def main():
     parser.add_argument("--allow-operational-archive", action="store_true")
     parser.add_argument("--recover-price-incident", action="store_true", help="Restore reviewed 20260928 incident while ERP is stopped")
     parser.add_argument("--allow-before-18", action="store_true", help="Use only for an explicitly authorized 8790-199 production exception on 2026-11-04")
+    parser.add_argument("--inventory-freeze-superadmin", action="store_true", help="Keep maintenance active after release 8790-200, allowing only the exact admin user superadmin")
     args = parser.parse_args()
     client = connect()
     try:
         if args.action == "inspect":
             inspect(client)
         else:
-            deploy(client, args.version, args.allow_operational_archive, args.recover_price_incident, args.expected_commit, args.allow_before_18)
+            deploy(client, args.version, args.allow_operational_archive, args.recover_price_incident, args.expected_commit, args.allow_before_18, args.inventory_freeze_superadmin)
     finally:
         client.close()
 

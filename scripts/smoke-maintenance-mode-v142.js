@@ -1,4 +1,5 @@
 const assert = require("assert");
+const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -12,7 +13,9 @@ const maintenanceFile = path.join(tempDir, "maintenance-mode.json");
 const port = 23142;
 
 fs.writeFileSync(stateFile, JSON.stringify({ version: 1, state: {} }), "utf8");
-fs.copyFileSync(path.join(root, "data", "users.json"), usersFile);
+const salt = crypto.randomBytes(16).toString("hex");
+const passwordHash = crypto.pbkdf2Sync("MaintenanceSmoke-142", salt, 120000, 32, "sha256").toString("hex");
+fs.writeFileSync(usersFile, JSON.stringify({ users: [{ username: "maintenance-test", name: "Maintenance Test", role: "admin", active: true, salt, passwordHash }] }), "utf8");
 fs.writeFileSync(maintenanceFile, JSON.stringify({
   active: true,
   startedAt: "2026-09-09T04:00:00Z",
@@ -29,6 +32,7 @@ const child = spawn(process.execPath, [path.join(root, "server.js")], {
     DATA_DIR: tempDir,
     STATE_FILE: stateFile,
     USERS_FILE: usersFile,
+    DL_SEED_DEFAULT_USERS: "false",
     DL_MAINTENANCE_FILE: maintenanceFile,
     DL_VERSION: "8790-142",
     DL_LICENSE_ENFORCEMENT: "disabled",

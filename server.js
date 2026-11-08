@@ -22,6 +22,7 @@ const legalEngine = require("./legal-engine");
 const clientPortfolioEngine = require("./client-portfolio-engine");
 const clientHoursEngine = require("./client-hours");
 const maintenanceEngine = require("./maintenance-engine");
+const maintenanceAccess = require("./maintenance-access");
 const stockCountStorage = require("./stock-count-storage");
 const physicalCountReferences = stockCountStorage.createCountReferences();
 const stateRecordSync = require("./state-record-sync");
@@ -390,7 +391,8 @@ function maintenanceStatus() {
     return {
       active: true,
       startedAt: String(payload.startedAt || ""),
-      message: String(payload.message || "Mantenimiento programado").trim()
+      message: String(payload.message || "Mantenimiento programado").trim(),
+      allowSuperadmin: payload.allowSuperadmin === true
     };
   } catch {
     return null;
@@ -1861,7 +1863,7 @@ function requireUser(req, res) {
 function requireSuperAdmin(req, res) {
   const user = requireUser(req, res);
   if (!user) return null;
-  if (user.role !== "admin" || String(user.username || "").trim().toLowerCase() !== "superadmin") {
+  if (!maintenanceAccess.isSuperAdmin(user)) {
     sendJson(res, 403, { ok: false, error: "SUPERADMIN_REQUIRED" });
     return null;
   }
@@ -5593,9 +5595,17 @@ const server = http.createServer(async (req, res) => {
     }
     const activeMaintenance = maintenanceStatus();
     const maintenanceAsset = requestUrl.pathname === "/icons/logo-distribuidora-lopez-512.png";
-    if (activeMaintenance && requestUrl.pathname !== "/api/health" && !maintenanceAsset) {
-      sendMaintenance(req, res, activeMaintenance, requestUrl);
-      return;
+    if (activeMaintenance && !maintenanceAsset) {
+      const maintenanceUser = activeMaintenance.allowSuperadmin === true ? getSessionUser(req) : null;
+      if (!maintenanceAccess.allowsRequest({
+        status: activeMaintenance,
+        user: maintenanceUser,
+        method: req.method,
+        pathname: requestUrl.pathname
+      })) {
+        sendMaintenance(req, res, activeMaintenance, requestUrl);
+        return;
+      }
     }
     const runtimeSecurity = securityEngine.verifyRuntime(false);
     if (!runtimeSecurity.allowed && requestUrl.pathname !== "/api/health") {
@@ -5613,6 +5623,10 @@ const server = http.createServer(async (req, res) => {
       const username = String(credentials.username || "").trim().toLowerCase();
       const user = readUsers().find((item) => item.username.toLowerCase() === username && item.active !== false);
       loginTiming.bodyAndUserMs = Date.now() - loginTiming.startedAt;
+      if (!maintenanceAccess.allowsLogin(activeMaintenance, user)) {
+        sendMaintenance(req, res, activeMaintenance, requestUrl);
+        return;
+      }
       const passwordOk = user ? await verifyPasswordAsync(credentials.password || "", user) : false;
       loginTiming.passwordMs = Date.now() - loginTiming.startedAt - loginTiming.bodyAndUserMs;
       if (!user || !passwordOk) {
