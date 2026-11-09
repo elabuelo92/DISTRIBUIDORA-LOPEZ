@@ -13814,10 +13814,21 @@ function commissionReportData() {
   const seller = byId("commissionReportSeller") ? byId("commissionReportSeller").value : "all";
   const from = byId("commissionReportFrom") ? byId("commissionReportFrom").value : "";
   const to = byId("commissionReportTo") ? byId("commissionReportTo").value : "";
-  const orders = commissionHistoryOrders().filter((order) => {
+  const selectedOrders = commissionHistoryOrders().filter((order) => {
     const key = commissionReportDateKey(order.createdAt || order.receivedAt || order.date);
     return (!from || key >= from) && (!to || key <= to) && (seller === "all" || normalizeSearchText(order.seller) === normalizeSearchText(seller));
   });
+  const excludedStatuses = new Set(["cancelado", "rechazado", "anulado"]);
+  const isCollection = (order) => {
+    const kind = normalizeSearchText(order.type || order.kind || order.orderType).replace(/[_-]/g, " ");
+    const items = Array.isArray(order.items) ? order.items : [];
+    const onlyBalance = items.length > 0 && items.every((item) => normalizeSearchText(item.name || item.product) === "saldo a cobrar");
+    return onlyBalance || order.isCollectionOrder === true || order.collectionOnly === true
+      || ["orden de cobro", "orden cobro", "collection", "collection order"].includes(kind);
+  };
+  const excludedOrders = selectedOrders.filter((order) => excludedStatuses.has(normalizeSearchText(order.status)));
+  const excludedCollectionOrders = selectedOrders.filter((order) => !excludedStatuses.has(normalizeSearchText(order.status)) && isCollection(order));
+  const orders = selectedOrders.filter((order) => !excludedStatuses.has(normalizeSearchText(order.status)) && !isCollection(order));
   const users = new Map();
   const products = new Map();
   orders.forEach((order) => {
@@ -13833,11 +13844,16 @@ function commissionReportData() {
     users.set(block.user, user);
     (block.lines || []).forEach((line, index) => {
       const item = (order.items || [])[index] || {};
+      if (normalizeSearchText(item.name || item.product) === "saldo a cobrar") return;
       const productKey = line.productCode || line.productName || `line-${index}`;
       const percent = numeric(line.percent, 0);
       const key = JSON.stringify([productKey, percent]);
-      const row = products.get(key) || { product: line.productName || item.name || productKey, qty: 0, gross: 0, percent, commission: 0 };
-      row.qty += numeric(line.quantity ?? item.requestedQty ?? item.qty ?? item.quantity ?? item.cantidad, 0);
+      const row = products.get(key) || { product: line.productName || item.name || productKey, qty: 0, returnedQty: 0, netQty: 0, gross: 0, percent, commission: 0 };
+      const requested = Math.max(0, numeric(item.requestedQty ?? item.qty ?? item.quantity ?? item.cantidad ?? line.quantity, 0));
+      const returned = Math.min(requested, Math.max(0, numeric(item.returnedQty, 0)));
+      row.qty += requested;
+      row.returnedQty += returned;
+      row.netQty += requested - returned;
       row.gross += numeric(line.baseAmount, 0);
       row.commission += numeric(line.commission, 0);
       products.set(key, row);
@@ -13845,7 +13861,7 @@ function commissionReportData() {
   });
   const productRows = Array.from(products.values())
     .sort((a, b) => a.product.localeCompare(b.product, "es", { sensitivity: "base" }));
-  return { seller, from, to, orders, users: Array.from(users.values()).sort((a, b) => a.user.localeCompare(b.user, "es")), products: productRows };
+  return { seller, from, to, orders, excludedOrders, excludedCollectionOrders, users: Array.from(users.values()).sort((a, b) => a.user.localeCompare(b.user, "es")), products: productRows };
 }
 
 function salesCommissionReportData() {
@@ -13857,12 +13873,12 @@ function renderSalesCommissionReport() {
   const summary = byId("salesCommissionSummaryTable");
   if (summary) summary.innerHTML = report.sellers.length ? report.sellers.map((row) => `<tr>
     <td><strong>${escapeHtml(row.seller)}</strong></td><td>${row.clients}</td><td>${row.orders}</td>
-    <td>${row.units}</td><td>${money.format(row.gross)}</td><td>${money.format(row.general)}</td>
+    <td>${row.units}</td><td>${row.returnedUnits}</td><td>${row.netUnits}</td><td>${money.format(row.gross)}</td><td>${money.format(row.general)}</td>
     <td>${money.format(row.cigarettes)}</td><td>${row.percent.toFixed(2)}%</td><td><strong>${money.format(row.commission)}</strong></td>
-  </tr>`).join("") : '<tr><td colspan="9">Sin ventas en el periodo.</td></tr>';
+  </tr>`).join("") : '<tr><td colspan="11">Sin ventas en el periodo.</td></tr>';
   if (summary && report.sellers.length) {
     const total = report.sellers.reduce((sum, row) => sum + row.commission, 0);
-    summary.insertAdjacentHTML("beforeend", `<tr class="commission-grand-total"><td colspan="8"><strong>Total comisiones generadas del periodo</strong></td><td><strong>${money.format(total)}</strong></td></tr>`);
+    summary.insertAdjacentHTML("beforeend", `<tr class="commission-grand-total"><td colspan="10"><strong>Total comisiones generadas del periodo</strong></td><td><strong>${money.format(total)}</strong></td></tr>`);
   }
   const detail = byId("salesCommissionDetailTable");
   if (!detail || !byId("salesCommissionDetails")?.open) {
@@ -13871,21 +13887,21 @@ function renderSalesCommissionReport() {
   }
   detail.innerHTML = report.details.slice(0, salesCommissionDetailLimit).map((row) => `<tr>
     <td>${escapeHtml(row.seller)}</td><td>${escapeHtml(row.orderCode)}</td><td>${escapeHtml(row.client)}</td>
-    <td>${escapeHtml(row.product)}</td><td>${row.quantity}</td><td>${money.format(row.gross)}</td>
+    <td>${escapeHtml(row.product)}</td><td>${row.quantity}</td><td>${row.returnedQuantity}</td><td>${row.netQuantity}</td><td>${money.format(row.gross)}</td>
     <td>${row.percent.toFixed(2)}%</td><td>${money.format(row.commission)}</td><td>${escapeHtml(row.ruleId || "-")}</td>
-  </tr>`).join("") || '<tr><td colspan="9">Sin productos en el periodo.</td></tr>';
+  </tr>`).join("") || '<tr><td colspan="11">Sin productos en el periodo.</td></tr>';
   byId("salesCommissionMoreBtn").hidden = report.details.length <= salesCommissionDetailLimit;
 }
 
-const SALES_COMMISSION_EXPORT_HEADERS = ["Vendedor", "Fecha", "Pedido", "Cliente", "Producto", "Cantidad", "Bruto", "Mercaderia general", "Cigarrillos", "% registrado / promedio en RESUMEN", "Comision", "Regla"];
+const SALES_COMMISSION_EXPORT_HEADERS = ["Vendedor", "Fecha", "Pedido", "Cliente", "Producto", "Unidades pedidas", "Unidades devueltas", "Unidades netas", "Bruto original", "Mercaderia general", "Cigarrillos", "% registrado / promedio en RESUMEN", "Comision registrada", "Regla"];
 
 function salesCommissionExportRows() {
   const filters = commissionReportData();
   if (filters.from && filters.to && filters.from > filters.to) throw new Error("La fecha desde no puede ser posterior a hasta.");
   const report = salesCommissionReportData();
   return [
-    ...report.sellers.map((row) => [row.seller, "", "RESUMEN", `${row.clients} clientes / ${row.orders} pedidos`, "", row.units, row.gross, row.general, row.cigarettes, row.percent.toFixed(2), row.commission, ""]),
-    ...report.details.map((row) => [row.seller, commissionReportDateKey(row.date), row.orderCode, row.client, row.product, row.quantity, row.gross, row.group === "cigarrillos" ? 0 : row.gross, row.group === "cigarrillos" ? row.gross : 0, row.percent.toFixed(2), row.commission, row.ruleId])
+    ...report.sellers.map((row) => [row.seller, "", "RESUMEN", `${row.clients} clientes / ${row.orders} pedidos`, "", row.units, row.returnedUnits, row.netUnits, row.gross, row.general, row.cigarettes, row.percent.toFixed(2), row.commission, ""]),
+    ...report.details.map((row) => [row.seller, commissionReportDateKey(row.date), row.orderCode, row.client, row.product, row.quantity, row.returnedQuantity, row.netQuantity, row.gross, row.group === "cigarrillos" ? 0 : row.gross, row.group === "cigarrillos" ? row.gross : 0, row.percent.toFixed(2), row.commission, row.ruleId])
   ];
 }
 
@@ -13988,8 +14004,8 @@ function renderCommissionSummary() {
   renderSalesCommissionReport();
   if (report.from && report.to && report.from > report.to) {
     list.innerHTML = '<p class="inline-alert warn">La fecha desde no puede ser posterior a hasta.</p>';
-    for (const id of ["commissionProductDetailTable", "commissionPaymentsTable", "salesCommissionSummaryTable", "salesCommissionDetailTable"]) {
-      if (byId(id)) byId(id).innerHTML = '<tr><td colspan="9">Corregir el periodo seleccionado.</td></tr>';
+    for (const [id, columns] of [["commissionProductDetailTable", 7], ["commissionPaymentsTable", 5], ["salesCommissionSummaryTable", 11], ["salesCommissionDetailTable", 11]]) {
+      if (byId(id)) byId(id).innerHTML = `<tr><td colspan="${columns}">Corregir el periodo seleccionado.</td></tr>`;
     }
     if (byId("commissionAccountCards")) byId("commissionAccountCards").innerHTML = "";
     return;
@@ -14008,7 +14024,9 @@ function renderCommissionSummary() {
     </article>
   `).join("") : '<article class="stock-item"><span class="tag warn">Sin datos</span><strong>No hay comisiones computadas</strong><p>Se generaran al confirmar pedidos y entregar rutas.</p></article>';
   const detail = byId("commissionProductDetailTable");
-  if (detail) detail.innerHTML = report.products.length ? report.products.map((row) => `<tr><td><strong>${escapeHtml(row.product)}</strong></td><td>${escapeHtml(row.qty)}</td><td>${money.format(row.gross)}</td><td>${row.percent.toFixed(2)}%</td><td><strong>${money.format(row.commission)}</strong></td></tr>`).join("") : '<tr><td class="stock-empty" colspan="5">Sin productos para el periodo seleccionado.</td></tr>';
+  if (detail) detail.innerHTML = report.products.length ? report.products.map((row) => `<tr><td><strong>${escapeHtml(row.product)}</strong></td><td>${escapeHtml(row.qty)}</td><td>${escapeHtml(row.returnedQty)}</td><td>${escapeHtml(row.netQty)}</td><td>${money.format(row.gross)}</td><td>${row.percent.toFixed(2)}%</td><td><strong>${money.format(row.commission)}</strong></td></tr>`).join("") : '<tr><td class="stock-empty" colspan="7">Sin productos para el periodo seleccionado.</td></tr>';
+  const excludedNote = byId("commissionReportExclusions");
+  if (excludedNote) excludedNote.textContent = `${report.excludedOrders.length} pedidos cancelados/rechazados/anulados y ${report.excludedCollectionOrders.length} órdenes de cobro excluidos de ventas; los importes de comisión guardados no se recalculan.`;
   const account = commissionAccountData(report);
   const accountCards = byId("commissionAccountCards");
   if (accountCards) {
@@ -17807,7 +17825,7 @@ function renderStatisticsPeriod() {
     if (report.unallocatedSales) byId("statisticsStatus").textContent += ` Importe sin detalle conciliado por producto: ${money.format(report.unallocatedSales)}.`;
     byId("analyticsKpis").innerHTML = [["Ventas brutas", report.gross], ["Devoluciones", report.returns], ["Ventas menos devoluciones", report.netSales], ["Costo de mercaderia vendida (CMV)", report.cmv], ["Ganancia bruta", report.profit]].map(([label,value]) => `<article class="analytics-kpi"><span>${label}</span><strong>${value === null ? "Sin costo historico completo" : money.format(value)}</strong></article>`).join("");
     byId("sellerSalesChart").innerHTML = `<div class="responsive-table"><table><thead><tr><th>Vendedor</th><th>Pedidos</th><th>Importe</th></tr></thead><tbody>${report.sellers.map(row => `<tr><td>${escapeHtml(row.seller)}</td><td>${row.orders}</td><td>${money.format(row.gross)}</td></tr>`).join("")}<tr><th>Total</th><td>${report.orders}</td><td>${money.format(report.gross)}</td></tr></tbody></table></div>`;
-    byId("productConsumptionChart").innerHTML = `<div class="responsive-table"><table><thead><tr><th>Codigo</th><th>Producto</th><th>Cantidad neta</th><th>Importe facturado</th><th>Devoluciones</th><th>Ventas netas</th><th>Costo total (CMV)</th><th>Ganancia bruta</th></tr></thead><tbody>${report.products.slice(0, 250).map(row => `<tr><td>${escapeHtml(row.code)}</td><td>${escapeHtml(row.product)}</td><td>${row.units}</td><td>${money.format(row.billed)}</td><td>${money.format(row.returns)}</td><td>${money.format(row.gross)}</td><td>${row.cost === null ? `Sin costo: ${row.missingCostUnits} u.` : money.format(row.cost)}</td><td>${row.profit === null ? "Pendiente de costo" : money.format(row.profit)}</td></tr>`).join("")}</tbody></table></div>${report.products.length > 250 ? '<p>Primeros 250 productos. El Excel incluye todos.</p>' : ""}`;
+    byId("productConsumptionChart").innerHTML = `<div class="responsive-table"><table><thead><tr><th>Codigo</th><th>Producto</th><th>Unidades pedidas</th><th>Devueltas</th><th>Unidades netas</th><th>Importe facturado</th><th>Devoluciones</th><th>Ventas netas</th><th>Costo total (CMV)</th><th>Ganancia bruta</th></tr></thead><tbody>${report.products.slice(0, 250).map(row => `<tr><td>${escapeHtml(row.code)}</td><td>${escapeHtml(row.product)}</td><td>${row.requestedUnits}</td><td>${row.returnedUnits}</td><td>${row.units}</td><td>${money.format(row.billed)}</td><td>${money.format(row.returns)}</td><td>${money.format(row.gross)}</td><td>${row.cost === null ? `Sin costo: ${row.missingCostUnits} u.` : money.format(row.cost)}</td><td>${row.profit === null ? "Pendiente de costo" : money.format(row.profit)}</td></tr>`).join("")}</tbody></table></div>${report.products.length > 250 ? '<p>Primeros 250 productos. El Excel incluye todos.</p>' : ""}`;
   } catch (error) {
     byId("statisticsStatus").textContent = error.message;
     byId("statisticsExport").disabled = true;
@@ -17820,10 +17838,10 @@ async function exportStatisticsPeriod() {
     const r = statisticsPeriodReport();
     await downloadXlsxReport({ fileName: `estadisticas-${r.from}-${r.to}.xlsx`, sheets: [
       { sheetName: "Productos", title: "Ventas y ganancia por producto", subtitle: `${r.from} al ${r.to}. Facturado con descuentos aprobados; neto de devoluciones. Costos historicos, sin estimaciones.`,
-        headers: ["Codigo", "Producto", "Cantidad neta", "Importe facturado", "Devoluciones", "Ventas netas", "Costo total (CMV)", "Ganancia bruta", "Cobertura de costos"],
-        columnWidths: [14, 42, 15, 20, 18, 20, 20, 20, 30], wrapColumns: [2, 9], fontSize: 12,
-        columnFormats: ["@", "", "0.##", "#,##0.00", "#,##0.00", "#,##0.00", "#,##0.00", "#,##0.00", ""],
-        rows: r.products.map(row => [row.code, row.product, row.units, row.billed, row.returns, row.gross, row.cost, row.profit,
+        headers: ["Codigo", "Producto", "Unidades pedidas", "Unidades devueltas", "Unidades netas", "Importe facturado", "Devoluciones", "Ventas netas", "Costo total (CMV)", "Ganancia bruta", "Cobertura de costos"],
+        columnWidths: [14, 42, 16, 18, 16, 20, 18, 20, 20, 20, 30], wrapColumns: [2, 11], fontSize: 12,
+        columnFormats: ["@", "", "0.##", "0.##", "0.##", "#,##0.00", "#,##0.00", "#,##0.00", "#,##0.00", "#,##0.00", ""],
+        rows: r.products.map(row => [row.code, row.product, row.requestedUnits, row.returnedUnits, row.units, row.billed, row.returns, row.gross, row.cost, row.profit,
           row.missingCostLines ? `${row.missingCostUnits} unidades sin costo historico` : "Completo"]) },
       { sheetName: "Resumen", headers: ["Concepto", "Detalle", "Cantidad / Pedidos", "Importe"], rows: [
       ["Periodo", `${r.from} al ${r.to}`, "", ""],

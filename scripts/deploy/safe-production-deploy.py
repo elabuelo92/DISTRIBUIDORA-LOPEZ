@@ -80,10 +80,11 @@ def deploy(client, version, allow_operational_archive=False, recover_price_incid
                      "8790-200": "722d958794ec8905d6fbc3c257e3aab13ba17cf1",
                      "8790-201": "0eb47067eb585f5be5534ea6dfb768ab3b95dcf9",
                      "8790-202": "91162e20208ac29541b8119b5af045d15957219d",
-                     "8790-203": "95b1f361ee20dd850d3e867b3325104ad764fd9a"}
+                     "8790-203": "95b1f361ee20dd850d3e867b3325104ad764fd9a",
+                     "8790-204": "94484d78952145e57d912c593f81bd8f8b624b16"}
     guarded_release = "1" if version in release_bases or expected_commit else "0"
-    if allow_before_18 and version not in ("8790-199", "8790-203"):
-        raise ValueError("The before-18 exception is restricted to explicitly authorized releases 8790-199 and 8790-203.")
+    if allow_before_18 and version not in ("8790-199", "8790-203", "8790-204"):
+        raise ValueError("The before-18 exception is restricted to explicitly authorized releases 8790-199, 8790-203, and 8790-204.")
     if expected_commit and (len(expected_commit) != 40 or any(c not in "0123456789abcdef" for c in expected_commit)):
         raise ValueError("Expected commit must be a full lowercase SHA-1.")
     if version in release_bases:
@@ -133,6 +134,14 @@ if [ "{guarded_release}" = "1" ]; then
     if [ "{before_18_override}" = "1" ]; then
       test "$(TZ=America/Argentina/Buenos_Aires date +%H)" -lt 7
       echo 'EXPLICIT BEFORE-07:00 EXCEPTION AUTHORIZED FOR 8790-203'
+    else
+      test "$(TZ=America/Argentina/Buenos_Aires date +%H)" -ge 18
+    fi
+  elif [ "{version}" = "8790-204" ]; then
+    test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-11-09"
+    if [ "{before_18_override}" = "1" ]; then
+      test "$(TZ=America/Argentina/Buenos_Aires date +%H)" -lt 18
+      echo 'EXPLICIT BEFORE-18 EXCEPTION AUTHORIZED FOR 8790-204'
     else
       test "$(TZ=America/Argentina/Buenos_Aires date +%H)" -ge 18
     fi
@@ -324,7 +333,7 @@ def main():
     parser.add_argument("--expected-commit")
     parser.add_argument("--allow-operational-archive", action="store_true")
     parser.add_argument("--recover-price-incident", action="store_true", help="Restore reviewed 20260928 incident while ERP is stopped")
-    parser.add_argument("--allow-before-18", action="store_true", help="Use only for explicitly authorized 8790-199 (2026-11-04) or 8790-203 (2026-11-09 before 07:00) production exceptions")
+    parser.add_argument("--allow-before-18", action="store_true", help="Use only for explicitly authorized releases 8790-199, 8790-203, or 8790-204 on their guarded dates")
     parser.add_argument("--inventory-freeze-superadmin", action="store_true", help="Keep maintenance active after release 8790-200, allowing only the exact admin user superadmin")
     parser.add_argument("--inventory-freeze-agustinrocha", action="store_true", help="Keep maintenance active after releases 8790-201/202, allowing only AgustinRocha and superadmin")
     args = parser.parse_args()

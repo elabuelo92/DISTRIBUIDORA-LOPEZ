@@ -10,16 +10,30 @@
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
+  function normalized(value) {
+    return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+  }
+
+  function isSalesOrder(order) {
+    if (["cancelado", "rechazado", "anulado"].includes(normalized(order.status))) return false;
+    const kind = normalized(order.type || order.kind || order.orderType).replace(/[_-]/g, " ");
+    const items = Array.isArray(order.items) ? order.items : [];
+    const onlyBalance = items.length > 0 && items.every(item => normalized(item.name || item.product) === "saldo a cobrar");
+    return !onlyBalance && order.isCollectionOrder !== true && order.collectionOnly !== true
+      && !["orden de cobro", "orden cobro", "collection", "collection order"].includes(kind);
+  }
+
   function build(orders) {
     const bySeller = new Map();
     const details = [];
     (orders || []).forEach((order) => {
-      if (["cancelado", "rechazado"].includes(String(order.status || "").trim().toLocaleLowerCase("es"))) return;
+      if (!isSalesOrder(order)) return;
+      const status = normalized(order.status);
       const block = order.commissions?.seller;
       const seller = String(block?.user || order.seller || "").trim();
       if (!seller) return;
       const row = bySeller.get(seller) || {
-        seller, clients: new Set(), orders: 0, units: 0, gross: 0,
+        seller, clients: new Set(), orders: 0, units: 0, returnedUnits: 0, netUnits: 0, gross: 0,
         general: 0, cigarettes: 0, commissionBase: 0, commission: 0
       };
       row.clients.add(String(order.client || ""));
@@ -28,17 +42,22 @@
       row.commissionBase += amount(block?.baseAmount);
       row.commission += amount(block?.total);
       (order.items || []).forEach((item, index) => {
+        if (normalized(item.name || item.product) === "saldo a cobrar") return;
         const line = block?.lines?.[index] || {};
-        const quantity = amount(line.quantity ?? item.requestedQty ?? item.qty ?? item.quantity ?? item.cantidad);
+        const quantity = amount(item.requestedQty ?? item.qty ?? item.quantity ?? item.cantidad ?? line.quantity);
+        const returnedQuantity = Math.min(quantity, Math.max(0, amount(item.returnedQty)));
+        const netQuantity = quantity - returnedQuantity;
         const base = amount(line.baseAmount ?? item.lineTotal);
         const group = line.group || "mercaderia";
         row.units += quantity;
+        row.returnedUnits += returnedQuantity;
+        row.netUnits += netQuantity;
         if (group === "cigarrillos") row.cigarettes += base;
         else row.general += base;
         details.push({
           seller, orderCode: order.code || "", date: order.createdAt || order.receivedAt || order.date || "",
           client: order.client || "", product: line.productName || item.name || "",
-          quantity, gross: base, group, percent: amount(line.percent), commission: amount(line.commission),
+          quantity, returnedQuantity, netQuantity, status, gross: base, group, percent: amount(line.percent), commission: amount(line.commission),
           ruleId: line.ruleId || ""
         });
       });
@@ -77,7 +96,7 @@
   function buildStatistics(orders, filters = currentWeek()) {
     const { from, to } = filters;
     if (!dateKey(from) || !dateKey(to) || from > to) throw new Error("Indicar un periodo valido: desde no puede superar hasta.");
-    const normalize = value => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+    const normalize = normalized;
     const seen = new Set(), products = new Map(), sellers = new Map();
     const missingCosts = [];
     let gross = 0, returns = 0, knownCost = 0, missingCostLines = 0, invalidDates = 0, orderCount = 0;
@@ -116,8 +135,10 @@
         const returnedValue = requested ? lineTotal * returned / requested : 0;
         returns += returnedValue;
         const value = lineTotal - returnedValue;
-        const row = products.get(code || name) || { code, product: name, units: 0, gross: 0, billed: 0, returns: 0,
+        const row = products.get(code || name) || { code, product: name, requestedUnits: 0, returnedUnits: 0, units: 0, gross: 0, billed: 0, returns: 0,
           knownCost: 0, missingCostLines: 0, missingCostUnits: 0 };
+        row.requestedUnits += requested;
+        row.returnedUnits += returned;
         row.units += quantity;
         row.gross += value;
         row.billed += lineTotal;

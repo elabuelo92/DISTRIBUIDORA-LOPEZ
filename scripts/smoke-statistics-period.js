@@ -57,10 +57,13 @@ context.exportStatisticsPeriod().then(async () => {
   await workbook.xlsx.load(Buffer.from(await render(JSON.parse(JSON.stringify(exported)), { username: "test" }), "base64"));
   assert.equal(workbook.worksheets.length, 2);
   const products = workbook.getWorksheet("Productos");
-  assert.equal(products.getCell("G4").value, 120);
-  assert.equal(products.getCell("H4").value, 280);
-  assert.equal(products.getCell("H4").type, ExcelJS.ValueType.Number);
-  assert.equal(products.getCell("H4").numFmt, "#,##0.00");
+  assert.equal(products.getCell("C4").value, 4);
+  assert.equal(products.getCell("D4").value, 0);
+  assert.equal(products.getCell("E4").value, 4);
+  assert.equal(products.getCell("I4").value, 120);
+  assert.equal(products.getCell("J4").value, 280);
+  assert.equal(products.getCell("J4").type, ExcelJS.ValueType.Number);
+  assert.equal(products.getCell("J4").numFmt, "#,##0.00");
   const sheet = workbook.getWorksheet("Resumen");
   const expected = new Map([["Ventas brutas",400],["CMV",120],["Ganancia bruta",280]]);
   sheet.eachRow(row => {

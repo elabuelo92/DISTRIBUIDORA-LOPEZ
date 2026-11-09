@@ -2054,13 +2054,14 @@
                 <button class="secondary-btn" id="salesCommissionPdfBtn" type="button">Sabana PDF</button>
                 <button class="secondary-btn" id="salesCommissionExcelBtn" type="button">Sabana Excel</button>
               </div>
-              <div class="responsive-table"><table><thead><tr><th>Vendedor</th><th>Clientes</th><th>Pedidos</th><th>Unidades</th><th>Bruto</th><th>General</th><th>Cigarrillos</th><th>% efectivo promedio</th><th>Comision</th></tr></thead><tbody id="salesCommissionSummaryTable"></tbody></table></div>
-              <details id="salesCommissionDetails"><summary>Detalle de pedidos y productos</summary><div class="responsive-table"><table><thead><tr><th>Vendedor</th><th>Pedido</th><th>Cliente</th><th>Producto</th><th>Cantidad</th><th>Bruto</th><th>%</th><th>Comision</th><th>Regla</th></tr></thead><tbody id="salesCommissionDetailTable"></tbody></table></div><button class="secondary-btn" id="salesCommissionMoreBtn" type="button" hidden>Ver mas</button></details>
+              <p class="muted" id="commissionReportExclusions">Pedidos cancelados, rechazados o anulados y órdenes de cobro se excluyen del detalle de ventas.</p>
+              <div class="responsive-table"><table><thead><tr><th>Vendedor</th><th>Clientes</th><th>Pedidos</th><th>Pedidas</th><th>Devueltas</th><th>Netas</th><th>Bruto original</th><th>General</th><th>Cigarrillos</th><th>% efectivo promedio</th><th>Comision</th></tr></thead><tbody id="salesCommissionSummaryTable"></tbody></table></div>
+              <details id="salesCommissionDetails"><summary>Detalle de pedidos y productos</summary><div class="responsive-table"><table><thead><tr><th>Vendedor</th><th>Pedido</th><th>Cliente</th><th>Producto</th><th>Pedidas</th><th>Devueltas</th><th>Netas</th><th>Bruto original</th><th>%</th><th>Comision</th><th>Regla</th></tr></thead><tbody id="salesCommissionDetailTable"></tbody></table></div><button class="secondary-btn" id="salesCommissionMoreBtn" type="button" hidden>Ver mas</button></details>
               <div class="activity-list" id="commissionSummaryList"></div>
               <div class="price-list-kpis" id="commissionAccountCards"></div>
               <div class="table-wrap">
                 <table>
-                  <thead><tr><th>Producto</th><th>Cantidad</th><th>Monto bruto</th><th>% aplicado</th><th>Comision</th></tr></thead>
+                  <thead><tr><th>Producto</th><th>Pedidas</th><th>Devueltas</th><th>Netas</th><th>Bruto original</th><th>% aplicado</th><th>Comision registrada</th></tr></thead>
                   <tbody id="commissionProductDetailTable"></tbody>
                 </table>
               </div>
@@ -4838,7 +4839,7 @@
     <script src="route-optimizer.js?v=8790-169-r20261012"></script>
     <script src="delivery-engine.js?v=8790-197"></script>
     <script src="sales-commission-report.js?v=8790-197"></script>
-    <script src="inventory-valuation-engine.js?v=8790-203"></script>
+    <script src="inventory-valuation-engine.js?v=8790-204"></script>
     <script src="legal-engine.js?v=8790-169-r20261012"></script>
     <script src="client-portfolio-engine.js?v=8790-169-r20261012"></script>
     <script src="client-hours.js?v=8790-169-r20261012"></script>
@@ -4850,6 +4851,6 @@
     <script src="collection-corrections-ui.js?v=8790-197"></script>
     <script src="supplier-remit-ui.js?v=8790-183"></script>
     <script src="state-record-sync.js?v=8790-197"></script>
-    <script src="app.js?v=8790-203"></script>
+    <script src="app.js?v=8790-204"></script>
   </body>
 </html>

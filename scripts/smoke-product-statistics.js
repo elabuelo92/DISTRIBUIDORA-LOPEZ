@@ -10,7 +10,7 @@ const before = JSON.stringify(order);
 const report = Report.buildStatistics([order, order], filters);
 assert.equal(report.orders, 1);
 const a = report.products.find(p => p.code === "A"), b = report.products.find(p => p.code === "B");
-assert.deepEqual([a.units,a.billed,a.returns,a.gross,a.cost,a.profit], [1,180,90,90,30,60]);
+assert.deepEqual([a.requestedUnits,a.returnedUnits,a.units,a.billed,a.returns,a.gross,a.cost,a.profit], [2,1,1,180,90,90,30,60]);
 assert.equal(b.cost, null); assert.equal(b.profit, null); assert.equal(b.missingCostUnits, 2);
 assert.equal(report.cmv, null); assert.equal(report.profit, null);
 assert.equal(report.products.reduce((s,p) => s + p.gross,0), report.netSales);
