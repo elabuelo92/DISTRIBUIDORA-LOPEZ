@@ -2479,6 +2479,42 @@
               </div>
               <div class="analytics-list" id="assetSignals"></div>
             </section>
+            <section class="panel wide" id="statsInventoryValuationPanel">
+              <div class="panel-header">
+                <div>
+                  <h2>Valuacion del inventario</h2>
+                  <p>Stock fisico actual por costo unitario, agrupado por rubro</p>
+                </div>
+                <div class="table-actions">
+                  <button class="secondary-btn admin-only" id="inventoryValuationExcelBtn" type="button">Exportar Excel</button>
+                  <button class="secondary-btn admin-only" id="inventoryValuationPdfBtn" type="button">Exportar PDF</button>
+                </div>
+              </div>
+              <div class="data-filter-bar">
+                <label class="data-search-box">
+                  <span>Producto</span>
+                  <input id="inventoryValuationSearch" type="search" autocomplete="off" placeholder="Nombre o codigo">
+                </label>
+                <select id="inventoryValuationRubricFilter" aria-label="Filtrar valuacion por rubro">
+                  <option value="all">Todos los rubros</option>
+                </select>
+                <button class="ghost-btn" id="inventoryValuationClearBtn" type="button">Limpiar</button>
+              </div>
+              <p class="empty-note">El valor usa el stock fisico total (incluye reservas aun no despachadas) por el costo cargado. Productos con costo cero o sin costo quedan identificados y no se inventa su valuacion.</p>
+              <div class="analytics-kpis" id="inventoryValuationKpis"></div>
+              <div class="responsive-table">
+                <table>
+                  <thead><tr><th>Rubro</th><th>Productos</th><th>Unidades fisicas</th><th>Reservadas</th><th>Disponibles</th><th>Valor a costo</th><th>Sin costo</th></tr></thead>
+                  <tbody id="inventoryValuationGroups"></tbody>
+                </table>
+              </div>
+              <div class="responsive-table">
+                <table>
+                  <thead><tr><th>Codigo / producto</th><th>Rubro</th><th>Stock fisico</th><th>Reservado</th><th>Disponible</th><th>Costo unitario</th><th>Valor total</th></tr></thead>
+                  <tbody id="inventoryValuationProducts"></tbody>
+                </table>
+              </div>
+            </section>
           </div>
         </section>
 
@@ -4802,6 +4838,7 @@
     <script src="route-optimizer.js?v=8790-169-r20261012"></script>
     <script src="delivery-engine.js?v=8790-197"></script>
     <script src="sales-commission-report.js?v=8790-197"></script>
+    <script src="inventory-valuation-engine.js?v=8790-203"></script>
     <script src="legal-engine.js?v=8790-169-r20261012"></script>
     <script src="client-portfolio-engine.js?v=8790-169-r20261012"></script>
     <script src="client-hours.js?v=8790-169-r20261012"></script>
@@ -4813,6 +4850,6 @@
     <script src="collection-corrections-ui.js?v=8790-197"></script>
     <script src="supplier-remit-ui.js?v=8790-183"></script>
     <script src="state-record-sync.js?v=8790-197"></script>
-    <script src="app.js?v=8790-202"></script>
+    <script src="app.js?v=8790-203"></script>
   </body>
 </html>

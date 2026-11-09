@@ -9347,7 +9347,8 @@ function renderStatisticsWorkspace() {
     { id: "restock", title: "Reposicion", icon: "boxes", summary: "Stock, consumo y prioridades de compra", selectors: [markWorkspacePanel("restockTable", "statsRestockPanel")] },
     { id: "shortages", title: "Faltantes", icon: "triangle-alert", summary: "Mercaderia pendiente y pedidos afectados", selectors: [markWorkspacePanel("shortageStatsTable", "statsShortagesPanel")] },
     { id: "routes", title: "Ventas por ruta", icon: "truck", summary: "Productos por dia, vendedor y zona", selectors: [markWorkspacePanel("routeSalesTable", "statsRoutesPanel")] },
-    { id: "assets", title: "Clientes y capital", icon: "users", summary: "Cuentas, limites y capital en stock", selectors: [markWorkspacePanel("assetSignals", "statsAssetsPanel")] }
+    { id: "assets", title: "Clientes y capital", icon: "users", summary: "Cuentas, limites y capital en stock", selectors: [markWorkspacePanel("assetSignals", "statsAssetsPanel")] },
+    { id: "inventory-value", title: "Valuacion de inventario", icon: "coins", summary: "Unidades y valor del stock a costo", allowed: isAdminUser(), selectors: ["#statsInventoryValuationPanel"] }
   ]);
   root.querySelector(":scope > .analytics-grid").hidden = true;
 }
@@ -17849,6 +17850,15 @@ byId("statisticsWeek").addEventListener("click", () => {
   renderStatisticsPeriod();
 });
 byId("statisticsExport").addEventListener("click", exportStatisticsPeriod);
+byId("inventoryValuationSearch").addEventListener("input", renderInventoryValuation);
+byId("inventoryValuationRubricFilter").addEventListener("change", renderInventoryValuation);
+byId("inventoryValuationClearBtn").addEventListener("click", () => {
+  byId("inventoryValuationSearch").value = "";
+  byId("inventoryValuationRubricFilter").value = "all";
+  renderInventoryValuation();
+});
+byId("inventoryValuationExcelBtn").addEventListener("click", exportInventoryValuationExcel);
+byId("inventoryValuationPdfBtn").addEventListener("click", exportInventoryValuationPdf);
 
 function renderAnalytics() {
   renderStatisticsWorkspace();
@@ -17857,6 +17867,7 @@ function renderAnalytics() {
   if (selected === "routes") { renderRouteSalesReport(); return; }
   if (selected === "shortages") { renderShortageStats(); return; }
   if (selected === "sales") { renderStatisticsPeriod(); return; }
+  if (selected === "inventory-value") { renderInventoryValuation(); return; }
   const analytics = buildAnalytics();
   byId("analyticsKpis").innerHTML = [
     { label: "Ventas registradas", value: money.format(analytics.totalSales), hint: `${state.orders.length} pedidos` },
@@ -17915,6 +17926,79 @@ function renderAnalytics() {
     { title: "Reposicion urgente", text: `${analytics.restock.filter((item) => item.priority === "Urgente").length} productos sin cobertura.`, tone: analytics.restock.some((item) => item.priority === "Urgente") ? "danger" : "ok" },
     { title: "Base estadistica futura", text: "Cuando haya historial diario, el modulo calculara rotacion y compra sugerida por semana.", tone: "ok" }
   ].map(renderSignal).join("");
+}
+
+function inventoryValuationRecords() {
+  return (state.products || []).map((product) => {
+    const stock = OrderEngine.inventory(product);
+    return {
+      code: product.codigo_producto || product.code || "",
+      name: productDisplayName(product),
+      rubric: product.rubro || product.familia || product.categoria || "S/D",
+      physical: stock.physical,
+      reserved: stock.reserved,
+      available: stock.available,
+      unitCost: numeric(product.cost ?? product.costo, 0)
+    };
+  });
+}
+
+function filteredInventoryValuation(sourceRecords = inventoryValuationRecords()) {
+  const search = normalizeSearchText(byId("inventoryValuationSearch").value);
+  const rubric = byId("inventoryValuationRubricFilter").value || "all";
+  const records = sourceRecords.filter((record) => rubric === "all" || record.rubric === rubric)
+    .filter((record) => !search || matchesSearch(`${record.code} ${record.name} ${record.rubric}`, searchTerms(search)));
+  return InventoryValuation.calculate(records);
+}
+
+function renderInventoryValuation() {
+  if (!isAdminUser()) return;
+  const allRecords = inventoryValuationRecords();
+  const rubric = byId("inventoryValuationRubricFilter").value || "all";
+  const selectedRubric = updateDynamicFilter("inventoryValuationRubricFilter", allRecords.map((record) => record.rubric), rubric, "Todos los rubros");
+  if (selectedRubric !== rubric) byId("inventoryValuationRubricFilter").value = selectedRubric;
+  const report = filteredInventoryValuation(allRecords);
+  const totals = report.totals;
+  byId("inventoryValuationKpis").innerHTML = [
+    { label: "Valor del stock a costo", value: money.format(totals.value), hint: "Solo productos con costo mayor a cero" },
+    { label: "Unidades fisicas", value: totals.physical.toLocaleString("es-AR"), hint: `${totals.products} productos filtrados` },
+    { label: "Unidades reservadas", value: totals.reserved.toLocaleString("es-AR"), hint: "Aun no despachadas" },
+    { label: "Productos sin costo", value: totals.missingCostProducts.toLocaleString("es-AR"), hint: `${totals.missingCostUnits.toLocaleString("es-AR")} unidades sin valorizar` }
+  ].map((item) => `<article class="analytics-kpi"><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.value)}</strong><small>${escapeHtml(item.hint)}</small></article>`).join("");
+
+  byId("inventoryValuationGroups").innerHTML = report.groups.length ? report.groups.map((group) => `
+    <tr><td><strong>${escapeHtml(group.rubric)}</strong></td><td>${group.products}</td><td>${group.physical.toLocaleString("es-AR")}</td><td>${group.reserved.toLocaleString("es-AR")}</td><td>${group.available.toLocaleString("es-AR")}</td><td>${money.format(group.value)}</td><td>${group.missingCostProducts}</td></tr>
+  `).join("") : '<tr><td colspan="7" class="stock-empty">Sin productos para los filtros seleccionados.</td></tr>';
+
+  byId("inventoryValuationProducts").innerHTML = report.rows.length ? report.rows.map((row) => `
+    <tr><td><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.code || "Sin codigo")}</small></td><td>${escapeHtml(row.rubric)}</td><td>${row.physical.toLocaleString("es-AR")}</td><td>${row.reserved.toLocaleString("es-AR")}</td><td>${row.available.toLocaleString("es-AR")}</td><td>${row.hasCost ? money.format(row.unitCost) : '<span class="tag warn">Sin costo</span>'}</td><td>${row.hasCost ? money.format(row.value) : "Pendiente"}</td></tr>
+  `).join("") : '<tr><td colspan="7" class="stock-empty">Sin productos para los filtros seleccionados.</td></tr>';
+}
+
+async function exportInventoryValuationExcel() {
+  if (!isAdminUser()) return;
+  const report = filteredInventoryValuation();
+  const headers = ["Codigo", "Producto", "Rubro", "Unidades fisicas", "Reservadas", "Disponibles", "Costo unitario", "Valor total", "Estado del costo"];
+  const rows = report.rows.map((row) => [row.code, row.name, row.rubric, row.physical, row.reserved, row.available, row.unitCost ?? "", row.value ?? "", row.hasCost ? "Costo cargado" : "Pendiente de costo"]);
+  await downloadTabularExcel(`valuacion-inventario-${reportDateStamp()}.xlsx`, headers, rows);
+}
+
+function exportInventoryValuationPdf() {
+  if (!isAdminUser()) return;
+  const report = filteredInventoryValuation();
+  const headers = ["Codigo / producto", "Rubro", "Fisico", "Reservado", "Disponible", "Costo unitario", "Valor total"];
+  const rows = report.rows.map((row) => [
+    `${row.code || "Sin codigo"} - ${row.name}`,
+    row.rubric,
+    row.physical,
+    row.reserved,
+    row.available,
+    row.hasCost ? money.format(row.unitCost) : "Sin costo",
+    row.hasCost ? money.format(row.value) : "Pendiente"
+  ]);
+  downloadBlob(`valuacion-inventario-${reportDateStamp()}.pdf`, makeReadableReportPdf("Distribuidora Lopez - Valuacion del inventario", headers, rows, {
+    subtitle: `${report.rows.length} productos; valor a costo: ${money.format(report.totals.value)}; sin costo: ${report.totals.missingCostProducts}`
+  }));
 }
 
 function renderSignal(item) {
