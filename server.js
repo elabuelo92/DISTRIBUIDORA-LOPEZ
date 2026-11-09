@@ -392,11 +392,26 @@ function maintenanceStatus() {
       active: true,
       startedAt: String(payload.startedAt || ""),
       message: String(payload.message || "Mantenimiento programado").trim(),
-      allowSuperadmin: payload.allowSuperadmin === true
+      allowSuperadmin: payload.allowSuperadmin === true,
+      allowedAdminUsers: Array.isArray(payload.allowedAdminUsers)
+        ? Array.from(new Set(payload.allowedAdminUsers
+          .map((username) => String(username || "").trim().toLowerCase())
+          .filter((username) => /^[a-z0-9_.-]{1,80}$/.test(username)))).slice(0, 10)
+        : []
     };
   } catch {
     return null;
   }
+}
+
+function publicMaintenanceStatus(status) {
+  if (!status) return null;
+  return {
+    active: status.active === true,
+    startedAt: String(status.startedAt || ""),
+    message: String(status.message || "Mantenimiento programado"),
+    allowSuperadmin: status.allowSuperadmin === true
+  };
 }
 
 function sendMaintenance(req, res, status, requestUrl) {
@@ -415,7 +430,7 @@ function sendMaintenance(req, res, status, requestUrl) {
     ok: false,
     code: "MAINTENANCE_MODE",
     error: "El sistema se encuentra en mantenimiento. Volver a intentar en unos minutos.",
-    maintenance: status
+    maintenance: publicMaintenanceStatus(status)
   }, {
     "Retry-After": "20",
     "X-Maintenance-Mode": "active"
@@ -10866,7 +10881,7 @@ const server = http.createServer(async (req, res) => {
 
     if (requestUrl.pathname === "/api/health" && req.method === "GET") {
       if (PUBLIC_DEMO) {
-        sendJson(res, 200, { ok: true, version: APP_RUNTIME_VERSION, maintenance: maintenanceStatus() || { active: false } });
+        sendJson(res, 200, { ok: true, version: APP_RUNTIME_VERSION, maintenance: publicMaintenanceStatus(maintenanceStatus()) || { active: false } });
         return;
       }
       const payload = readStateFileCached();
@@ -10890,7 +10905,7 @@ const server = http.createServer(async (req, res) => {
         usersFile: USERS_FILE,
         version: APP_RUNTIME_VERSION,
         runtimeVersion: APP_RUNTIME_VERSION,
-        maintenance: activeMaintenance || { active: false, startedAt: "", message: "" },
+        maintenance: publicMaintenanceStatus(activeMaintenance) || { active: false, startedAt: "", message: "" },
         stateVersion: payload.version || 0,
         activeSessions: publicSessions().length,
         openSessions: sessions.size,

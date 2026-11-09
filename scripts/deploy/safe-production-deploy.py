@@ -77,7 +77,8 @@ def deploy(client, version, allow_operational_archive=False, recover_price_incid
                      "8790-196": "0dd78c7fcf1492d238bf00ddbe6993436a269a49",
                      "8790-197": "7f4bcd23715d8ebac21cfad46693614f611dbbf7",
                      "8790-199": "be60b4597e950efaf14bd1cd3657ca823e2d88ac",
-                     "8790-200": "722d958794ec8905d6fbc3c257e3aab13ba17cf1"}
+                     "8790-200": "722d958794ec8905d6fbc3c257e3aab13ba17cf1",
+                     "8790-201": "0eb47067eb585f5be5534ea6dfb768ab3b95dcf9"}
     guarded_release = "1" if version in release_bases or expected_commit else "0"
     if allow_before_18 and version != "8790-199":
         raise ValueError("The before-18 exception is restricted to release 8790-199.")
@@ -88,17 +89,21 @@ def deploy(client, version, allow_operational_archive=False, recover_price_incid
             raise ValueError(f"Release {version} requires the exact reviewed commit")
         if allow_operational_archive or recover_price_incident:
             raise ValueError(f"Release {version} cannot modify business data")
-    if freeze_superadmin and (version != "8790-200" or not expected_commit):
-        raise ValueError("The superadmin inventory freeze requires reviewed release 8790-200 and its exact commit.")
+    if freeze_superadmin and (version not in ("8790-200", "8790-201") or not expected_commit):
+        raise ValueError("The inventory freeze requires a reviewed 8790-200 or 8790-201 release and its exact commit.")
+    freeze_admin_user = "agustinrocha" if freeze_superadmin and version == "8790-201" else ""
+    if version == "8790-201" and not expected_commit:
+        raise ValueError("Release 8790-201 requires its exact reviewed commit.")
     version_q = shlex.quote(version)
     archive_review = "1" if allow_operational_archive else "0"
     price_recovery = "1" if recover_price_incident else "0"
     before_18_override = "1" if allow_before_18 else "0"
     expected_commit_q = expected_commit or ""
     release_base_q = release_bases.get(version, "")
-    allow_superadmin_json = "true" if freeze_superadmin else "false"
-    keep_maintenance = "1" if freeze_superadmin else "0"
-    maintenance_message = "Inventario fisico: solo superadmin" if freeze_superadmin else "Ventana de trabajo programada"
+    allow_superadmin_json = "true" if freeze_superadmin or freeze_admin_user else "false"
+    allowed_admin_users_json = f'["{freeze_admin_user}"]' if freeze_admin_user else "[]"
+    keep_maintenance = "1" if freeze_superadmin or freeze_admin_user else "0"
+    maintenance_message = "Inventario fisico: AgustinRocha y superadmin" if freeze_admin_user else "Inventario fisico: solo superadmin" if freeze_superadmin else "Ventana de trabajo programada"
     command = rf"""
 set -euo pipefail
 cd {APP_DIR}
@@ -117,6 +122,8 @@ if [ "{guarded_release}" = "1" ]; then
     fi
   elif [ "{version}" = "8790-200" ]; then
     test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-11-07"
+  elif [ "{version}" = "8790-201" ]; then
+    test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-11-08"
   else
     test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-10-24"
   fi
@@ -138,7 +145,7 @@ BACKUP_DIR="{BACKUP_ROOT}/emergency-$STAMP"
 sudo mkdir -p "$BACKUP_DIR"
 
 enable_maintenance() {{
-  sudo node -e 'const fs=require("fs");fs.writeFileSync(process.argv[1],JSON.stringify({{active:true,allowSuperadmin:{allow_superadmin_json},startedAt:new Date().toISOString(),message:"{maintenance_message}"}},null,2)+"\n")' {MAINTENANCE_FILE}
+  sudo node -e 'const fs=require("fs");fs.writeFileSync(process.argv[1],JSON.stringify({{active:true,allowSuperadmin:{allow_superadmin_json},allowedAdminUsers:{allowed_admin_users_json},startedAt:new Date().toISOString(),message:"{maintenance_message}"}},null,2)+"\n")' {MAINTENANCE_FILE}
   sudo chown {USER}:{USER} {MAINTENANCE_FILE}
   sudo chmod 640 {MAINTENANCE_FILE}
 }}
@@ -169,21 +176,21 @@ fi
 resume_unchanged_service() {{
   trap - ERR
   sudo systemctl start {SERVICE}
-  disable_maintenance
+  if [ "{keep_maintenance}" != "1" ]; then disable_maintenance; fi
   echo 'ERROR: PREPARATION_FAILED_OLD_SERVICE_RESUMED'
   exit 47
 }}
 if [ "{guarded_release}" = "1" ]; then trap resume_unchanged_service ERR; fi
 enable_maintenance
 if ! sudo tar -C /opt/distribuidora-lopez -czf "$BACKUP_DIR/app.tar.gz" app || ! sudo gzip -t "$BACKUP_DIR/app.tar.gz"; then
-  disable_maintenance
+  if [ "{keep_maintenance}" != "1" ]; then disable_maintenance; fi
   echo 'ERROR: APP_BACKUP_FAILED'
   exit 33
 fi
 sudo systemctl stop {SERVICE}
 if ! sudo tar -C /opt/distribuidora-lopez -czf "$BACKUP_DIR/data.tar.gz" data || ! sudo gzip -t "$BACKUP_DIR/data.tar.gz"; then
   sudo systemctl start {SERVICE}
-  disable_maintenance
+  if [ "{keep_maintenance}" != "1" ]; then disable_maintenance; fi
   echo 'ERROR: DATA_BACKUP_FAILED'
   exit 33
 fi
@@ -211,7 +218,7 @@ rollback_deploy() {{
     if curl -fsS --max-time 5 http://127.0.0.1:8790/api/health >/tmp/dl-health-rollback.json; then break; fi
     sleep 1
   done
-  disable_maintenance
+  if [ "{keep_maintenance}" != "1" ]; then disable_maintenance; fi
   cat /tmp/dl-health-rollback.json 2>/dev/null || true
   exit "$ROLLBACK_CODE"
 }}
@@ -279,7 +286,10 @@ if [ "{keep_maintenance}" = "1" ]; then
   if ! jq -e '.maintenance.active == true and .maintenance.allowSuperadmin == true' /tmp/dl-health.json >/dev/null; then
     rollback_deploy 48 'INVENTORY_FREEZE_NOT_ACTIVE'
   fi
-  echo 'INVENTORY_FREEZE=ACTIVE; only admin username superadmin may operate'
+  if [ -n "{freeze_admin_user}" ] && ! sudo jq -e '.active == true and .allowSuperadmin == true and ([.allowedAdminUsers[]? | ascii_downcase] | index("{freeze_admin_user}") != null)' {MAINTENANCE_FILE} >/dev/null; then
+    rollback_deploy 49 'INVENTORY_FREEZE_ADMIN_ALLOWLIST_MISSING'
+  fi
+  echo 'INVENTORY_FREEZE=ACTIVE; only explicitly allowed admin usernames may operate'
 else
   disable_maintenance
 fi
@@ -304,13 +314,14 @@ def main():
     parser.add_argument("--recover-price-incident", action="store_true", help="Restore reviewed 20260928 incident while ERP is stopped")
     parser.add_argument("--allow-before-18", action="store_true", help="Use only for an explicitly authorized 8790-199 production exception on 2026-11-04")
     parser.add_argument("--inventory-freeze-superadmin", action="store_true", help="Keep maintenance active after release 8790-200, allowing only the exact admin user superadmin")
+    parser.add_argument("--inventory-freeze-agustinrocha", action="store_true", help="Keep maintenance active after release 8790-201, allowing only AgustinRocha and superadmin")
     args = parser.parse_args()
     client = connect()
     try:
         if args.action == "inspect":
             inspect(client)
         else:
-            deploy(client, args.version, args.allow_operational_archive, args.recover_price_incident, args.expected_commit, args.allow_before_18, args.inventory_freeze_superadmin)
+            deploy(client, args.version, args.allow_operational_archive, args.recover_price_incident, args.expected_commit, args.allow_before_18, args.inventory_freeze_superadmin or args.inventory_freeze_agustinrocha)
     finally:
         client.close()
 
