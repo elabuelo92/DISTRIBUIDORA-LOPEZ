@@ -78,7 +78,8 @@ def deploy(client, version, allow_operational_archive=False, recover_price_incid
                      "8790-197": "7f4bcd23715d8ebac21cfad46693614f611dbbf7",
                      "8790-199": "be60b4597e950efaf14bd1cd3657ca823e2d88ac",
                      "8790-200": "722d958794ec8905d6fbc3c257e3aab13ba17cf1",
-                     "8790-201": "0eb47067eb585f5be5534ea6dfb768ab3b95dcf9"}
+                     "8790-201": "0eb47067eb585f5be5534ea6dfb768ab3b95dcf9",
+                     "8790-202": "91162e20208ac29541b8119b5af045d15957219d"}
     guarded_release = "1" if version in release_bases or expected_commit else "0"
     if allow_before_18 and version != "8790-199":
         raise ValueError("The before-18 exception is restricted to release 8790-199.")
@@ -89,11 +90,11 @@ def deploy(client, version, allow_operational_archive=False, recover_price_incid
             raise ValueError(f"Release {version} requires the exact reviewed commit")
         if allow_operational_archive or recover_price_incident:
             raise ValueError(f"Release {version} cannot modify business data")
-    if freeze_superadmin and (version not in ("8790-200", "8790-201") or not expected_commit):
-        raise ValueError("The inventory freeze requires a reviewed 8790-200 or 8790-201 release and its exact commit.")
-    freeze_admin_user = "agustinrocha" if freeze_superadmin and version == "8790-201" else ""
-    if version == "8790-201" and not expected_commit:
-        raise ValueError("Release 8790-201 requires its exact reviewed commit.")
+    if freeze_superadmin and (version not in ("8790-200", "8790-201", "8790-202") or not expected_commit):
+        raise ValueError("The inventory freeze requires a reviewed 8790-200, 8790-201, or 8790-202 release and its exact commit.")
+    freeze_admin_user = "agustinrocha" if freeze_superadmin and version in ("8790-201", "8790-202") else ""
+    if version in ("8790-201", "8790-202") and not expected_commit:
+        raise ValueError(f"Release {version} requires its exact reviewed commit.")
     version_q = shlex.quote(version)
     archive_review = "1" if allow_operational_archive else "0"
     price_recovery = "1" if recover_price_incident else "0"
@@ -123,6 +124,8 @@ if [ "{guarded_release}" = "1" ]; then
   elif [ "{version}" = "8790-200" ]; then
     test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-11-07"
   elif [ "{version}" = "8790-201" ]; then
+    test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-11-08"
+  elif [ "{version}" = "8790-202" ]; then
     test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-11-08"
   else
     test "$(TZ=America/Argentina/Buenos_Aires date +%Y-%m-%d)" = "2026-10-24"
@@ -314,7 +317,7 @@ def main():
     parser.add_argument("--recover-price-incident", action="store_true", help="Restore reviewed 20260928 incident while ERP is stopped")
     parser.add_argument("--allow-before-18", action="store_true", help="Use only for an explicitly authorized 8790-199 production exception on 2026-11-04")
     parser.add_argument("--inventory-freeze-superadmin", action="store_true", help="Keep maintenance active after release 8790-200, allowing only the exact admin user superadmin")
-    parser.add_argument("--inventory-freeze-agustinrocha", action="store_true", help="Keep maintenance active after release 8790-201, allowing only AgustinRocha and superadmin")
+    parser.add_argument("--inventory-freeze-agustinrocha", action="store_true", help="Keep maintenance active after releases 8790-201/202, allowing only AgustinRocha and superadmin")
     args = parser.parse_args()
     client = connect()
     try:

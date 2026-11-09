@@ -23272,19 +23272,56 @@ document.addEventListener("click", async (event) => {
   const order = state.orders.find(item => item.code === button.dataset.orderReceiveReturn);
   if (!order || order.stockReturnReceipt) return;
   const cancelNotDelivered = order.status === ORDER_STATUS.NOT_DELIVERED;
-  const reason = window.prompt(`Motivo de ${cancelNotDelivered ? "cancelacion definitiva" : "recepcion"} de ${order.code}:`, "Devolucion por rechazo") || "";
-  if (!reason.trim()) return;
-  const lines = (order.items || []).map(item => `${item.name}: ${item.requestedQty} unidades`).join("\n");
-  if (!window.confirm(`${order.code}\n${lines}\n\n${cancelNotDelivered ? "Cancelacion definitiva: el pedido no volvera a Segunda Visita.\n" : ""}Confirma que TODA esta mercaderia regreso fisicamente en condiciones de venta y que NO se reintegro mediante otro ajuste? No usar para corregir pedidos de prueba.`)) return;
+  const dialog = byId("orderReceiveReturnDialog");
+  const form = byId("orderReceiveReturnForm");
+  byId("orderReceiveReturnTitle").textContent = `${cancelNotDelivered ? "Cancelar y recibir" : "Recibir"} ${order.code}`;
+  byId("orderReceiveReturnDescription").textContent = cancelNotDelivered
+    ? "Cancela definitivamente el pedido y registra el regreso fisico de la mercaderia. No volvera a Segunda Visita."
+    : "Registra el regreso fisico de la mercaderia. Solo continua despues de verificarla en el deposito.";
+  byId("orderReceiveReturnItems").innerHTML = (order.items || []).map(item => `<div><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.requestedQty)} unidades</span></div>`).join("");
+  byId("orderReceiveReturnReason").value = "";
+  byId("orderReceiveReturnPhysical").checked = false;
+  byId("orderReceiveReturnNoPriorAdjustment").checked = false;
+  byId("orderReceiveReturnMessage").textContent = cancelNotDelivered
+    ? "La cancelacion sera definitiva: el pedido no volvera a Segunda Visita."
+    : "Se registrara la recepcion fisica de toda la mercaderia indicada.";
+  byId("orderReceiveReturnMessage").dataset.tone = "info";
+  form.dataset.orderCode = order.code;
+  form.dataset.cancelNotDelivered = String(cancelNotDelivered);
+  if (!dialog.open) dialog.showModal();
+  byId("orderReceiveReturnReason").focus();
+});
+
+byId("orderReceiveReturnForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const code = form.dataset.orderCode || "";
+  const order = state.orders.find(item => item.code === code);
+  const button = byId("orderReceiveReturnSubmit");
+  const message = byId("orderReceiveReturnMessage");
+  if (!order || order.stockReturnReceipt) {
+    message.textContent = "El pedido ya no esta disponible o la devolucion ya fue registrada. Actualiza la lista antes de continuar.";
+    message.dataset.tone = "warn";
+    return;
+  }
+  if (!form.reportValidity()) return;
   button.disabled = true;
+  message.textContent = "Guardando la devolucion auditada...";
+  message.dataset.tone = "info";
   try {
     const payload = await postOperationalAction(`api/orders/${encodeURIComponent(order.code)}/receive-return`, {
-      reason: reason.trim(), cancelNotDelivered, physicalReceived: true, noPreviousAdjustment: true, expectedUpdatedAt: String(order.updatedAt || "")
+      reason: byId("orderReceiveReturnReason").value.trim(),
+      cancelNotDelivered: form.dataset.cancelNotDelivered === "true",
+      physicalReceived: byId("orderReceiveReturnPhysical").checked,
+      noPreviousAdjustment: byId("orderReceiveReturnNoPriorAdjustment").checked,
+      expectedUpdatedAt: String(order.updatedAt || "")
     });
     applyOrderPatches(payload.order ? [payload.order] : [], payload.version);
+    byId("orderReceiveReturnDialog").close();
     showCompactNotice(payload.repeated ? "La devolucion ya estaba registrada. No se duplico stock." : "Devolucion recibida y stock reintegrado.", "ok");
   } catch (error) {
-    window.alert(error.message || "No se pudo recibir la devolucion.");
+    message.textContent = error.message || "No se pudo recibir la devolucion. No cierres el formulario; puedes revisar y reintentar.";
+    message.dataset.tone = "warn";
   } finally {
     button.disabled = false;
   }

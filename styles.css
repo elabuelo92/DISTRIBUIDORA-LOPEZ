@@ -7775,6 +7775,48 @@ dialog::backdrop {
   color: #8a97a1;
 }
 
+.order-return-items {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.order-return-items > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.order-return-items > div + div { border-top: 1px solid var(--line); }
+.order-return-items span { flex: 0 0 auto; color: var(--muted); }
+
+.modal-card .order-return-check {
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.modal-card .order-return-check input {
+  width: 18px;
+  min-height: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+}
+
+@media (max-width: 560px) {
+  #orderReceiveReturnDialog menu { flex-direction: column-reverse; }
+  #orderReceiveReturnDialog menu button { width: 100%; white-space: normal; }
+  .order-return-items > div { flex-direction: column; gap: 2px; }
+}
+
 .collection-visits-panel .form-grid,
 #collectionVisitPayment .form-grid { gap: 12px; margin: 12px 0; }
 .collection-visits-panel label,

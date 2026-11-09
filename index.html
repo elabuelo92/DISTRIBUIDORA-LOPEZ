@@ -16,10 +16,10 @@
         document.documentElement.dataset.theme = "light";
       }
     </script>
-    <link rel="manifest" href="manifest.json?v=8790-197">
+    <link rel="manifest" href="manifest.json?v=8790-202">
     <link rel="apple-touch-icon" href="icons/logo-distribuidora-lopez-192.png">
     <link rel="icon" href="icons/logo-distribuidora-lopez-192.png" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=8790-197">
+    <link rel="stylesheet" href="styles.css?v=8790-202">
   </head>
   <body>
     <section class="login-screen" id="loginScreen" hidden>
@@ -184,7 +184,7 @@
             </div>
             <button class="version-status-badge" id="versionStatusBadge" type="button" data-version-status aria-label="Verificar version instalada">
               <span>Version instalada</span>
-              <strong data-version-value>8790-200</strong>
+              <strong data-version-value>8790-202</strong>
               <small data-version-build>Actualizada 04/11/2026</small>
             </button>
             <button class="ghost-btn theme-toggle-btn" id="themeToggleBtn" type="button">Modo oscuro</button>
@@ -2996,7 +2996,7 @@
         <footer class="app-footer">
           <strong>&copy; 2026 Grupo Rocha Solutions</strong>
           <span>Sistema de Gestion Distribuidora Lopez. Todos los derechos reservados. Software protegido por derechos de autor.</span>
-          <span id="appFooterVersion">Version del sistema: 8790-200</span>
+          <span id="appFooterVersion">Version del sistema: 8790-202</span>
           <span id="appFooterLicense">Licencia activa</span>
         </footer>
       </main>
@@ -3118,6 +3118,37 @@
         <div class="order-timeline-list" id="orderTimelineList"></div>
         <menu>
           <button class="primary-btn" value="default" type="button" data-close-dialog>Cerrar</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="orderReceiveReturnDialog">
+      <form id="orderReceiveReturnForm" class="modal-card order-return-modal">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Control de inventario</p>
+            <h2 id="orderReceiveReturnTitle">Devolucion fisica</h2>
+          </div>
+          <button class="icon-btn" type="button" data-close-dialog aria-label="Cerrar">x</button>
+        </div>
+        <p class="form-help" id="orderReceiveReturnDescription">Registra el regreso fisico de la mercaderia. Solo continua despues de verificarla en el deposito.</p>
+        <div id="orderReceiveReturnItems" class="order-return-items"></div>
+        <label>
+          Motivo obligatorio
+          <textarea id="orderReceiveReturnReason" required rows="3" maxlength="500" placeholder="Ej: Devolucion fisica confirmada durante el inventario"></textarea>
+        </label>
+        <label class="order-return-check">
+          <input id="orderReceiveReturnPhysical" type="checkbox" required>
+          Confirmo que toda esta mercaderia regreso fisicamente y esta incluida en el conteo.
+        </label>
+        <label class="order-return-check">
+          <input id="orderReceiveReturnNoPriorAdjustment" type="checkbox" required>
+          Confirmo que no se reintegro antes mediante otro ajuste de stock.
+        </label>
+        <p class="login-message" id="orderReceiveReturnMessage" role="status" aria-live="polite"></p>
+        <menu>
+          <button class="ghost-btn" type="button" data-close-dialog>Volver</button>
+          <button class="primary-btn" id="orderReceiveReturnSubmit" type="submit">Confirmar devolucion</button>
         </menu>
       </form>
     </dialog>
@@ -4764,7 +4795,7 @@
       </form>
     </dialog>
 
-    <script src="config.js?v=8790-197"></script>
+    <script src="config.js?v=8790-202"></script>
     <script src="maps-config.js?v=8790-169-r20261012"></script>
     <script src="order-engine.js?v=8790-199"></script>
     <script src="account-engine.js?v=8790-197"></script>
@@ -4782,6 +4813,6 @@
     <script src="collection-corrections-ui.js?v=8790-197"></script>
     <script src="supplier-remit-ui.js?v=8790-183"></script>
     <script src="state-record-sync.js?v=8790-197"></script>
-    <script src="app.js?v=8790-199"></script>
+    <script src="app.js?v=8790-202"></script>
   </body>
 </html>

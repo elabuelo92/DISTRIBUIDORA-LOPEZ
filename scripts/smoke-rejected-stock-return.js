@@ -7,6 +7,18 @@ const { spawn } = require("node:child_process");
 const { once } = require("node:events");
 const Engine = require("../order-engine");
 const p6 = process.argv.includes("--p6");
+const appSource = fs.readFileSync(path.join(__dirname, "../app.js"), "utf8");
+const htmlSource = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
+const returnOpenStart = appSource.indexOf('const dialog = byId("orderReceiveReturnDialog");');
+const returnOpenEnd = appSource.indexOf('byId("orderReceiveReturnForm").addEventListener("submit"', returnOpenStart);
+assert.ok(returnOpenStart >= 0 && returnOpenEnd > returnOpenStart, "Return confirmation UI handler must exist");
+const returnOpenHandler = appSource.slice(returnOpenStart, returnOpenEnd);
+assert.ok(returnOpenHandler.includes("dialog.showModal()"));
+assert.ok(!returnOpenHandler.includes("window.prompt") && !returnOpenHandler.includes("window.confirm"));
+assert.ok(htmlSource.includes('id="orderReceiveReturnPhysical" type="checkbox" required'));
+assert.ok(htmlSource.includes('id="orderReceiveReturnNoPriorAdjustment" type="checkbox" required'));
+assert.ok(htmlSource.includes('id="orderReceiveReturnReason" required'));
+console.log("PASS UI: in-app return dialog, required reason and physical/no-prior-adjustment confirmations.");
 function fixture() {
   const state = { products: [{ codigo_producto: "814", name: "Jabon", price: 632, stock_fisico: 1873, stock_reservado: 97, stock_actual: 1873 }],
     clients: [{ codigo_cliente: "C1", name: "Cliente ficticio", balance: 0 }], accounts: [],
@@ -103,7 +115,7 @@ async function login(username) {
     let ready = false;
     for (let i = 0; i < 300; i++) {
       if (child.exitCode !== null) break;
-      try { if ((await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(500) })).ok) { ready = true; break; } } catch {}
+      try { if ((await fetch(`${base}/api/health/live`, { signal: AbortSignal.timeout(500) })).ok) { ready = true; break; } } catch {}
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     assert.ok(ready, errors);
